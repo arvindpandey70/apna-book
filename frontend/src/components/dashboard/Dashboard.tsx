@@ -450,12 +450,6 @@ const Dashboard: React.FC = () => {
               >
                 Purchase
               </button>
-              <button
-                onClick={() => alert('test run')}
-                className="px-4 py-2 bg-gray-50 text-gray-700 rounded-lg font-medium hover:bg-gray-100 transition-colors shadow-sm border border-gray-200"
-              >
-                Test
-              </button>
             </div>
 
             <div className="flex flex-col sm:flex-row items-center gap-4">
