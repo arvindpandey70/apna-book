@@ -4,7 +4,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { allSystemGroups as baseGroups } from "../../../constants/ledgerGroups";
 import { useAppContext } from "../../../context/AppContext";
 import type { LedgerWithGroup, VoucherEntry } from "../../../types";
-import { Save, Plus, Trash2, ArrowLeft, Printer, Settings, Upload } from "lucide-react";
+import { Save, Plus, Trash2, ArrowLeft, Printer, Settings, Upload, ChevronDown, X } from "lucide-react";
 import Swal from "sweetalert2";
 import type { StockItem } from "../../../types";
 import { useFinancialYear, getFinancialYearDefaults, useVoucherDateConfig } from "../../../hooks/useFinancialYear";
@@ -1804,6 +1804,104 @@ const PurchaseVoucher: React.FC = () => {
     });
   };
 
+  const [partySearchTerm, setPartySearchTerm] = useState<string>("");
+  const [isPartyDropdownOpen, setIsPartyDropdownOpen] = useState<boolean>(false);
+  const [partyHighlightedIndex, setPartyHighlightedIndex] = useState<number>(0);
+  const partyComboboxRef = useRef<HTMLDivElement>(null);
+
+  const selectedPartyObj = useMemo(() => {
+    return partyLedgers.find((l) => String(l.id) === String(formData.partyId));
+  }, [partyLedgers, formData.partyId]);
+
+  // Sync partySearchTerm when formData.partyId changes externally (draft/edit/clear)
+  useEffect(() => {
+    if (selectedPartyObj) {
+      setPartySearchTerm(selectedPartyObj.name);
+    } else if (!formData.partyId) {
+      setPartySearchTerm("");
+    }
+  }, [formData.partyId, selectedPartyObj]);
+
+  // Handle click outside to close dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        partyComboboxRef.current &&
+        !partyComboboxRef.current.contains(event.target as Node)
+      ) {
+        setIsPartyDropdownOpen(false);
+        if (selectedPartyObj) {
+          setPartySearchTerm(selectedPartyObj.name);
+        } else {
+          setPartySearchTerm("");
+        }
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [selectedPartyObj]);
+
+  // Dynamic filter for party ledgers
+  const filteredPartyLedgers = useMemo(() => {
+    if (!partySearchTerm) return partyLedgers;
+
+    if (
+      selectedPartyObj &&
+      partySearchTerm.trim().toLowerCase() === selectedPartyObj.name.trim().toLowerCase()
+    ) {
+      return partyLedgers;
+    }
+
+    const term = partySearchTerm.toLowerCase().trim();
+    return partyLedgers.filter((l) => {
+      const nameMatch = l.name ? l.name.toLowerCase().includes(term) : false;
+      const groupName = l.groupName || l.group_name || (l.group && l.group.name) || "";
+      const groupMatch = groupName.toLowerCase().includes(term);
+      const gstMatch = l.gstNumber ? l.gstNumber.toLowerCase().includes(term) : false;
+      return nameMatch || groupMatch || gstMatch;
+    });
+  }, [partyLedgers, partySearchTerm, selectedPartyObj]);
+
+  const handleSelectParty = (ledger: any) => {
+    handlePartyChange({
+      target: { name: "partyId", value: String(ledger.id) },
+    } as any);
+    setUnmappedPartyName(null);
+    setPartySearchTerm(ledger.name);
+    setIsPartyDropdownOpen(false);
+  };
+
+  const handlePartyKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!isPartyDropdownOpen) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        setIsPartyDropdownOpen(true);
+        return;
+      }
+    }
+
+    const totalOptions = filteredPartyLedgers.length + 1; // +1 for Add New Ledger
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setPartyHighlightedIndex((prev) => (prev + 1) % totalOptions);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setPartyHighlightedIndex((prev) => (prev - 1 + totalOptions) % totalOptions);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (partyHighlightedIndex >= 0 && partyHighlightedIndex < filteredPartyLedgers.length) {
+        handleSelectParty(filteredPartyLedgers[partyHighlightedIndex]);
+      } else if (partyHighlightedIndex === filteredPartyLedgers.length) {
+        handlePartyChange({ target: { name: "partyId", value: "add-new" } } as any);
+        setIsPartyDropdownOpen(false);
+      }
+    } else if (e.key === "Escape") {
+      setIsPartyDropdownOpen(false);
+    }
+  };
+
   const handleEntryChange = (
     index: number,
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
@@ -3321,28 +3419,155 @@ const PurchaseVoucher: React.FC = () => {
             {/* Row 2: Party & Selection */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
               {formData.mode !== "accounting-invoice" && (
-                <div className="md:col-span-2">
+                <div ref={partyComboboxRef} className="relative md:col-span-2">
                   <label className="block text-[11px] font-bold uppercase tracking-wider mb-1 opacity-60" htmlFor="partyId">
                     Party / Supplier Name
                   </label>
-                  <select
-                    id="partyId"
-                    name="partyId"
-                    value={formData.partyId}
-                    onChange={(e) => {
-                      handlePartyChange(e);
-                      setUnmappedPartyName(null);
-                    }}
-                    className={`${getSelectClasses(theme, !!errors.partyId)} font-semibold`}
-                  >
-                    <option value="">-- Select Party --</option>
-                    {partyLedgers.map((ledger) => (
-                      <option key={ledger.id} value={ledger.id}>
-                        {ledger.name} {ledger.gstNumber ? `\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0 ${ledger.gstNumber}` : ""}
-                      </option>
-                    ))}
-                    <option value="add-new" className="text-blue-600 font-bold">+ Create New Ledger</option>
-                  </select>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      id="partyId"
+                      name="partyIdInput"
+                      autoComplete="off"
+                      value={partySearchTerm}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setPartySearchTerm(val);
+                        setIsPartyDropdownOpen(true);
+                        setPartyHighlightedIndex(0);
+                        if (!val) {
+                          handlePartyChange({
+                            target: { name: "partyId", value: "" },
+                          } as any);
+                          setUnmappedPartyName(null);
+                        }
+                      }}
+                      onFocus={() => setIsPartyDropdownOpen(true)}
+                      onClick={() => setIsPartyDropdownOpen(true)}
+                      onKeyDown={handlePartyKeyDown}
+                      placeholder="-- Select or Search Party --"
+                      className={`${getInputClasses(theme, !!errors.partyId)} font-semibold pr-14`}
+                    />
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 text-gray-400">
+                      {partySearchTerm && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPartySearchTerm("");
+                            handlePartyChange({
+                              target: { name: "partyId", value: "" },
+                            } as any);
+                            setUnmappedPartyName(null);
+                            setIsPartyDropdownOpen(true);
+                          }}
+                          className="p-1 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                          title="Clear"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setIsPartyDropdownOpen(!isPartyDropdownOpen)}
+                        className="p-1 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                        title="Toggle Dropdown"
+                      >
+                        <ChevronDown
+                          className={`w-4 h-4 transition-transform duration-200 ${
+                            isPartyDropdownOpen ? "rotate-180" : ""
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Dropdown Menu */}
+                  {isPartyDropdownOpen && (
+                    <div
+                      className={`absolute z-50 left-0 right-0 mt-1 max-h-60 overflow-y-auto rounded-md border shadow-lg ${
+                        theme === "dark"
+                          ? "bg-gray-800 border-gray-700 text-gray-100"
+                          : "bg-white border-gray-200 text-gray-800"
+                      }`}
+                    >
+                      {filteredPartyLedgers.length === 0 ? (
+                        <div className="p-3 text-sm opacity-60 text-center">
+                          No matching party ledgers found
+                        </div>
+                      ) : (
+                        filteredPartyLedgers.map((ledger, index) => {
+                          const isSelected = String(ledger.id) === String(formData.partyId);
+                          const isHighlighted = index === partyHighlightedIndex;
+                          const groupName =
+                            ledger.groupName ||
+                            ledger.group_name ||
+                            (ledger.group && ledger.group.name);
+
+                          return (
+                            <div
+                              key={ledger.id}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                handleSelectParty(ledger);
+                              }}
+                              onMouseEnter={() => setPartyHighlightedIndex(index)}
+                              className={`px-3 py-2 text-sm cursor-pointer flex items-center justify-between transition-colors ${
+                                isSelected
+                                  ? theme === "dark"
+                                    ? "bg-blue-950/60 text-blue-400 font-semibold"
+                                    : "bg-blue-50 text-blue-700 font-semibold"
+                                  : isHighlighted
+                                  ? theme === "dark"
+                                    ? "bg-gray-700 text-white"
+                                    : "bg-gray-100 text-gray-900"
+                                  : ""
+                              }`}
+                            >
+                              <div className="flex flex-col">
+                                <span className="font-medium">{ledger.name}</span>
+                                <div className="flex items-center gap-2 text-[11px] opacity-60">
+                                  {groupName && <span>{groupName}</span>}
+                                  {ledger.gstNumber && <span>• GST: {ledger.gstNumber}</span>}
+                                </div>
+                              </div>
+                              {isSelected && (
+                                <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full font-medium">
+                                  Selected
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
+
+                      {/* + Create New Ledger */}
+                      <div
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          handlePartyChange({
+                            target: { name: "partyId", value: "add-new" },
+                          } as any);
+                          setIsPartyDropdownOpen(false);
+                        }}
+                        onMouseEnter={() => setPartyHighlightedIndex(filteredPartyLedgers.length)}
+                        className={`px-3 py-2 text-sm cursor-pointer font-bold border-t flex items-center gap-1.5 ${
+                          theme === "dark"
+                            ? "border-gray-700 text-blue-400 hover:bg-gray-700"
+                            : "border-gray-100 text-blue-600 hover:bg-blue-50"
+                        } ${
+                          partyHighlightedIndex === filteredPartyLedgers.length
+                            ? theme === "dark"
+                              ? "bg-gray-700"
+                              : "bg-blue-50"
+                            : ""
+                        }`}
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>+ Create New Ledger</span>
+                      </div>
+                    </div>
+                  )}
+
                   {unmappedPartyName && (
                     <div className="mt-1 text-xs text-orange-600 font-medium">
                       Extracted Party: <b>{unmappedPartyName}</b> (Not found in masters)
