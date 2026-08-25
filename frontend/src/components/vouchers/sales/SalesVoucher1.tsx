@@ -358,7 +358,7 @@ const SalesVoucher: React.FC = () => {
     const ledger = safeLedgers.find((l) => String(l.id) === String(ledgerId));
     if (!ledger?.name) return "-";
     const match = ledger.name.match(/(\d+(\.\d+)?)/);
-    return match ? `${Math.round(Number(match[1]))}%` : ledger.name;
+    return match ? `${Number(match[1])}%` : ledger.name;
   }
 
   function getPartyName(partyId: any) {
@@ -371,7 +371,7 @@ const SalesVoucher: React.FC = () => {
 
   function getSalesLedgerByGst(gstPercent: any, isIntra: boolean = false) {
     if (!gstPercent || gstPercent <= 0) return null;
-    const gstStr = String(Math.round(gstPercent));
+    const gstStr = String(Number(gstPercent));
     return safeLedgers.find((l) => {
       const name = (l.name || "").toLowerCase();
       if (!name.includes("sales")) return false;
@@ -645,13 +645,13 @@ const SalesVoucher: React.FC = () => {
               // The component logic expects ledger IDs in these fields,
               // which are then hydrated into rates by a separate useEffect.
               cgstLedgerId: e.cgstRate
-                ? String(Math.round(Number(e.cgstRate)))
+                ? String(Number(e.cgstRate))
                 : "",
               sgstLedgerId: e.sgstRate
-                ? String(Math.round(Number(e.sgstRate)))
+                ? String(Number(e.sgstRate))
                 : "",
               igstLedgerId: e.igstRate
-                ? String(Math.round(Number(e.igstRate)))
+                ? String(Number(e.igstRate))
                 : "",
               cgstRate: 0,
               sgstRate: 0,
@@ -964,13 +964,13 @@ const SalesVoucher: React.FC = () => {
 
             // Map Backend IDs to LedgerId fields (Convert float string "115.00" to int 115)
             cgstLedgerId: e.cgstRate
-              ? String(Math.round(Number(e.cgstRate)))
+              ? String(Number(e.cgstRate))
               : "",
             sgstLedgerId: e.sgstRate
-              ? String(Math.round(Number(e.sgstRate)))
+              ? String(Number(e.sgstRate))
               : "",
             igstLedgerId: e.igstRate
-              ? String(Math.round(Number(e.igstRate)))
+              ? String(Number(e.igstRate))
               : "",
 
             // Initialise Rates to 0 (will be hydrated by useEffect)
@@ -1773,8 +1773,7 @@ const SalesVoucher: React.FC = () => {
           totalGst = Number(extractedIgst || 0);
         }
 
-        // Round (2.5+2.5=5, 9+9=18 etc.)
-        totalGst = Math.round(totalGst);
+        totalGst = Number(totalGst);
 
         // Find Sales Ledger
         const salesLedger = getSalesLedgerByGst(totalGst, statesMatch); // Pass statesMatch (isIntra)
@@ -2195,7 +2194,7 @@ const SalesVoucher: React.FC = () => {
           const totalGst = statesMatch
             ? extractedCgst + extractedSgst
             : extractedIgst;
-          const gstToMatch = Math.round(totalGst);
+          const gstToMatch = Number(totalGst);
 
           const salesLedgers = ledgers.filter((l) =>
             String(l.name).toLowerCase().includes("sales")
@@ -3939,24 +3938,24 @@ const SalesVoucher: React.FC = () => {
                                 if (!hasParty) {
                                   return (
                                     <td className="px-1 py-2 text-center min-w-[50px] text-xs align-top pt-3">
-                                      {entry.gstLedgerId ? getLedgerNameById(entry.gstLedgerId) : (entry.igstRate ? `${entry.igstRate}%` : (entry.cgstRate ? `${entry.cgstRate + entry.sgstRate}%` : "-"))}
+                                      {entry.gstLedgerId ? getLedgerNameById(entry.gstLedgerId) : (entry.igstRate ? `${Number(entry.igstRate)}%` : (entry.cgstRate ? `${Number(entry.cgstRate + entry.sgstRate)}%` : "-"))}
                                     </td>
                                   );
                                 } else if (statesMatch) {
                                   return (
                                     <>
                                       <td className="px-1 py-2 text-center min-w-[50px] text-xs align-top pt-3">
-                                        {entry.cgstLedgerId ? getLedgerNameById(entry.cgstLedgerId) : (entry.cgstRate ? `${entry.cgstRate}%` : "-")}
+                                        {entry.cgstLedgerId ? getLedgerNameById(entry.cgstLedgerId) : (entry.cgstRate ? `${Number(entry.cgstRate)}%` : "-")}
                                       </td>
                                       <td className="px-1 py-2 text-center min-w-[50px] text-xs align-top pt-3">
-                                        {entry.sgstLedgerId ? getLedgerNameById(entry.sgstLedgerId) : (entry.sgstRate ? `${entry.sgstRate}%` : "-")}
+                                        {entry.sgstLedgerId ? getLedgerNameById(entry.sgstLedgerId) : (entry.sgstRate ? `${Number(entry.sgstRate)}%` : "-")}
                                       </td>
                                     </>
                                   );
                                 } else {
                                   return (
                                     <td className="px-1 py-2 text-center min-w-[50px] text-xs align-top pt-3">
-                                      {entry.igstLedgerId ? getLedgerNameById(entry.igstLedgerId) : (entry.igstRate ? `${entry.igstRate}%` : "-")}
+                                      {entry.igstLedgerId ? getLedgerNameById(entry.igstLedgerId) : (entry.igstRate ? `${Number(entry.igstRate)}%` : "-")}
                                     </td>
                                   );
                                 }
