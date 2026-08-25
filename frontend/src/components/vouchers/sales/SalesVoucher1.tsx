@@ -19,7 +19,7 @@ import type {
   LedgerWithGroup,
   SalesType,
 } from "../../../types";
-import { Save, Plus, Trash2, ArrowLeft, Printer, Settings } from "lucide-react";
+import { Save, Plus, Trash2, ArrowLeft, Printer, Settings, ChevronDown, X, Search } from "lucide-react";
 
 import Swal from "sweetalert2";
 import EWayBillGeneration from "./EWayBillGeneration";
@@ -358,7 +358,7 @@ const SalesVoucher: React.FC = () => {
     const ledger = safeLedgers.find((l) => String(l.id) === String(ledgerId));
     if (!ledger?.name) return "-";
     const match = ledger.name.match(/(\d+(\.\d+)?)/);
-    return match ? `${Math.round(Number(match[1]))}%` : ledger.name;
+    return match ? `${Number(match[1])}%` : ledger.name;
   }
 
   function getPartyName(partyId: any) {
@@ -371,7 +371,7 @@ const SalesVoucher: React.FC = () => {
 
   function getSalesLedgerByGst(gstPercent: any, isIntra: boolean = false) {
     if (!gstPercent || gstPercent <= 0) return null;
-    const gstStr = String(Math.round(gstPercent));
+    const gstStr = String(Number(gstPercent));
     return safeLedgers.find((l) => {
       const name = (l.name || "").toLowerCase();
       if (!name.includes("sales")) return false;
@@ -645,13 +645,13 @@ const SalesVoucher: React.FC = () => {
               // The component logic expects ledger IDs in these fields,
               // which are then hydrated into rates by a separate useEffect.
               cgstLedgerId: e.cgstRate
-                ? String(Math.round(Number(e.cgstRate)))
+                ? String(Number(e.cgstRate))
                 : "",
               sgstLedgerId: e.sgstRate
-                ? String(Math.round(Number(e.sgstRate)))
+                ? String(Number(e.sgstRate))
                 : "",
               igstLedgerId: e.igstRate
-                ? String(Math.round(Number(e.igstRate)))
+                ? String(Number(e.igstRate))
                 : "",
               cgstRate: 0,
               sgstRate: 0,
@@ -964,13 +964,13 @@ const SalesVoucher: React.FC = () => {
 
             // Map Backend IDs to LedgerId fields (Convert float string "115.00" to int 115)
             cgstLedgerId: e.cgstRate
-              ? String(Math.round(Number(e.cgstRate)))
+              ? String(Number(e.cgstRate))
               : "",
             sgstLedgerId: e.sgstRate
-              ? String(Math.round(Number(e.sgstRate)))
+              ? String(Number(e.sgstRate))
               : "",
             igstLedgerId: e.igstRate
-              ? String(Math.round(Number(e.igstRate)))
+              ? String(Number(e.igstRate))
               : "",
 
             // Initialise Rates to 0 (will be hydrated by useEffect)
@@ -1429,6 +1429,102 @@ const SalesVoucher: React.FC = () => {
     }
   };
 
+  const [partySearchTerm, setPartySearchTerm] = useState<string>("");
+  const [isPartyDropdownOpen, setIsPartyDropdownOpen] = useState<boolean>(false);
+  const [partyHighlightedIndex, setPartyHighlightedIndex] = useState<number>(0);
+  const partyComboboxRef = useRef<HTMLDivElement>(null);
+
+  const selectedPartyObj = useMemo(() => {
+    return partyLedgers.find((l) => String(l.id) === String(formData.partyId));
+  }, [partyLedgers, formData.partyId]);
+
+  // Sync partySearchTerm when formData.partyId changes externally (draft/edit/clear)
+  useEffect(() => {
+    if (selectedPartyObj) {
+      setPartySearchTerm(selectedPartyObj.name);
+    } else if (!formData.partyId) {
+      setPartySearchTerm("");
+    }
+  }, [formData.partyId, selectedPartyObj]);
+
+  // Handle click outside to close dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        partyComboboxRef.current &&
+        !partyComboboxRef.current.contains(event.target as Node)
+      ) {
+        setIsPartyDropdownOpen(false);
+        if (selectedPartyObj) {
+          setPartySearchTerm(selectedPartyObj.name);
+        } else {
+          setPartySearchTerm("");
+        }
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [selectedPartyObj]);
+
+  // Dynamic filter for party ledgers
+  const filteredPartyLedgers = useMemo(() => {
+    if (!partySearchTerm) return partyLedgers;
+
+    if (
+      selectedPartyObj &&
+      partySearchTerm.trim().toLowerCase() === selectedPartyObj.name.trim().toLowerCase()
+    ) {
+      return partyLedgers;
+    }
+
+    const term = partySearchTerm.toLowerCase().trim();
+    return partyLedgers.filter((l) => {
+      const nameMatch = l.name ? l.name.toLowerCase().includes(term) : false;
+      const groupName = l.groupName || l.group_name || (l.group && l.group.name) || "";
+      const groupMatch = groupName.toLowerCase().includes(term);
+      return nameMatch || groupMatch;
+    });
+  }, [partyLedgers, partySearchTerm, selectedPartyObj]);
+
+  const handleSelectParty = (ledger: any) => {
+    handleChange({
+      target: { name: "partyId", value: String(ledger.id) },
+    } as any);
+    setPartySearchTerm(ledger.name);
+    setIsPartyDropdownOpen(false);
+  };
+
+  const handlePartyKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!isPartyDropdownOpen) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        setIsPartyDropdownOpen(true);
+        return;
+      }
+    }
+
+    const totalOptions = filteredPartyLedgers.length + 1; // +1 for Add New Ledger
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setPartyHighlightedIndex((prev) => (prev + 1) % totalOptions);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setPartyHighlightedIndex((prev) => (prev - 1 + totalOptions) % totalOptions);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (partyHighlightedIndex >= 0 && partyHighlightedIndex < filteredPartyLedgers.length) {
+        handleSelectParty(filteredPartyLedgers[partyHighlightedIndex]);
+      } else if (partyHighlightedIndex === filteredPartyLedgers.length) {
+        handleChange({ target: { name: "partyId", value: "add-new" } } as any);
+        setIsPartyDropdownOpen(false);
+      }
+    } else if (e.key === "Escape") {
+      setIsPartyDropdownOpen(false);
+    }
+  };
+
   const applyProfit = (baseRate: number, mrp: number = 0) => {
     // 1️⃣ On MRP (Retailer only)
     if (
@@ -1677,8 +1773,7 @@ const SalesVoucher: React.FC = () => {
           totalGst = Number(extractedIgst || 0);
         }
 
-        // Round (2.5+2.5=5, 9+9=18 etc.)
-        totalGst = Math.round(totalGst);
+        totalGst = Number(totalGst);
 
         // Find Sales Ledger
         const salesLedger = getSalesLedgerByGst(totalGst, statesMatch); // Pass statesMatch (isIntra)
@@ -2099,7 +2194,7 @@ const SalesVoucher: React.FC = () => {
           const totalGst = statesMatch
             ? extractedCgst + extractedSgst
             : extractedIgst;
-          const gstToMatch = Math.round(totalGst);
+          const gstToMatch = Number(totalGst);
 
           const salesLedgers = ledgers.filter((l) =>
             String(l.name).toLowerCase().includes("sales")
@@ -3034,38 +3129,173 @@ const SalesVoucher: React.FC = () => {
                 </div>
 
                 {formData.mode !== "accounting-invoice" && (
-                  <div className="md:col-span-1">
+                  <div ref={partyComboboxRef} className="relative md:col-span-1">
                     <label
                       className="block text-sm font-semibold mb-1.5 opacity-80"
                       htmlFor="partyId"
                     >
                       Party Name
                     </label>
-                    <select
-                      name="partyId"
-                      value={formData.partyId}
-                      onChange={handleChange}
-                      required
-                      className={`${FORM_STYLES.select(
-                        theme,
-                        !!errors.partyId
-                      )} font-medium`}
-                    >
-                      <option value="" disabled>
-                        -- Select Party --
-                      </option>
-                      {partyLedgers.map((ledger) => (
-                        <option key={ledger.id} value={ledger.id}>
-                          {ledger.name}
-                        </option>
-                      ))}
-                      <option
-                        value="add-new"
-                        className="text-blue-600 font-bold"
+                    <div className="relative">
+                      <input
+                        type="text"
+                        id="partyId"
+                        name="partyIdInput"
+                        autoComplete="off"
+                        value={partySearchTerm}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setPartySearchTerm(val);
+                          setIsPartyDropdownOpen(true);
+                          setPartyHighlightedIndex(0);
+                          if (!val) {
+                            handleChange({
+                              target: { name: "partyId", value: "" },
+                            } as any);
+                          }
+                        }}
+                        onFocus={() => setIsPartyDropdownOpen(true)}
+                        onClick={() => setIsPartyDropdownOpen(true)}
+                        onKeyDown={handlePartyKeyDown}
+                        placeholder="-- Select or Search Party --"
+                        className={`${FORM_STYLES.input(
+                          theme,
+                          !!errors.partyId
+                        )} font-medium pr-14`}
+                      />
+                      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 text-gray-400">
+                        {partySearchTerm && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPartySearchTerm("");
+                              handleChange({
+                                target: { name: "partyId", value: "" },
+                              } as any);
+                              setIsPartyDropdownOpen(true);
+                            }}
+                            className="p-1 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                            title="Clear"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setIsPartyDropdownOpen(!isPartyDropdownOpen)
+                          }
+                          className="p-1 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                          title="Toggle Dropdown"
+                        >
+                          <ChevronDown
+                            className={`w-4 h-4 transition-transform duration-200 ${
+                              isPartyDropdownOpen ? "rotate-180" : ""
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Dropdown Menu */}
+                    {isPartyDropdownOpen && (
+                      <div
+                        className={`absolute z-50 left-0 right-0 mt-1 max-h-60 overflow-y-auto rounded-md border shadow-lg ${
+                          theme === "dark"
+                            ? "bg-gray-800 border-gray-700 text-gray-100"
+                            : "bg-white border-gray-200 text-gray-800"
+                        }`}
                       >
-                        + Add New Ledger
-                      </option>
-                    </select>
+                        {filteredPartyLedgers.length === 0 ? (
+                          <div className="p-3 text-sm opacity-60 text-center">
+                            No matching party ledgers found
+                          </div>
+                        ) : (
+                          filteredPartyLedgers.map((ledger, index) => {
+                            const isSelected =
+                              String(ledger.id) === String(formData.partyId);
+                            const isHighlighted =
+                              index === partyHighlightedIndex;
+                            const groupName =
+                              ledger.groupName ||
+                              ledger.group_name ||
+                              (ledger.group && ledger.group.name);
+
+                            return (
+                              <div
+                                key={ledger.id}
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  handleSelectParty(ledger);
+                                }}
+                                onMouseEnter={() =>
+                                  setPartyHighlightedIndex(index)
+                                }
+                                className={`px-3 py-2 text-sm cursor-pointer flex items-center justify-between transition-colors ${
+                                  isSelected
+                                    ? theme === "dark"
+                                      ? "bg-blue-950/60 text-blue-400 font-semibold"
+                                      : "bg-blue-50 text-blue-700 font-semibold"
+                                    : isHighlighted
+                                    ? theme === "dark"
+                                      ? "bg-gray-700 text-white"
+                                      : "bg-gray-100 text-gray-900"
+                                    : ""
+                                }`}
+                              >
+                                <div className="flex flex-col">
+                                  <span className="font-medium">
+                                    {ledger.name}
+                                  </span>
+                                  {groupName && (
+                                    <span className="text-[11px] opacity-60">
+                                      {groupName}
+                                    </span>
+                                  )}
+                                </div>
+                                {isSelected && (
+                                  <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full font-medium">
+                                    Selected
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })
+                        )}
+
+                        {/* + Add New Ledger */}
+                        <div
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            handleChange({
+                              target: { name: "partyId", value: "add-new" },
+                            } as any);
+                            setIsPartyDropdownOpen(false);
+                          }}
+                          onMouseEnter={() =>
+                            setPartyHighlightedIndex(
+                              filteredPartyLedgers.length
+                            )
+                          }
+                          className={`px-3 py-2 text-sm cursor-pointer font-bold border-t flex items-center gap-1.5 ${
+                            theme === "dark"
+                              ? "border-gray-700 text-blue-400 hover:bg-gray-700"
+                              : "border-gray-100 text-blue-600 hover:bg-blue-50"
+                          } ${
+                            partyHighlightedIndex ===
+                            filteredPartyLedgers.length
+                              ? theme === "dark"
+                                ? "bg-gray-700"
+                                : "bg-blue-50"
+                              : ""
+                          }`}
+                        >
+                          <Plus className="w-4 h-4" />
+                          <span>Add New Ledger</span>
+                        </div>
+                      </div>
+                    )}
+
                     {selectedPartyState && (
                       <p className="mt-1 text-[10px] uppercase tracking-wider text-blue-600 font-bold flex items-center gap-1">
                         <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-600"></span>
@@ -3647,7 +3877,7 @@ const SalesVoucher: React.FC = () => {
                                 type="number"
                                 step="any"
                                 name="quantity"
-                                value={entry.quantity ?? ""}
+                                value={entry.quantity || ""}
                                 onChange={(e) => handleEntryChange(index, e)}
                                 onKeyDown={(e) => {
                                   if (e.key === "Enter") e.preventDefault();
@@ -3669,7 +3899,7 @@ const SalesVoucher: React.FC = () => {
                               <input
                                 type="number"
                                 name="rate"
-                                value={entry.rate ?? ""}
+                                value={entry.rate || ""}
                                 onChange={(e) => handleEntryChange(index, e)}
                                 onKeyDown={(e) => {
                                   if (e.key === "Enter") e.preventDefault();
@@ -3708,24 +3938,24 @@ const SalesVoucher: React.FC = () => {
                                 if (!hasParty) {
                                   return (
                                     <td className="px-1 py-2 text-center min-w-[50px] text-xs align-top pt-3">
-                                      {entry.gstLedgerId ? getLedgerNameById(entry.gstLedgerId) : (entry.igstRate ? `${entry.igstRate}%` : (entry.cgstRate ? `${entry.cgstRate + entry.sgstRate}%` : "-"))}
+                                      {entry.gstLedgerId ? getLedgerNameById(entry.gstLedgerId) : (entry.igstRate ? `${Number(entry.igstRate)}%` : (entry.cgstRate ? `${Number(entry.cgstRate + entry.sgstRate)}%` : "-"))}
                                     </td>
                                   );
                                 } else if (statesMatch) {
                                   return (
                                     <>
                                       <td className="px-1 py-2 text-center min-w-[50px] text-xs align-top pt-3">
-                                        {entry.cgstLedgerId ? getLedgerNameById(entry.cgstLedgerId) : (entry.cgstRate ? `${entry.cgstRate}%` : "-")}
+                                        {entry.cgstLedgerId ? getLedgerNameById(entry.cgstLedgerId) : (entry.cgstRate ? `${Number(entry.cgstRate)}%` : "-")}
                                       </td>
                                       <td className="px-1 py-2 text-center min-w-[50px] text-xs align-top pt-3">
-                                        {entry.sgstLedgerId ? getLedgerNameById(entry.sgstLedgerId) : (entry.sgstRate ? `${entry.sgstRate}%` : "-")}
+                                        {entry.sgstLedgerId ? getLedgerNameById(entry.sgstLedgerId) : (entry.sgstRate ? `${Number(entry.sgstRate)}%` : "-")}
                                       </td>
                                     </>
                                   );
                                 } else {
                                   return (
                                     <td className="px-1 py-2 text-center min-w-[50px] text-xs align-top pt-3">
-                                      {entry.igstLedgerId ? getLedgerNameById(entry.igstLedgerId) : (entry.igstRate ? `${entry.igstRate}%` : "-")}
+                                      {entry.igstLedgerId ? getLedgerNameById(entry.igstLedgerId) : (entry.igstRate ? `${Number(entry.igstRate)}%` : "-")}
                                     </td>
                                   );
                                 }
