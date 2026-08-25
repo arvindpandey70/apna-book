@@ -3877,7 +3877,7 @@ const SalesVoucher: React.FC = () => {
                                 type="number"
                                 step="any"
                                 name="quantity"
-                                value={entry.quantity ?? ""}
+                                value={entry.quantity || ""}
                                 onChange={(e) => handleEntryChange(index, e)}
                                 onKeyDown={(e) => {
                                   if (e.key === "Enter") e.preventDefault();
@@ -3899,7 +3899,7 @@ const SalesVoucher: React.FC = () => {
                               <input
                                 type="number"
                                 name="rate"
-                                value={entry.rate ?? ""}
+                                value={entry.rate || ""}
                                 onChange={(e) => handleEntryChange(index, e)}
                                 onKeyDown={(e) => {
                                   if (e.key === "Enter") e.preventDefault();
