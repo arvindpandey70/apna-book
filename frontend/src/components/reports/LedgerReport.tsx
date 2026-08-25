@@ -10,6 +10,8 @@ import {
   Eye,
   Sparkles,
   Edit,
+  ChevronDown,
+  X,
 } from "lucide-react";
 import { useCompany } from "../../context/CompanyContext";
 import * as XLSX from "xlsx";
@@ -170,6 +172,97 @@ const LedgerReport: React.FC = () => {
       setLedgerId(id);
     }
   }, [id]);
+
+  const [ledgerSearchTerm, setLedgerSearchTerm] = useState<string>("");
+  const [isLedgerDropdownOpen, setIsLedgerDropdownOpen] = useState<boolean>(false);
+  const [ledgerHighlightedIndex, setLedgerHighlightedIndex] = useState<number>(0);
+  const ledgerComboboxRef = React.useRef<HTMLDivElement>(null);
+
+  const selectedLedgerObj = useMemo(() => {
+    return ledgers.find((l) => String(l.id) === String(ledgerId));
+  }, [ledgers, ledgerId]);
+
+  // Sync input text when selected ledger ID changes
+  useEffect(() => {
+    if (selectedLedgerObj) {
+      setLedgerSearchTerm(selectedLedgerObj.name);
+    } else if (!ledgerId) {
+      setLedgerSearchTerm("");
+    }
+  }, [ledgerId, selectedLedgerObj]);
+
+  // Handle click outside to close dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        ledgerComboboxRef.current &&
+        !ledgerComboboxRef.current.contains(event.target as Node)
+      ) {
+        setIsLedgerDropdownOpen(false);
+        if (selectedLedgerObj) {
+          setLedgerSearchTerm(selectedLedgerObj.name);
+        } else {
+          setLedgerSearchTerm("");
+        }
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [selectedLedgerObj]);
+
+  // Dynamic filter for ledgers
+  const filteredLedgers = useMemo(() => {
+    if (!ledgerSearchTerm) return ledgers;
+
+    if (
+      selectedLedgerObj &&
+      ledgerSearchTerm.trim().toLowerCase() === selectedLedgerObj.name.trim().toLowerCase()
+    ) {
+      return ledgers;
+    }
+
+    const term = ledgerSearchTerm.toLowerCase().trim();
+    return ledgers.filter((l) => {
+      const nameMatch = l.name ? l.name.toLowerCase().includes(term) : false;
+      const aliasMatch = (l as any).alias ? (l as any).alias.toLowerCase().includes(term) : false;
+      return nameMatch || aliasMatch;
+    });
+  }, [ledgers, ledgerSearchTerm, selectedLedgerObj]);
+
+  const handleSelectLedger = (l: Ledger) => {
+    setLedgerId(String(l.id));
+    setLedgerSearchTerm(l.name);
+    setIsLedgerDropdownOpen(false);
+    navigate(`/app/reports/ledger/${l.id}`);
+  };
+
+  const handleLedgerKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!isLedgerDropdownOpen) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        setIsLedgerDropdownOpen(true);
+        return;
+      }
+    }
+
+    const totalOptions = filteredLedgers.length;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setLedgerHighlightedIndex((prev) => (prev + 1) % (totalOptions || 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setLedgerHighlightedIndex((prev) => (prev - 1 + totalOptions) % (totalOptions || 1));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (ledgerHighlightedIndex >= 0 && ledgerHighlightedIndex < filteredLedgers.length) {
+        handleSelectLedger(filteredLedgers[ledgerHighlightedIndex]);
+      }
+    } else if (e.key === "Escape") {
+      setIsLedgerDropdownOpen(false);
+    }
+  };
 
   const handlePrint = () => {
     window.print();
@@ -759,35 +852,118 @@ const LedgerReport: React.FC = () => {
         >
           <h3 className="font-semibold mb-4">Filters & Options</h3>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-            <div>
+            <div ref={ledgerComboboxRef} className="relative">
               <label className="block text-sm font-medium mb-1">
                 Select Ledger
               </label>
-
-              <select
-                title="Select Ledger"
-                value={ledgerId}
-                onChange={(e) => {
-                  const id = e.target.value;
-
-                  setLedgerId(id);
-
-                  // URL me bhi bhejo
-                  navigate(`/app/reports/ledger/${id}`);
-                }}
-                className={`w-full p-2 rounded border ${theme === "dark"
-                  ? "bg-gray-700 border-gray-600"
-                  : "bg-white border-gray-300"
+              <div className="relative">
+                <input
+                  type="text"
+                  id="selectLedgerInput"
+                  name="selectLedgerInput"
+                  autoComplete="off"
+                  value={ledgerSearchTerm}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setLedgerSearchTerm(val);
+                    setIsLedgerDropdownOpen(true);
+                    setLedgerHighlightedIndex(0);
+                    if (!val) {
+                      setLedgerId("");
+                      navigate(`/app/reports/ledger`);
+                    }
+                  }}
+                  onFocus={() => setIsLedgerDropdownOpen(true)}
+                  onClick={() => setIsLedgerDropdownOpen(true)}
+                  onKeyDown={handleLedgerKeyDown}
+                  placeholder="-- Select or Search Ledger --"
+                  className={`w-full p-2 pr-14 rounded border outline-none transition-colors ${
+                    theme === "dark"
+                      ? "bg-gray-700 border-gray-600 text-white focus:border-blue-500"
+                      : "bg-white border-gray-300 text-gray-800 focus:border-blue-500"
                   }`}
-              >
-                <option value="">Select Ledger</option>
+                />
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 text-gray-400">
+                  {ledgerSearchTerm && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLedgerSearchTerm("");
+                        setLedgerId("");
+                        setIsLedgerDropdownOpen(true);
+                        navigate(`/app/reports/ledger`);
+                      }}
+                      className="p-1 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                      title="Clear"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setIsLedgerDropdownOpen(!isLedgerDropdownOpen)}
+                    className="p-1 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                    title="Toggle Dropdown"
+                  >
+                    <ChevronDown
+                      className={`w-4 h-4 transition-transform duration-200 ${
+                        isLedgerDropdownOpen ? "rotate-180" : ""
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
 
-                {ledgers.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.name}
-                  </option>
-                ))}
-              </select>
+              {/* Dropdown Menu */}
+              {isLedgerDropdownOpen && (
+                <div
+                  className={`absolute z-50 left-0 right-0 mt-1 max-h-60 overflow-y-auto rounded-md border shadow-lg ${
+                    theme === "dark"
+                      ? "bg-gray-800 border-gray-700 text-gray-100"
+                      : "bg-white border-gray-200 text-gray-800"
+                  }`}
+                >
+                  {filteredLedgers.length === 0 ? (
+                    <div className="p-3 text-sm opacity-60 text-center">
+                      No matching ledgers found
+                    </div>
+                  ) : (
+                    filteredLedgers.map((l, index) => {
+                      const isSelected = String(l.id) === String(ledgerId);
+                      const isHighlighted = index === ledgerHighlightedIndex;
+
+                      return (
+                        <div
+                          key={l.id}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            handleSelectLedger(l);
+                          }}
+                          onMouseEnter={() => setLedgerHighlightedIndex(index)}
+                          className={`px-3 py-2 text-sm cursor-pointer flex items-center justify-between transition-colors ${
+                            isSelected
+                              ? theme === "dark"
+                                ? "bg-blue-950/60 text-blue-400 font-semibold"
+                                : "bg-blue-50 text-blue-700 font-semibold"
+                              : isHighlighted
+                              ? theme === "dark"
+                                ? "bg-gray-700 text-white"
+                                : "bg-gray-100 text-gray-900"
+                              : ""
+                          }`}
+                        >
+                          <span className="font-medium">{l.name}</span>
+                          {isSelected && (
+                            <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full font-medium">
+                              Selected
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">
