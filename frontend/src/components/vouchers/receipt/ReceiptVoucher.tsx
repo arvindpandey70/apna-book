@@ -1,10 +1,261 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import Swal from "sweetalert2";
 import { useAppContext } from "../../../context/AppContext";
-import { Save, Plus, Trash2, ArrowLeft, Printer, Settings } from "lucide-react";
+import { Save, Plus, Trash2, ArrowLeft, Printer, Settings, ChevronDown, X } from "lucide-react";
 import type { VoucherEntry, Ledger } from "../../../types";
 import { useFinancialYear, getFinancialYearDefaults, useVoucherDateConfig } from "../../../hooks/useFinancialYear";
+
+const LedgerCombobox: React.FC<{
+  value: string;
+  onChange: (value: string) => void;
+  ledgers: Ledger[];
+  placeholder?: string;
+  theme: string;
+  error?: string;
+  hasAddNew?: boolean;
+  onAddNew?: () => void;
+}> = ({
+  value,
+  onChange,
+  ledgers,
+  placeholder = "-- Select or Search Ledger --",
+  theme,
+  error,
+  hasAddNew = false,
+  onAddNew,
+}) => {
+  const [searchTerm, setSearchTerm] = useState("");
+  const [isOpen, setIsOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const selectedLedger = useMemo(() => {
+    return ledgers.find((l) => String(l.id) === String(value));
+  }, [ledgers, value]);
+
+  // Sync searchTerm when value changes externally
+  useEffect(() => {
+    if (selectedLedger) {
+      setSearchTerm(selectedLedger.name);
+    } else if (!value) {
+      setSearchTerm("");
+    }
+  }, [value, selectedLedger]);
+
+  // Click outside listener
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target as Node)
+      ) {
+        setIsOpen(false);
+        if (selectedLedger) {
+          setSearchTerm(selectedLedger.name);
+        } else {
+          setSearchTerm("");
+        }
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [selectedLedger]);
+
+  // Filtered ledgers
+  const filteredLedgers = useMemo(() => {
+    if (!searchTerm) return ledgers;
+    if (
+      selectedLedger &&
+      searchTerm.trim().toLowerCase() === selectedLedger.name.trim().toLowerCase()
+    ) {
+      return ledgers;
+    }
+    const term = searchTerm.toLowerCase().trim();
+    return ledgers.filter((l) => {
+      const nameMatch = l.name ? l.name.toLowerCase().includes(term) : false;
+      const groupMatch = (l as any).groupName
+        ? (l as any).groupName.toLowerCase().includes(term)
+        : false;
+      return nameMatch || groupMatch;
+    });
+  }, [ledgers, searchTerm, selectedLedger]);
+
+  const handleSelect = (l: Ledger) => {
+    onChange(String(l.id));
+    setSearchTerm(l.name);
+    setIsOpen(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!isOpen) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        setIsOpen(true);
+        return;
+      }
+    }
+
+    const totalOptions = filteredLedgers.length + (hasAddNew ? 1 : 0);
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlightedIndex((prev) => (prev + 1) % (totalOptions || 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlightedIndex(
+        (prev) => (prev - 1 + totalOptions) % (totalOptions || 1)
+      );
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (highlightedIndex >= 0 && highlightedIndex < filteredLedgers.length) {
+        handleSelect(filteredLedgers[highlightedIndex]);
+      } else if (hasAddNew && highlightedIndex === filteredLedgers.length) {
+        if (onAddNew) onAddNew();
+        else onChange("add-new");
+        setIsOpen(false);
+      }
+    } else if (e.key === "Escape") {
+      setIsOpen(false);
+    }
+  };
+
+  return (
+    <div ref={containerRef} className="relative w-full">
+      <div className="relative">
+        <input
+          type="text"
+          autoComplete="off"
+          value={searchTerm}
+          onChange={(e) => {
+            const val = e.target.value;
+            setSearchTerm(val);
+            setIsOpen(true);
+            setHighlightedIndex(0);
+            if (!val) {
+              onChange("");
+            }
+          }}
+          onFocus={() => setIsOpen(true)}
+          onClick={() => setIsOpen(true)}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          className={`w-full p-2 pr-12 rounded border outline-none text-sm transition-colors ${
+            theme === "dark"
+              ? "bg-gray-700 border-gray-600 text-gray-100 focus:border-blue-500"
+              : "bg-white border-gray-300 text-gray-900 focus:border-blue-500"
+          } ${error ? "border-red-500" : ""}`}
+        />
+        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 text-gray-400">
+          {searchTerm && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchTerm("");
+                onChange("");
+                setIsOpen(true);
+              }}
+              className="p-1 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+              title="Clear"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setIsOpen(!isOpen)}
+            className="p-1 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+            title="Toggle Dropdown"
+          >
+            <ChevronDown
+              className={`w-4 h-4 transition-transform duration-200 ${
+                isOpen ? "rotate-180" : ""
+              }`}
+            />
+          </button>
+        </div>
+      </div>
+
+      {isOpen && (
+        <div
+          className={`absolute z-50 left-0 right-0 mt-1 max-h-60 overflow-y-auto rounded-md border shadow-lg ${
+            theme === "dark"
+              ? "bg-gray-800 border-gray-700 text-gray-100"
+              : "bg-white border-gray-200 text-gray-800"
+          }`}
+        >
+          {filteredLedgers.length === 0 ? (
+            <div className="p-3 text-sm opacity-60 text-center">
+              No matching ledgers found
+            </div>
+          ) : (
+            filteredLedgers.map((l, index) => {
+              const isSelected = String(l.id) === String(value);
+              const isHighlighted = index === highlightedIndex;
+
+              return (
+                <div
+                  key={l.id}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    handleSelect(l);
+                  }}
+                  onMouseEnter={() => setHighlightedIndex(index)}
+                  className={`px-3 py-2 text-sm cursor-pointer flex items-center justify-between transition-colors ${
+                    isSelected
+                      ? theme === "dark"
+                        ? "bg-blue-950/60 text-blue-400 font-semibold"
+                        : "bg-blue-50 text-blue-700 font-semibold"
+                      : isHighlighted
+                      ? theme === "dark"
+                        ? "bg-gray-700 text-white"
+                        : "bg-gray-100 text-gray-900"
+                      : ""
+                  }`}
+                >
+                  <span className="font-medium">{l.name}</span>
+                  {isSelected && (
+                    <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full font-medium">
+                      Selected
+                    </span>
+                  )}
+                </div>
+              );
+            })
+          )}
+
+          {hasAddNew && (
+            <div
+              onMouseDown={(e) => {
+                e.preventDefault();
+                if (onAddNew) onAddNew();
+                else onChange("add-new");
+                setIsOpen(false);
+              }}
+              onMouseEnter={() => setHighlightedIndex(filteredLedgers.length)}
+              className={`px-3 py-2 text-sm cursor-pointer font-bold border-t flex items-center gap-1.5 ${
+                theme === "dark"
+                  ? "border-gray-700 text-blue-400 hover:bg-gray-700"
+                  : "border-gray-100 text-blue-600 hover:bg-blue-50"
+              } ${
+                highlightedIndex === filteredLedgers.length
+                  ? theme === "dark"
+                    ? "bg-gray-700"
+                    : "bg-blue-50"
+                  : ""
+              }`}
+            >
+              <Plus className="w-4 h-4" />
+              <span>+ Add New Ledger</span>
+            </div>
+          )}
+        </div>
+      )}
+      {error && <p className="text-red-500 text-sm mt-1">{error}</p>}
+    </div>
+  );
+};
 
 const ReceiptVoucher: React.FC = () => {
   const { theme, companyInfo } = useAppContext();
@@ -862,29 +1113,18 @@ const ReceiptVoucher: React.FC = () => {
                     <span className="text-red-500 italic">(Debit)</span>
                   </label>
 
-                  <select
-                    value={String(formData.entries[0].ledgerId || "")}
-                    onChange={(e) => {
+                  <LedgerCombobox
+                    value={String(formData.entries[0]?.ledgerId || "")}
+                    onChange={(val) => {
                       const updated = [...formData.entries];
-                      updated[0].ledgerId = String(e.target.value);
+                      updated[0].ledgerId = val;
                       updated[0].type = "credit";
                       setFormData({ ...formData, entries: updated });
                     }}
-                    required
-                    className={`w-full p-2 rounded border ${theme === "dark"
-                      ? "bg-gray-700 border-gray-600 text-gray-100"
-                      : "bg-white border-gray-300 text-gray-900"
-                      }`}
-                  >
-                    <option value="">Select Cash/Bank Ledger</option>
-
-                    {/* 🔥 Real database cash/bank ledgers */}
-                    {allLedgers.map((l) => (
-                      <option key={l.id} value={String(l.id)}>
-                        {l.name}
-                      </option>
-                    ))}
-                  </select>
+                    ledgers={allLedgers.length > 0 ? allLedgers : ledgers}
+                    placeholder="Select Cash/Bank Ledger"
+                    theme={theme}
+                  />
                 </div>
               </div>
 
@@ -937,28 +1177,17 @@ const ReceiptVoucher: React.FC = () => {
                         >
                           {/* CREDIT LEDGER */}
                           <td className="px-4 py-2 w-1/2">
-                            <select
+                            <LedgerCombobox
                               value={String(entry.ledgerId || "")}
-                              onChange={(e) => {
+                              onChange={(val) => {
                                 const updated = [...formData.entries];
-                                updated[index].ledgerId = String(
-                                  e.target.value
-                                );
+                                updated[index].ledgerId = val;
                                 setFormData({ ...formData, entries: updated });
                               }}
-                              className={`w-full p-2 rounded border ${theme === "dark"
-                                ? "bg-gray-700 border-gray-600 text-gray-100"
-                                : "bg-white border-gray-300 text-gray-900"
-                                }`}
-                            >
-                              <option value="">Select Ledger</option>
-
-                              {allLedgers.map((l: Ledger) => (
-                                <option key={l.id} value={String(l.id)}>
-                                  {l.name}
-                                </option>
-                              ))}
-                            </select>
+                              ledgers={allLedgers.length > 0 ? allLedgers : ledgers}
+                              placeholder="Select Party Ledger"
+                              theme={theme}
+                            />
                           </td>
 
                           {/* AMOUNT */}
@@ -1076,38 +1305,22 @@ const ReceiptVoucher: React.FC = () => {
                           }`}
                       >
                         <td className="px-4 py-2">
-                          <select
-                            name="ledgerId"
+                          <LedgerCombobox
                             value={entry.ledgerId}
-                            onChange={(e) => handleEntryChange(index, e)}
-                            required
-                            title="Ledger Account"
-                            className={`w-full p-2 rounded border ${theme === "dark"
-                              ? "bg-gray-700 border-gray-600 text-gray-100"
-                              : "bg-white border-gray-300 text-gray-900"
-                              } focus:border-blue-500 focus:ring-blue-500`}
-                          >
-                            <option value="">Select Ledger</option>
-                            {ledgers.map((ledger: Ledger) => (
-                              <option key={ledger.id} value={ledger.id}>
-                                {ledger.name}
-                              </option>
-                            ))}
-                            <option
-                              value="add-new"
-                              className={`flex items-center px-4 py-2 rounded ${theme === "dark"
-                                ? "bg-blue-600 hover:bg-green-700"
-                                : "bg-green-600 hover:bg-green-700 text-white"
-                                }`}
-                            >
-                              + Add New Ledger
-                            </option>
-                          </select>
-                          {errors[`ledgerId${index}`] && (
-                            <p className="text-red-500 text-sm mt-1">
-                              {errors[`ledgerId${index}`]}
-                            </p>
-                          )}
+                            onChange={(val) => {
+                              if (val === "add-new") {
+                                navigate("/app/masters/ledger/create");
+                              } else {
+                                handleEntryChange(index, { target: { name: "ledgerId", value: val } } as any);
+                              }
+                            }}
+                            ledgers={allLedgers.length > 0 ? allLedgers : ledgers}
+                            placeholder="Select Ledger Account"
+                            theme={theme}
+                            error={errors[`ledgerId${index}`]}
+                            hasAddNew={true}
+                            onAddNew={() => navigate("/app/masters/ledger/create")}
+                          />
                         </td>
                         <td className="px-4 py-2">
                           <select
