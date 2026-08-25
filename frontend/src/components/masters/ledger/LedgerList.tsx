@@ -18,65 +18,115 @@ const LedgerList: React.FC = () => {
   const [ledgerGroups, setLedgerGroups] = useState<LedgerGroup[]>([]);
   const [showExportPopup, setShowExportPopup] = useState(false);
 
-  // groudp name
+  const fetchData = useCallback(async () => {
+    try {
+      const companyId =
+        localStorage.getItem("company_id") ||
+        localStorage.getItem("company_id");
+      const ownerType = localStorage.getItem("supplier");
+      const userType = localStorage.getItem("userType");
+
+      // For CA employees, we want to see the owner's data
+      let fetchOwnerType = ownerType;
+      let fetchOwnerId = ownerType === "employee"
+        ? localStorage.getItem("employee_id")
+        : localStorage.getItem("user_id");
+
+      if (userType === "ca_employee") {
+        fetchOwnerType = "employee";
+        fetchOwnerId = localStorage.getItem("employee_id");
+      }
+
+      if (!companyId || !fetchOwnerType || !fetchOwnerId) {
+        console.error("Missing required identifiers for ledger GET");
+        setLedgers([]);
+        return;
+      }
+
+      // Fetch ledgers scoped to company & owner
+      const ledgerRes = await fetch(
+        `${import.meta.env.VITE_API_URL
+        }/api/ledger?company_id=${companyId}&owner_type=${fetchOwnerType}&owner_id=${fetchOwnerId}`
+      );
+      const ledgerData = await ledgerRes.json();
+
+      if (ledgerRes.ok) {
+        setLedgers(Array.isArray(ledgerData) ? ledgerData : []);
+      } else {
+        console.error(ledgerData.message || "Failed to fetch ledgers");
+        setLedgers([]);
+      }
+
+      // Fetch ledger groups
+      const groupRes = await fetch(
+        `${import.meta.env.VITE_API_URL
+        }/api/ledger-groups?company_id=${companyId}&owner_type=${fetchOwnerType}&owner_id=${fetchOwnerId}`
+      );
+      const groupData = await groupRes.json();
+      setLedgerGroups(Array.isArray(groupData) ? groupData : []);
+    } catch (err) {
+      console.error("Failed to load data", err);
+      setLedgers([]);
+      setLedgerGroups([]);
+    }
+  }, []);
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const companyId =
-          localStorage.getItem("company_id") ||
-          localStorage.getItem("company_id");
-        const ownerType = localStorage.getItem("supplier");
-        const userType = localStorage.getItem("userType");
-
-        // For CA employees, we want to see the owner's data
-        let fetchOwnerType = ownerType;
-        let fetchOwnerId = ownerType === "employee"
-          ? localStorage.getItem("employee_id")
-          : localStorage.getItem("user_id");
-
-        if (userType === "ca_employee") {
-          fetchOwnerType = "employee";
-          fetchOwnerId = localStorage.getItem("employee_id");
-        }
-
-        if (!companyId || !fetchOwnerType || !fetchOwnerId) {
-          console.error("Missing required identifiers for ledger GET");
-          setLedgers([]);
-          return;
-        }
-
-        // Fetch ledgers scoped to company & owner
-        const ledgerRes = await fetch(
-          `${import.meta.env.VITE_API_URL
-          }/api/ledger?company_id=${companyId}&owner_type=${fetchOwnerType}&owner_id=${fetchOwnerId}`
-        );
-        const ledgerData = await ledgerRes.json();
-
-
-        if (ledgerRes.ok) {
-          setLedgers(Array.isArray(ledgerData) ? ledgerData : []);
-        } else {
-          console.error(ledgerData.message || "Failed to fetch ledgers");
-          setLedgers([]);
-        }
-
-        // Fetch ledger groups
-        const groupRes = await fetch(
-          `${import.meta.env.VITE_API_URL
-          }/api/ledger-groups?company_id=${companyId}&owner_type=${fetchOwnerType}&owner_id=${fetchOwnerId}`
-        );
-        const groupData = await groupRes.json();
-        setLedgerGroups(Array.isArray(groupData) ? groupData : []);
-      } catch (err) {
-        console.error("Failed to load data", err);
-        setLedgers([]);
-        setLedgerGroups([]);
-      }
-    };
-
     fetchData();
-  }, []);
+  }, [fetchData]);
+
+  const handleImportAdminLedger = async () => {
+    try {
+      const companyId = localStorage.getItem("company_id");
+      const ownerType = localStorage.getItem("supplier");
+      const userType = localStorage.getItem("userType");
+
+      let fetchOwnerType = ownerType;
+      let fetchOwnerId = ownerType === "employee"
+        ? localStorage.getItem("employee_id")
+        : localStorage.getItem("user_id");
+
+      if (userType === "ca_employee") {
+        fetchOwnerType = "employee";
+        fetchOwnerId = localStorage.getItem("employee_id");
+      }
+
+      if (!companyId || !fetchOwnerType || !fetchOwnerId) {
+        Swal.fire("Error", "Missing required user identifiers for import", "error");
+        return;
+      }
+
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/ledger/import-admin`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          companyId,
+          ownerType: fetchOwnerType,
+          ownerId: fetchOwnerId,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        Swal.fire({
+          icon: "success",
+          title: "Import Successful",
+          text: data.message,
+          timer: 2000,
+          showConfirmButton: false,
+        });
+        await fetchData();
+      } else {
+        Swal.fire("Import Failed", data.message || "Failed to import admin ledgers", "error");
+      }
+    } catch (err) {
+      console.error("Error importing admin ledgers:", err);
+      Swal.fire("Error", "Failed to connect to server", "error");
+    }
+  };
 
   const resolveGroup = (groupId: number, normalGroups: any[]) => {
     // 🔹 negative id → baseGroups se uthao
@@ -97,8 +147,14 @@ const LedgerList: React.FC = () => {
     return group ? group.name : "—";
   };
 
-  const filteredLedgers = Array.isArray(ledgers)
-    ? ledgers.filter((ledger) => {
+  const userLedgers = useMemo(() => {
+    if (!Array.isArray(ledgers)) return [];
+    // Only display user-owned ledgers (filter out live reference admin ledgers with ownerId === 0)
+    return ledgers.filter((l) => l.ownerId !== 0);
+  }, [ledgers]);
+
+  const filteredLedgers = Array.isArray(userLedgers)
+    ? userLedgers.filter((ledger) => {
       const matchesSearch = ledger.name
         ?.toLowerCase()
         .includes(searchTerm.toLowerCase());
@@ -387,9 +443,6 @@ const LedgerList: React.FC = () => {
     </tr>
   );
 
-  const adminLedgers = filteredLedgers.filter((l) => l.ownerId === 0);
-  const normalLedgers = filteredLedgers.filter((l) => l.ownerId !== 0);
-
   return (
     <>
       <div className="pt-[56px] px-4 ">
@@ -422,6 +475,16 @@ const LedgerList: React.FC = () => {
                 }`}
             >
               Opening Balance
+            </button>
+            <button
+              type="button"
+              onClick={handleImportAdminLedger}
+              className={`flex items-center px-4 py-2 rounded ${theme === "dark"
+                ? "bg-teal-600 hover:bg-teal-700 text-white"
+                : "bg-teal-600 hover:bg-teal-700 text-white"
+                }`}
+            >
+              Import Admin Ledger
             </button>
             <button
               type="button"
@@ -522,7 +585,7 @@ const LedgerList: React.FC = () => {
               >
                 B2B:{" "}
                 {
-                  ledgers.filter(
+                  userLedgers.filter(
                     (l) => l.gstNumber && l.gstNumber.trim().length > 0
                   ).length
                 }
@@ -535,7 +598,7 @@ const LedgerList: React.FC = () => {
               >
                 B2C:{" "}
                 {
-                  ledgers.filter(
+                  userLedgers.filter(
                     (l) => !l.gstNumber || l.gstNumber.trim().length === 0
                   ).length
                 }
@@ -565,15 +628,9 @@ const LedgerList: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {adminLedgers.length > 0 && (
+                {filteredLedgers.length > 0 && (
                   <>
-                    {adminLedgers.map(renderLedgerRow)}
-                  </>
-                )}
-
-                {normalLedgers.length > 0 && (
-                  <>
-                    {normalLedgers.map(renderLedgerRow)}
+                    {filteredLedgers.map(renderLedgerRow)}
                   </>
                 )}
               </tbody>

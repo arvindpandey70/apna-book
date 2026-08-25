@@ -742,4 +742,95 @@ router.patch("/", async (req, res) => {
 });
 
 
+// Import Admin Ledgers into User's Company (Copy-on-Import)
+router.post("/import-admin", async (req, res) => {
+  const { companyId, ownerType, ownerId } = req.body;
+
+  if (!companyId || !ownerType || !ownerId) {
+    return res.status(400).json({
+      message: "companyId, ownerType, and ownerId are required",
+    });
+  }
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    // 1. Fetch template Admin Ledgers (owner_id = 0)
+    const [adminLedgers] = await connection.execute(
+      `SELECT name, group_id, opening_balance, closing_balance, balance_type, address, email, phone, gst_number, pan_number, state, district, pin_code 
+       FROM ledgers 
+       WHERE owner_id = 0 AND (company_id = ? OR company_id = 0)`,
+      [companyId]
+    );
+
+    if (!adminLedgers || adminLedgers.length === 0) {
+      await connection.rollback();
+      return res.status(200).json({
+        success: true,
+        message: "No admin ledgers available to import.",
+        importedCount: 0,
+      });
+    }
+
+    let importedCount = 0;
+    let skippedCount = 0;
+
+    const sql = `
+      INSERT INTO ledgers 
+      (name, group_id, opening_balance, closing_balance, balance_type, address, email, phone, gst_number, pan_number, state, district, pin_code, company_id, owner_type, owner_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    for (const adminLedger of adminLedgers) {
+      // Check if a ledger with the same name already exists for this user/company
+      const [existing] = await connection.execute(
+        `SELECT id FROM ledgers WHERE name = ? AND company_id = ? AND owner_type = ? AND owner_id = ?`,
+        [adminLedger.name, companyId, ownerType, ownerId]
+      );
+
+      if (existing.length === 0) {
+        await connection.execute(sql, [
+          adminLedger.name,
+          adminLedger.group_id,
+          adminLedger.opening_balance || 0,
+          adminLedger.closing_balance || adminLedger.opening_balance || 0,
+          adminLedger.balance_type || "debit",
+          adminLedger.address || "",
+          adminLedger.email || "",
+          adminLedger.phone || "",
+          adminLedger.gst_number || "",
+          adminLedger.pan_number || "",
+          adminLedger.state || "",
+          adminLedger.district || "",
+          adminLedger.pin_code || "",
+          companyId,
+          ownerType,
+          ownerId,
+        ]);
+        importedCount++;
+      } else {
+        skippedCount++;
+      }
+    }
+
+    await connection.commit();
+
+    res.json({
+      success: true,
+      message: importedCount > 0 
+        ? `Successfully imported ${importedCount} Admin Ledger(s)${skippedCount > 0 ? ` (${skippedCount} already exist)` : ""}.`
+        : "All Admin Ledgers have already been imported.",
+      importedCount,
+      skippedCount,
+    });
+  } catch (err) {
+    await connection.rollback();
+    console.error("Error importing admin ledgers:", err);
+    res.status(500).json({ message: "Failed to import admin ledgers" });
+  } finally {
+    connection.release();
+  }
+});
+
 module.exports = router;
