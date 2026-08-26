@@ -191,10 +191,10 @@ const MainLayout: React.FC = () => {
           </div>
         </div>
       )}
-      <div className="flex flex-1">
+      <div className="flex flex-1 min-w-0 max-w-full">
         <Sidebar isOpen={sidebarOpen} />
-        <main className={`flex-1 transition-all duration-300 print:ml-0 print:pt-0 ${sidebarOpen ? 'ml-60' : 'ml-0 md:ml-16'} pt-12`}>
-          <div className="p-4 print:p-0 h-full">
+        <main className={`flex-1 min-w-0 max-w-full overflow-x-hidden transition-all duration-300 print:ml-0 print:pt-0 ${sidebarOpen ? 'ml-60' : 'ml-0 md:ml-16'} pt-12`}>
+          <div className="p-4 print:p-0 h-full min-w-0 max-w-full">
             <ErrorBoundary>
               <Outlet />
             </ErrorBoundary>

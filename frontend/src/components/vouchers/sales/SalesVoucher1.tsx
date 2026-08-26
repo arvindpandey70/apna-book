@@ -3020,8 +3020,8 @@ const SalesVoucher: React.FC = () => {
 
   return (
     <React.Fragment>
-      <div className="pt-[56px] px-4">
-        <div className="flex items-center mb-6 justify-between">
+      <div className="pt-[56px] px-2 md:px-4 w-full max-w-full min-w-0">
+        <div className="flex flex-wrap items-center mb-6 justify-between gap-4">
           {/* LEFT SIDE - Back Button + Page Title */}
           <div className="flex items-center">
             <button
@@ -3092,7 +3092,7 @@ const SalesVoucher: React.FC = () => {
         </div>
 
         <div
-          className={`p-6 rounded-lg ${
+          className={`p-4 md:p-6 rounded-lg w-full max-w-full min-w-0 ${
             theme === "dark" ? "bg-gray-800" : "bg-white shadow"
           }`}
         >
@@ -3453,7 +3453,7 @@ const SalesVoucher: React.FC = () => {
                     <label className="block text-sm font-semibold mb-2 opacity-80">
                       Pricing Rule / Customer Type
                     </label>
-                    <div className="flex items-center gap-6 p-2 rounded-lg border border-dashed border-gray-400/50">
+                    <div className="flex flex-wrap items-center gap-3 md:gap-6 p-2 rounded-lg border border-dashed border-gray-400/50">
                       <div className="flex gap-4">
                         <label className="flex items-center gap-2 cursor-pointer group">
                           <input
@@ -3639,9 +3639,9 @@ const SalesVoucher: React.FC = () => {
                   {formData.mode === "item-invoice" ? "Item Row" : "Ledger Row"}
                 </button>
               </div>
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto w-full max-w-full min-w-0 rounded-lg [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                 {formData.mode === "item-invoice" ? (
-                  <table className="w-full min-w-[1200px] mb-4">
+                  <table className="w-full mb-4">
                     <thead>
                       <tr
                         className={`${
@@ -4593,8 +4593,8 @@ const SalesVoucher: React.FC = () => {
 
         {/* Configuration Modal (F12) */}
         {showConfig && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white  p-6 rounded-lg w-96 shadow-xl">
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
               <h2 className="text-xl font-bold mb-4">
                 Voucher Display Settings
               </h2>
