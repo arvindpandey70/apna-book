@@ -566,6 +566,7 @@ const SalesVoucher: React.FC = () => {
       ],
       discountLedgerId: "",
       discountAmount: 0,
+      discountPercent: "",
     };
   };
 
@@ -730,6 +731,9 @@ const SalesVoucher: React.FC = () => {
               mappedEntries.length > 0
                 ? mappedEntries
                 : getInitialFormData().entries,
+            discountLedgerId: String(v.overallDiscountLedgerId || v.discountLedgerId || ""),
+            discountAmount: Number(v.overallDiscountAmount || v.discountAmount || 0),
+            discountPercent: v.overall_discount_percent ? Number(v.overall_discount_percent) : "",
           });
 
           // Set Sales Type ID if it exists
@@ -1030,6 +1034,7 @@ const SalesVoucher: React.FC = () => {
 
           discountLedgerId: data.overallDiscountLedgerId?.toString() || "",
           discountAmount: Number(data.overallDiscountAmount || 0),
+          discountPercent: data.overall_discount_percent ? Number(data.overall_discount_percent) : "",
 
           type: "sales",
         });
@@ -2510,7 +2515,14 @@ const SalesVoucher: React.FC = () => {
         igstTotal += (baseAmount * (entry.igstRate || 0)) / 100;
       });
 
-      const overallDiscount = Number(formData.discountAmount || 0);
+      const overallDiscountPercent = Number(formData.discountPercent || 0);
+      let overallDiscount = 0;
+      if (overallDiscountPercent > 0) {
+        overallDiscount = Number(((subtotal * overallDiscountPercent) / 100).toFixed(2));
+      } else {
+        overallDiscount = Number(formData.discountAmount || 0);
+      }
+
       const total =
         subtotal +
         cgstTotal +
@@ -2688,7 +2700,9 @@ const SalesVoucher: React.FC = () => {
       total: Number((totals.total || 0).toFixed(2)),
 
       discountLedgerId: formData.discountLedgerId,
-      discountAmount: formData.discountAmount,
+      discountAmount: totals.overallDiscount ?? formData.discountAmount,
+      overall_discount_percent: Number(formData.discountPercent || 0),
+      discountPercent: Number(formData.discountPercent || 0),
     };
 
     try {
@@ -3003,20 +3017,16 @@ const SalesVoucher: React.FC = () => {
     (l) => String(l.id) === String(formData.salesLedgerId)
   );
 
-  const discount = safeLedgers.filter(
-    (ledger) =>
-      ledger.groupId === -10 && ledger.name.toLowerCase().includes("discount")
-  );
+  const discount = useMemo(() => {
+    const matched = safeLedgers.filter((l) =>
+      /discount|disc|rebate|allowance|deduction/i.test(l.name)
+    );
+    return matched.length > 0 ? deduplicateLedgers(matched) : deduplicateLedgers(safeLedgers);
+  }, [safeLedgers]);
 
   const footerDiscountLedgers = useMemo(() => {
-    return discount.filter((l) => {
-      const name = l.name.toLowerCase();
-      // Exclude any ledger that contains a percentage sign or a digit (e.g., '1%', '5%')
-      if (name.includes("%") || /\d/.test(name)) return false;
-      // Include ledgers meant for manual/custom entry
-      return true;
-    });
-  }, [discount]);
+    return deduplicateLedgers(safeLedgers || []);
+  }, [safeLedgers]);
 
   return (
     <React.Fragment>
@@ -4110,6 +4120,14 @@ const SalesVoucher: React.FC = () => {
                     </tbody>
                     <tfoot>
                       {(() => {
+                        const totals = calculateTotals() as any;
+                        const {
+                          subtotal = 0,
+                          cgstTotal = 0,
+                          sgstTotal = 0,
+                          igstTotal = 0,
+                        } = totals;
+
                         // Check if party is selected and states match for dynamic column calculation
                         const hasParty = !!formData.partyId;
                         const companyState = safeCompanyInfo?.state || "";
@@ -4263,11 +4281,11 @@ const SalesVoucher: React.FC = () => {
                                 className="px-4 py-2 text-left"
                                 colSpan={colspan}
                               >
-                                <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-3 flex-wrap">
                                   <span>Overall Discount:</span>
                                   <select
                                     name="discountLedgerId"
-                                    value={formData.discountLedgerId}
+                                    value={formData.discountLedgerId || ""}
                                     onChange={handleChange}
                                     className={`${FORM_STYLES.tableSelect(
                                       theme
@@ -4277,11 +4295,62 @@ const SalesVoucher: React.FC = () => {
                                       Select Discount Ledger
                                     </option>
                                     {footerDiscountLedgers.map((l) => (
-                                      <option key={l.id} value={l.id}>
+                                      <option key={String(l.id)} value={String(l.id)}>
                                         {l.name}
                                       </option>
                                     ))}
                                   </select>
+                                  <div className="flex items-center gap-1">
+                                    <input
+                                      type="number"
+                                      name="discountPercent"
+                                      value={formData.discountPercent ?? ""}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (val === "") {
+                                          setFormData((prev) => ({
+                                            ...prev,
+                                            discountPercent: "",
+                                            discountAmount: 0,
+                                          }));
+                                          return;
+                                        }
+                                        let num = parseFloat(val);
+                                        if (isNaN(num)) {
+                                          setFormData((prev) => ({
+                                            ...prev,
+                                            discountPercent: "",
+                                            discountAmount: 0,
+                                          }));
+                                          return;
+                                        }
+                                        if (num < 0) num = 0;
+                                        if (num > 100) num = 100;
+
+                                        const currentSubtotal = totals?.subtotal || 0;
+                                        const calcAmount = Number(((currentSubtotal * num) / 100).toFixed(2));
+                                        setFormData((prev) => ({
+                                          ...prev,
+                                          discountPercent: val,
+                                          discountAmount: calcAmount,
+                                        }));
+                                      }}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") e.preventDefault();
+                                      }}
+                                      min="0"
+                                      max="100"
+                                      step="any"
+                                      className={`w-16 p-1 text-center border rounded text-xs outline-none transition-colors font-semibold ${
+                                        theme === "dark"
+                                          ? "bg-gray-700 text-white border-gray-600 focus:border-blue-400"
+                                          : "bg-white text-gray-900 border-gray-300 focus:border-blue-500"
+                                      }`}
+                                    />
+                                    <span className={`text-xs font-semibold ${theme === "dark" ? "text-gray-300" : "text-gray-700"}`}>
+                                      %
+                                    </span>
+                                  </div>
                                 </div>
                               </td>
                               <td className="px-4 py-2 text-right text-red-600 font-bold">
@@ -4290,10 +4359,33 @@ const SalesVoucher: React.FC = () => {
                                   <input
                                     type="number"
                                     name="discountAmount"
-                                    value={formData.discountAmount || ""}
-                                    onChange={handleChange}
-                                    placeholder="0"
-                                    className="w-24 p-1 text-right border rounded bg-transparent font-bold text-red-600 outline-none focus:border-blue-500"
+                                    value={totals.overallDiscount ? totals.overallDiscount : (formData.discountAmount || "")}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      if (val === "") {
+                                        setFormData((prev) => ({
+                                          ...prev,
+                                          discountAmount: "",
+                                          discountPercent: "",
+                                        }));
+                                        return;
+                                      }
+                                      let amt = parseFloat(val);
+                                      if (isNaN(amt)) return;
+                                      if (amt < 0) amt = 0;
+                                      const currentSubtotal = totals?.subtotal || 0;
+                                      const calcPercent = currentSubtotal > 0 ? Number(((amt / currentSubtotal) * 100).toFixed(2)) : 0;
+                                      setFormData((prev) => ({
+                                        ...prev,
+                                        discountAmount: amt,
+                                        discountPercent: calcPercent <= 100 ? calcPercent : "",
+                                      }));
+                                    }}
+                                    className={`w-24 p-1 text-right border rounded font-bold text-red-600 outline-none focus:border-blue-500 text-xs ${
+                                      theme === "dark"
+                                        ? "bg-gray-700 border-gray-600"
+                                        : "bg-white border-gray-300"
+                                    }`}
                                   />
                                 </div>
                               </td>
