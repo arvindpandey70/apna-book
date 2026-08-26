@@ -3689,34 +3689,27 @@ const SalesVoucher: React.FC = () => {
                             const companyState = safeCompanyInfo?.state || "";
                             const partyState = selectedPartyState || "";
 
-                            const statesMatch =
+                            const isInterState =
                               hasParty &&
-                              (!companyState || !partyState || companyState.toLowerCase().trim() === partyState.toLowerCase().trim());
+                              !!companyState &&
+                              !!partyState &&
+                              companyState.toLowerCase().trim() !== partyState.toLowerCase().trim();
 
-                            // ❌ No party selected → show nothing
-                            if (!hasParty) {
-                              return (
-                                <th className="px-4 py-2 text-center whitespace-nowrap">
-                                  IGST%
-                                </th>
-                              );
-                            }
-
-                            // ✅ Same state → CGST + SGST
-                            if (statesMatch) {
+                            // ✅ Default (no party or intra-state) → SGST + CGST
+                            if (!isInterState) {
                               return (
                                 <>
                                   <th className="px-4 py-2 text-center whitespace-nowrap">
-                                    CGST%
+                                    SGST%
                                   </th>
                                   <th className="px-4 py-2 text-center whitespace-nowrap">
-                                    SGST%
+                                    CGST%
                                   </th>
                                 </>
                               );
                             }
 
-                            // ✅ Different state → IGST
+                            // ✅ Inter-state → IGST
                             return (
                               <th className="px-4 py-2 text-center whitespace-nowrap">
                                 IGST%
@@ -3969,27 +3962,33 @@ const SalesVoucher: React.FC = () => {
                             {/* GST */}
                             {columnSettings.showGST &&
                               (() => {
-                                if (!hasParty) {
-                                  return (
-                                    <td className="px-1 py-2 text-center min-w-[50px] text-xs align-top pt-3">
-                                      {entry.gstLedgerId ? getLedgerNameById(entry.gstLedgerId) : (entry.igstRate ? `${Number(entry.igstRate)}%` : (entry.cgstRate ? `${Number(entry.cgstRate + entry.sgstRate)}%` : "-"))}
-                                    </td>
-                                  );
-                                } else if (statesMatch) {
+                                const isInterState =
+                                  hasParty &&
+                                  !!companyState &&
+                                  !!partyState &&
+                                  companyState.toLowerCase().trim() !== partyState.toLowerCase().trim();
+
+                                if (!isInterState) {
                                   return (
                                     <>
                                       <td className="px-1 py-2 text-center min-w-[50px] text-xs align-top pt-3">
-                                        {entry.cgstLedgerId ? getLedgerNameById(entry.cgstLedgerId) : (entry.cgstRate ? `${Number(entry.cgstRate)}%` : "-")}
+                                        {entry.sgstLedgerId
+                                          ? getLedgerNameById(entry.sgstLedgerId)
+                                          : `${Number(entry.sgstRate || 0)}%`}
                                       </td>
                                       <td className="px-1 py-2 text-center min-w-[50px] text-xs align-top pt-3">
-                                        {entry.sgstLedgerId ? getLedgerNameById(entry.sgstLedgerId) : (entry.sgstRate ? `${Number(entry.sgstRate)}%` : "-")}
+                                        {entry.cgstLedgerId
+                                          ? getLedgerNameById(entry.cgstLedgerId)
+                                          : `${Number(entry.cgstRate || 0)}%`}
                                       </td>
                                     </>
                                   );
                                 } else {
                                   return (
                                     <td className="px-1 py-2 text-center min-w-[50px] text-xs align-top pt-3">
-                                      {entry.igstLedgerId ? getLedgerNameById(entry.igstLedgerId) : (entry.igstRate ? `${Number(entry.igstRate)}%` : "-")}
+                                      {entry.igstLedgerId
+                                        ? getLedgerNameById(entry.igstLedgerId)
+                                        : `${Number(entry.igstRate || 0)}%`}
                                     </td>
                                   );
                                 }
@@ -4115,9 +4114,11 @@ const SalesVoucher: React.FC = () => {
                         const hasParty = !!formData.partyId;
                         const companyState = safeCompanyInfo?.state || "";
                         const partyState = selectedPartyState || "";
-                        const statesMatch =
+                        const isInterState =
                           hasParty &&
-                          (!companyState || !partyState || companyState.toLowerCase().trim() === partyState.toLowerCase().trim());
+                          !!companyState &&
+                          !!partyState &&
+                          companyState.toLowerCase().trim() !== partyState.toLowerCase().trim();
 
                         // Calculate total columns dynamically
                         let totalCols = 7; // S.No, Item, HSN, Quantity, Unit, Rate, Amount
@@ -4125,15 +4126,12 @@ const SalesVoucher: React.FC = () => {
                           totalCols += 1; // Batch
                         if (hasAnyAttribute) totalCols += 1; // Attribute
                         if (columnSettings.showGST) {
-                          if (!hasParty) {
-                            // No party: Only GST% column
+                          if (isInterState) {
+                            // Inter-state: IGST% (1 column)
                             totalCols += 1;
-                          } else if (statesMatch) {
-                            // States match: CGST%, SGST% (2 columns)
-                            totalCols += 2;
                           } else {
-                            // States don't match: IGST% (1 column)
-                            totalCols += 1;
+                            // Default / Intra-state: SGST%, CGST% (2 columns)
+                            totalCols += 2;
                           }
                         }
                         if (columnSettings.showDiscount) totalCols += 1; // Discount
@@ -4166,8 +4164,8 @@ const SalesVoucher: React.FC = () => {
                               </td>
                             </tr>
 
-                            {/* CGST TOTAL - Only show when party selected and states match */}
-                            {hasParty && statesMatch && cgstTotal > 0 && (
+                            {/* CGST TOTAL - Show when intra-state / default and cgstTotal > 0 */}
+                            {!isInterState && cgstTotal > 0 && (
                               <tr
                                 className={`font-semibold ${
                                   theme === "dark"
@@ -4187,8 +4185,8 @@ const SalesVoucher: React.FC = () => {
                               </tr>
                             )}
 
-                            {/* SGST TOTAL - Only show when party selected and states match */}
-                            {hasParty && statesMatch && sgstTotal > 0 && (
+                            {/* SGST TOTAL - Show when intra-state / default and sgstTotal > 0 */}
+                            {!isInterState && sgstTotal > 0 && (
                               <tr
                                 className={`font-semibold ${
                                   theme === "dark"
@@ -4208,8 +4206,8 @@ const SalesVoucher: React.FC = () => {
                               </tr>
                             )}
 
-                            {/* IGST TOTAL - Only show when party selected and states don't match */}
-                            {hasParty && !statesMatch && igstTotal > 0 && (
+                            {/* IGST TOTAL - Show when inter-state and igstTotal > 0 */}
+                            {isInterState && igstTotal > 0 && (
                               <tr
                                 className={`font-semibold ${
                                   theme === "dark"
