@@ -60,6 +60,37 @@ const getSelectClasses = (theme: string, hasError: boolean = false) => {
   return `${baseClasses} ${themeClasses} ${errorClasses}`;
 };
 
+const deduplicateLedgers = <T extends { id?: any; name?: string; ownerId?: any; owner_id?: any }>(list: T[]): T[] => {
+  if (!Array.isArray(list)) return [];
+  const seenIds = new Map<string, T>();
+  const seenNames = new Map<string, T>();
+
+  for (const item of list) {
+    if (!item) continue;
+    const idKey = item.id != null && item.id !== "" ? String(item.id) : null;
+    const nameKey = item.name ? item.name.trim().toLowerCase() : null;
+
+    if (idKey && seenIds.has(idKey)) continue;
+
+    if (nameKey && seenNames.has(nameKey)) {
+      const existing = seenNames.get(nameKey)!;
+      const existingOwnerId = Number(existing.ownerId ?? existing.owner_id ?? 0);
+      const currentOwnerId = Number(item.ownerId ?? item.owner_id ?? 0);
+      if (existingOwnerId === 0 && currentOwnerId !== 0) {
+        if (existing.id != null) seenIds.delete(String(existing.id));
+        seenNames.set(nameKey, item);
+        if (idKey) seenIds.set(idKey, item);
+      }
+      continue;
+    }
+
+    if (idKey) seenIds.set(idKey, item);
+    if (nameKey) seenNames.set(nameKey, item);
+  }
+
+  return Array.from(seenNames.values());
+};
+
 // 🔹 Remove (20) from state name
 const cleanState = (state: any) =>
   String(state || "").replace(/\(.*?\)/g, "").trim().toLowerCase();
@@ -1318,7 +1349,7 @@ const PurchaseVoucher: React.FC = () => {
         );
         const data = await res.json();
         // console.log('led', data)
-        setLedgers(data);
+        setLedgers(deduplicateLedgers(Array.isArray(data) ? data : []));
       } catch (err) {
         console.error("Failed to fetch ledgers:", err);
       }

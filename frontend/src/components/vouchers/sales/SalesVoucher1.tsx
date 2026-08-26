@@ -60,6 +60,39 @@ const FORM_STYLES = {
     } outline-none transition-colors`,
 };
 
+const deduplicateLedgers = <T extends { id?: any; name?: string; ownerId?: any; owner_id?: any }>(list: T[]): T[] => {
+  if (!Array.isArray(list)) return [];
+  const seenIds = new Map<string, T>();
+  const seenNames = new Map<string, T>();
+
+  for (const item of list) {
+    if (!item) continue;
+    const idKey = item.id != null && item.id !== "" ? String(item.id) : null;
+    const nameKey = item.name ? item.name.trim().toLowerCase() : null;
+
+    if (idKey && seenIds.has(idKey)) {
+      continue;
+    }
+
+    if (nameKey && seenNames.has(nameKey)) {
+      const existing = seenNames.get(nameKey)!;
+      const existingOwnerId = Number(existing.ownerId ?? existing.owner_id ?? 0);
+      const currentOwnerId = Number(item.ownerId ?? item.owner_id ?? 0);
+      if (existingOwnerId === 0 && currentOwnerId !== 0) {
+        if (existing.id != null) seenIds.delete(String(existing.id));
+        seenNames.set(nameKey, item);
+        if (idKey) seenIds.set(idKey, item);
+      }
+      continue;
+    }
+
+    if (idKey) seenIds.set(idKey, item);
+    if (nameKey) seenNames.set(nameKey, item);
+  }
+
+  return Array.from(seenNames.values());
+};
+
 const SalesVoucher: React.FC = () => {
   const {
     theme,
@@ -222,7 +255,7 @@ const SalesVoucher: React.FC = () => {
     }
   };
 
-  const partyLedgers = ledgers;
+  const partyLedgers = useMemo(() => deduplicateLedgers(ledgers || []), [ledgers]);
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [unitss, setUnits] = useState<any[]>([]);
 
@@ -344,7 +377,7 @@ const SalesVoucher: React.FC = () => {
 
   // Safe fallbacks for context data - Remove demo data and use only from context
   const safeStockItems = stockItems || [];
-  const safeLedgers = ledgers || [];
+  const safeLedgers = useMemo(() => deduplicateLedgers(ledgers || []), [ledgers]);
 
   // ✅ Hoisted Helper Functions
   function getLedgerName(ledgerId: any) {
@@ -1470,17 +1503,18 @@ const SalesVoucher: React.FC = () => {
 
   // Dynamic filter for party ledgers
   const filteredPartyLedgers = useMemo(() => {
-    if (!partySearchTerm) return partyLedgers;
+    const list = deduplicateLedgers(partyLedgers || []);
+    if (!partySearchTerm) return list;
 
     if (
       selectedPartyObj &&
       partySearchTerm.trim().toLowerCase() === selectedPartyObj.name.trim().toLowerCase()
     ) {
-      return partyLedgers;
+      return list;
     }
 
     const term = partySearchTerm.toLowerCase().trim();
-    return partyLedgers.filter((l) => {
+    return list.filter((l) => {
       const nameMatch = l.name ? l.name.toLowerCase().includes(term) : false;
       const groupName = l.groupName || l.group_name || (l.group && l.group.name) || "";
       const groupMatch = groupName.toLowerCase().includes(term);
@@ -2443,7 +2477,7 @@ const SalesVoucher: React.FC = () => {
         );
         const data = await res.json();
         console.log("ye hai ledger", data);
-        setLedgers(data);
+        setLedgers(deduplicateLedgers(Array.isArray(data) ? data : []));
       } catch (error) {
         console.error("Failed to fetch ledgers:", error);
       }
@@ -4037,15 +4071,15 @@ const SalesVoucher: React.FC = () => {
                                 }`}
                               >
                                 <option value="">Select Ledger</option>
-                                {ledgers
-                                  .filter((l) =>
-                                    l.name.toLowerCase().includes("sales")
+                                {deduplicateLedgers(
+                                  ledgers.filter((l) =>
+                                    l.name && l.name.toLowerCase().includes("sales")
                                   )
-                                  .map((ledger) => (
-                                    <option key={ledger.id} value={ledger.id}>
-                                      {ledger.name}
-                                    </option>
-                                  ))}
+                                ).map((ledger) => (
+                                  <option key={ledger.id} value={ledger.id}>
+                                    {ledger.name}
+                                  </option>
+                                ))}
                               </select>
                               {errors[`entry.${index}.salesLedgerId`] && (
                                 <p className="text-red-500 text-xs mt-1">
