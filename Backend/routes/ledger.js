@@ -3,6 +3,39 @@ const router = express.Router();
 const db = require("../db"); // your MySQL pool
 // const checkPermission = require('../middlewares/checkPermission');
 
+const deduplicateLedgerRows = (rows) => {
+  if (!Array.isArray(rows)) return [];
+  const seenIds = new Map();
+  const seenNames = new Map();
+
+  for (const row of rows) {
+    if (!row) continue;
+    const idKey = row.id != null && row.id !== "" ? String(row.id) : null;
+    const nameKey = row.name ? row.name.trim().toLowerCase() : null;
+
+    if (idKey && seenIds.has(idKey)) {
+      continue;
+    }
+
+    if (nameKey && seenNames.has(nameKey)) {
+      const existing = seenNames.get(nameKey);
+      const existingOwnerId = Number(existing.ownerId ?? existing.owner_id ?? 0);
+      const currentOwnerId = Number(row.ownerId ?? row.owner_id ?? 0);
+      if (existingOwnerId === 0 && currentOwnerId !== 0) {
+        if (existing.id != null) seenIds.delete(String(existing.id));
+        seenNames.set(nameKey, row);
+        if (idKey) seenIds.set(idKey, row);
+      }
+      continue;
+    }
+
+    if (idKey) seenIds.set(idKey, row);
+    if (nameKey) seenNames.set(nameKey, row);
+  }
+
+  return Array.from(seenNames.values());
+};
+
 // Check for duplicate ledger name
 router.get("/check-duplicate", async (req, res) => {
   const { name, gst_number, company_id, owner_type, owner_id, exclude_id } = req.query;
@@ -79,7 +112,8 @@ router.get("/", async (req, res) => {
       [company_id, owner_type, owner_id]
     );
 
-    res.json(rows);
+    const deduplicatedRows = deduplicateLedgerRows(rows);
+    res.json(deduplicatedRows);
   } catch (err) {
     console.error("Error fetching ledgers:", err);
     res.status(500).json({ message: "Failed to fetch ledgers" });
@@ -276,7 +310,8 @@ router.get("/cash-bank", async (req, res) => {
       [company_id, owner_type, owner_id]
     );
 
-    res.json(rows);
+    const deduplicatedRows = deduplicateLedgerRows(rows);
+    res.json(deduplicatedRows);
   } catch (err) {
     console.error("Error fetching cash/bank ledgers:", err);
     res.status(500).json({ message: "Failed to fetch cash/bank ledgers" });

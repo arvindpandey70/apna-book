@@ -183,6 +183,7 @@ async function ensureOverallDiscountColumns() {
   const columns = [
     { name: "overallDiscountLedgerId", type: "INT" },
     { name: "overallDiscountAmount", type: "DECIMAL(10,2)" },
+    { name: "overall_discount_percent", type: "DECIMAL(5,2)" },
   ];
 
   for (const col of columns) {
@@ -275,7 +276,15 @@ router.post("/", async (req, res) => {
       mode,
       discountLedgerId: overallDiscountLedgerIdRaw,
       discountAmount: overallDiscountAmount,
+      overall_discount_percent: overallDiscountPercentRaw,
+      discountPercent: overallDiscountPercentFallback,
     } = req.body;
+
+    let overallDiscountPercent = Number(
+      overallDiscountPercentRaw ?? overallDiscountPercentFallback ?? 0
+    );
+    if (isNaN(overallDiscountPercent) || overallDiscountPercent < 0) overallDiscountPercent = 0;
+    if (overallDiscountPercent > 100) overallDiscountPercent = 100;
 
     // Helper to handle empty strings for integer/ID columns
     const cleanId = (id) => (id === "" || id === undefined || id === "null" ? null : id);
@@ -362,9 +371,10 @@ router.post("/", async (req, res) => {
         bill_no,
         mode,
         overallDiscountLedgerId,
-        overallDiscountAmount
+        overallDiscountAmount,
+        overall_discount_percent
       )
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `;
 
     const voucherValues = [
@@ -400,7 +410,8 @@ router.post("/", async (req, res) => {
       bill_no ?? null,
       mode || 'item-invoice',
       cleanId(overallDiscountLedgerId),
-      Number(overallDiscountAmount || 0)
+      Number(overallDiscountAmount || 0),
+      overallDiscountPercent
     ];
 
     // ================= GENERATE NUMBER =================
@@ -708,7 +719,7 @@ router.get("/", async (req, res) => {
         igstTotal, discountTotal, total, createdAt, company_id, owner_type,
         owner_id, type, isQuotation, salesLedgerId, supplierInvoiceDate,
         sales_type_id, bill_no, mode,
-        overallDiscountLedgerId, overallDiscountAmount
+        overallDiscountLedgerId, overallDiscountAmount, overall_discount_percent
       FROM sales_vouchers
       WHERE owner_type = ? AND owner_id = ?
     `;
@@ -874,7 +885,7 @@ router.get("/:id", async (req, res) => {
     let entries = [];
 
     if (voucher.mode === "accounting-invoice") {
-      const [rows] = await db.execute(
+      const [rows] = me = await db.execute(
         `SELECT ve.*, l.name AS ledgerName 
          FROM voucher_entries ve 
          LEFT JOIN ledgers l ON l.id = ve.ledger_id
@@ -1001,6 +1012,9 @@ router.get("/:id", async (req, res) => {
       mode: voucher.mode,
       overallDiscountLedgerId: voucher.overallDiscountLedgerId,
       overallDiscountAmount: voucher.overallDiscountAmount,
+      overall_discount_percent: voucher.overall_discount_percent,
+      overallDiscountPercent: voucher.overall_discount_percent,
+      discountPercent: voucher.overall_discount_percent,
 
       // ⭐ MAIN DATA
       entries,
@@ -1043,8 +1057,16 @@ router.put("/:id", async (req, res) => {
     bill_no,
     mode,
     discountLedgerId: overallDiscountLedgerId,
-    discountAmount: overallDiscountAmount
+    discountAmount: overallDiscountAmount,
+    overall_discount_percent: overallDiscountPercentRaw,
+    discountPercent: overallDiscountPercentFallback,
   } = req.body;
+
+  let overallDiscountPercent = Number(
+    overallDiscountPercentRaw ?? overallDiscountPercentFallback ?? 0
+  );
+  if (isNaN(overallDiscountPercent) || overallDiscountPercent < 0) overallDiscountPercent = 0;
+  if (overallDiscountPercent > 100) overallDiscountPercent = 100;
 
   // Helper to handle empty strings for integer/ID columns
   const cleanId = (id) => (id === "" || id === undefined || id === "null" ? null : id);
@@ -1080,7 +1102,8 @@ router.put("/:id", async (req, res) => {
          bill_no = ?,
          mode = ?,
          overallDiscountLedgerId = ?,
-         overallDiscountAmount = ?
+         overallDiscountAmount = ?,
+         overall_discount_percent = ?
        WHERE id = ?`,
       [
         date,
@@ -1105,6 +1128,7 @@ router.put("/:id", async (req, res) => {
         mode || 'item-invoice',
         cleanId(overallDiscountLedgerId),
         Number(overallDiscountAmount || 0),
+        overallDiscountPercent,
         voucherId,
       ]
     );

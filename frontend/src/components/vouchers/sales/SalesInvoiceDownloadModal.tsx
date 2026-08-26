@@ -81,9 +81,20 @@ const SalesInvoiceDownloadModal: React.FC<Props> = ({ voucherId, onClose }) => {
         const v = vJson;
 
         // ── ledgers ───────────────────────────────────────────────────────
-        const rawLedgers: any[] = Array.isArray(lJson)
-          ? lJson
-          : lJson?.data ?? [];
+        const deduplicateLedgers = (list: any[]) => {
+          if (!Array.isArray(list)) return [];
+          const seen = new Set();
+          return list.filter((l) => {
+            if (!l) return false;
+            const key = l.id != null ? String(l.id) : l.name?.trim().toLowerCase();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+        };
+        const rawLedgers: any[] = deduplicateLedgers(
+          Array.isArray(lJson) ? lJson : lJson?.data ?? []
+        );
         setLedgers(rawLedgers);
 
         // Helper to extract numeric GST % from ledger name e.g. "CGST 9%" → 9
