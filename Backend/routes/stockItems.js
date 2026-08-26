@@ -8,7 +8,7 @@ const streamifier = require("streamifier");
 
 // GET all stock items (scoped)
 router.get("/", async (req, res) => {
-  const { company_id, owner_type, owner_id } = req.query;
+  const { company_id, owner_type, owner_id, search } = req.query;
 
   const connection = await db.getConnection();
   try {
@@ -85,6 +85,11 @@ router.get("/", async (req, res) => {
     if (owner_id) {
       query += " AND s.owner_id = ?";
       params.push(owner_id);
+    }
+
+    if (search && search.trim() !== "") {
+      query += " AND s.name LIKE ?";
+      params.push(`%${search.trim()}%`);
     }
 
     query += " ORDER BY s.id DESC";

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Plus, Edit, Trash2, Package, Upload, X } from "lucide-react";
+import { Plus, Edit, Trash2, Package, Upload, X, Search } from "lucide-react";
 import { useAppContext } from "../../../context/AppContext";
 import Barcode from "react-barcode";
 import Swal from "sweetalert2";
@@ -20,20 +20,26 @@ interface StockItem {
   barcode: string;
   image?: string;
 }
+
 const StockItemList = () => {
   const { theme } = useAppContext();
   const navigate = useNavigate();
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState<string>("");
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const itemsPerPage = 10;
+
   const companyId = localStorage.getItem("company_id");
   const ownerType = localStorage.getItem("supplier");
   const ownerId = localStorage.getItem(
     ownerType === "employee" ? "employee_id" : "user_id"
   );
 
-
-
-
+  // Reset page when search term changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
 
   // fetch units from database
   const [unitsData, setUnitsData] = useState<any[]>([]);
@@ -74,7 +80,7 @@ const StockItemList = () => {
           }/api/stock-items?company_id=${companyId}&owner_type=${ownerType}&owner_id=${ownerId}`
         );
         const json = await res.json();
-        console.log('josn', json.data)
+        console.log('json', json.data)
 
         if (json.success) {
           setStockItems(json.data);
@@ -93,9 +99,7 @@ const StockItemList = () => {
   const [ledgersData, setLedgersData] = useState<any[]>([]);
 
   useEffect(() => {
-
     const fetchLedgers = async () => {
-
       if (!companyId || !ownerType || !ownerId) {
         console.error("Missing identifiers for ledger fetch");
         setLedgersData([]);
@@ -103,7 +107,6 @@ const StockItemList = () => {
       }
 
       try {
-
         const res = await fetch(
           `${import.meta.env.VITE_API_URL}/api/ledger?company_id=${companyId}&owner_type=${ownerType}&owner_id=${ownerId}`
         );
@@ -116,7 +119,6 @@ const StockItemList = () => {
           console.error(data.message || "Failed to fetch ledgers");
           setLedgersData([]);
         }
-
       } catch (error) {
         console.error("Failed to fetch ledgers:", error);
         setLedgersData([]);
@@ -124,11 +126,19 @@ const StockItemList = () => {
     };
 
     fetchLedgers();
-
   }, [companyId, ownerType, ownerId]);
 
+  // Filter stock items by item name (case-insensitive)
+  const filteredStockItems = stockItems.filter((item) => {
+    if (!item.id || !item.name) return false;
+    return item.name.toLowerCase().includes(searchTerm.toLowerCase().trim());
+  });
 
-  console.log('ledger', ledgersData)
+  const totalPages = Math.ceil(filteredStockItems.length / itemsPerPage) || 1;
+  const paginatedStockItems = filteredStockItems.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
 
   // get igst sgst cgst ledger name
   const getLedgerName = (ledgerId: any) => {
@@ -140,7 +150,6 @@ const StockItemList = () => {
 
     return ledger ? ledger.name : "N/A";
   };
-
 
   const handleDelete = async (id: string) => {
     const itemToDelete = stockItems.find((item) => item.id === id);
@@ -264,6 +273,38 @@ const StockItemList = () => {
         </div>
       </div>
 
+      {/* Search Input Box */}
+      <div className="mb-4 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4">
+        <div className="relative flex-1 max-w-md">
+          <Search className={`absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 ${theme === "dark" ? "text-gray-400" : "text-gray-500"}`} />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search item by name..."
+            className={`w-full pl-9 pr-9 py-2 rounded-lg border text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+              theme === "dark"
+                ? "bg-gray-800 border-gray-700 text-gray-100 placeholder-gray-400 focus:border-blue-500"
+                : "bg-white border-gray-300 text-gray-900 placeholder-gray-500 focus:border-blue-500"
+            }`}
+          />
+          {searchTerm && (
+            <button
+              onClick={() => setSearchTerm("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors p-1"
+              title="Clear search"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+        {searchTerm && (
+          <div className={`text-sm font-medium ${theme === "dark" ? "text-gray-400" : "text-gray-600"}`}>
+            Found <span className="text-blue-500 font-semibold">{filteredStockItems.length}</span> {filteredStockItems.length === 1 ? "item" : "items"} matching "{searchTerm}"
+          </div>
+        )}
+      </div>
+
       <div
         className={`rounded-lg ${theme === "dark" ? "bg-gray-800" : "bg-white shadow"
           }`}
@@ -361,15 +402,34 @@ const StockItemList = () => {
                     <tr>
                       <td
                         colSpan={10}
-                        className={`px-6 py-4 whitespace-nowrap text-sm text-center ${theme === "dark" ? "text-gray-400" : "text-gray-500"
+                        className={`px-6 py-8 text-center text-sm ${theme === "dark" ? "text-gray-400" : "text-gray-500"
                           }`}
                       >
                         No stock items found
                       </td>
                     </tr>
+                  ) : filteredStockItems.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={10}
+                        className={`px-6 py-8 text-center text-sm ${theme === "dark" ? "text-gray-400" : "text-gray-500"
+                          }`}
+                      >
+                        <div className="flex flex-col items-center justify-center py-4">
+                          <Package className="h-10 w-10 text-gray-400 mb-2 stroke-1" />
+                          <p className="font-semibold text-base">No items found</p>
+                          <p className="text-xs text-gray-400 mt-1">No stock items match "{searchTerm}"</p>
+                          <button
+                            onClick={() => setSearchTerm("")}
+                            className="mt-3 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-md transition-colors"
+                          >
+                            Clear Search
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
                   ) : (
-                    stockItems
-                      .filter((item) => item.id)
+                    paginatedStockItems
                       .map((item) => (
                         <tr
                           key={item.id}
@@ -496,6 +556,46 @@ const StockItemList = () => {
             </div>
           </div>
         </div>
+
+        {/* Pagination controls */}
+        {filteredStockItems.length > itemsPerPage && (
+          <div className={`flex items-center justify-between px-6 py-3 border-t ${theme === "dark" ? "border-gray-700 bg-gray-800" : "border-gray-200 bg-white"}`}>
+            <div className={`text-xs ${theme === "dark" ? "text-gray-400" : "text-gray-500"}`}>
+              Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, filteredStockItems.length)} of {filteredStockItems.length} items
+            </div>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                className={`px-3 py-1 rounded text-xs font-medium border transition-colors ${
+                  currentPage === 1
+                    ? "opacity-50 cursor-not-allowed border-gray-300 dark:border-gray-700 text-gray-400"
+                    : theme === "dark"
+                    ? "border-gray-600 hover:bg-gray-700 text-gray-200"
+                    : "border-gray-300 hover:bg-gray-50 text-gray-700"
+                }`}
+              >
+                Previous
+              </button>
+              <span className={`text-xs ${theme === "dark" ? "text-gray-300" : "text-gray-700"}`}>
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className={`px-3 py-1 rounded text-xs font-medium border transition-colors ${
+                  currentPage === totalPages
+                    ? "opacity-50 cursor-not-allowed border-gray-300 dark:border-gray-700 text-gray-400"
+                    : theme === "dark"
+                    ? "border-gray-600 hover:bg-gray-700 text-gray-200"
+                    : "border-gray-300 hover:bg-gray-50 text-gray-700"
+                }`}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Image Preview Modal */}
