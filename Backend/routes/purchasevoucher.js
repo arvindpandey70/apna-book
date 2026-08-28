@@ -305,35 +305,42 @@ const ensureTDSColumns = async () => {
   isTDSChecked = true;
 };
 
-// ================= AUTO CHECK DISCOUNT LEDGER COLUMN =================
-async function ensureDiscountLedgerColumn() {
-  const [rows] = await db.query(
-    `
-    SELECT COLUMN_NAME
-    FROM INFORMATION_SCHEMA.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'purchase_voucher_items'
-      AND COLUMN_NAME = 'discountLedgerId'
-    `
-  );
-
-  if (rows.length === 0) {
-    console.log("⚠️ discountLedgerId missing → creating...");
-
-    await db.query(`
-      ALTER TABLE purchase_voucher_items
-      ADD COLUMN discountLedgerId INT NULL
+// ================= AUTO CHECK DISCOUNT LEDGER COLUMNS =================
+let isDiscountLedgerChecked = false;
+const ensureDiscountLedgerColumns = async () => {
+  if (isDiscountLedgerChecked) return;
+  try {
+    const [vRows] = await db.execute(`
+      SHOW COLUMNS FROM purchase_vouchers LIKE 'discountLedgerId'
     `);
+    if (vRows.length === 0) {
+      await db.execute(`
+        ALTER TABLE purchase_vouchers ADD COLUMN discountLedgerId INT NULL
+      `);
+      console.log("✅ discountLedgerId column created in purchase_vouchers");
+    }
 
-    console.log("✅ discountLedgerId column created");
+    const [iRows] = await db.execute(`
+      SHOW COLUMNS FROM purchase_voucher_items LIKE 'discountLedgerId'
+    `);
+    if (iRows.length === 0) {
+      await db.execute(`
+        ALTER TABLE purchase_voucher_items ADD COLUMN discountLedgerId INT NULL
+      `);
+      console.log("✅ discountLedgerId column created in purchase_voucher_items");
+    }
+  } catch (err) {
+    console.error("ensureDiscountLedgerColumns error:", err);
   }
-}
+  isDiscountLedgerChecked = true;
+};
 
 
 
 // ================= ROUTE =================
 
 router.post("/", async (req, res) => {
+  await ensureDiscountLedgerColumns();
   const {
     date,
     number,
@@ -545,15 +552,28 @@ router.post("/", async (req, res) => {
         `;
 
         const itemValues = validItems.map((e) => {
+          const totalGst = Number(e.gstRate || 0);
+          let cRate = Number(e.cgstRate || 0);
+          let sRate = Number(e.sgstRate || 0);
+          let iRate = Number(e.igstRate || 0);
+
+          if (cRate > 40) cRate = 0;
+          if (sRate > 40) sRate = 0;
+          if (iRate > 40) iRate = 0;
+
           if (isIntra) {
+            if (cRate === 0 && sRate === 0 && totalGst > 0) {
+              cRate = totalGst / 2;
+              sRate = totalGst / 2;
+            }
             return [
               voucherId,
               e.itemId,
               Number(e.quantity || 0),
               Number(e.rate || 0),
               Number(e.discount || 0),
-              Number(e.cgstLedgerId || 0),
-              Number(e.sgstLedgerId || 0),
+              cRate,
+              sRate,
               0,
               Number(e.amount || 0),
               Number(e.tdsRate || 0),
@@ -564,6 +584,9 @@ router.post("/", async (req, res) => {
             ];
           }
 
+          if (iRate === 0 && totalGst > 0) {
+            iRate = totalGst;
+          }
           return [
             voucherId,
             e.itemId,
@@ -572,7 +595,7 @@ router.post("/", async (req, res) => {
             Number(e.discount || 0),
             0,
             0,
-            Number(e.gstLedgerId || 0),
+            iRate,
             Number(e.amount || 0),
             Number(e.tdsRate || 0),
             e.godownId || null,
@@ -1122,6 +1145,17 @@ router.get("/:id", async (req, res) => {
          5️⃣ MERGE ITEMS + HISTORY
       ====================== */
 
+      const [ledgers] = await db.execute(
+        `SELECT id, name FROM ledgers WHERE company_id = ?`,
+        [voucher.company_id]
+      );
+
+      const extractGstPct = (name = "") => {
+        if (!name) return 0;
+        const match = String(name).match(/(\d+(\.\d+)?)/);
+        return match ? Number(match[1]) : 0;
+      };
+
       entries = items.map((item) => {
 
         // ⚠️ match via itemName (only way in current DB)
@@ -1129,6 +1163,38 @@ router.get("/:id", async (req, res) => {
           (h) =>
             String(h.godownId) === String(item.godownId)
         );
+
+        let rawCgst = Number(item.cgstRate || 0);
+        let rawSgst = Number(item.sgstRate || 0);
+        let rawIgst = Number(item.igstRate || 0);
+
+        let cgstLedgerId = item.cgstLedgerId || null;
+        let sgstLedgerId = item.sgstLedgerId || null;
+        let gstLedgerId = item.gstLedgerId || null;
+
+        if (rawCgst > 40) {
+          cgstLedgerId = Math.round(rawCgst);
+          const l = ledgers.find(ld => String(ld.id) === String(cgstLedgerId));
+          rawCgst = l ? extractGstPct(l.name) : 0;
+        }
+        if (rawSgst > 40) {
+          sgstLedgerId = Math.round(rawSgst);
+          const l = ledgers.find(ld => String(ld.id) === String(sgstLedgerId));
+          rawSgst = l ? extractGstPct(l.name) : 0;
+        }
+        if (rawIgst > 40) {
+          gstLedgerId = Math.round(rawIgst);
+          const l = ledgers.find(ld => String(ld.id) === String(gstLedgerId));
+          rawIgst = l ? extractGstPct(l.name) : 0;
+        }
+
+        if (rawCgst > 14 && (rawCgst === rawSgst || rawSgst === 0)) {
+          rawCgst = rawCgst / 2;
+          rawSgst = rawCgst;
+        } else if (rawSgst > 14 && rawCgst === 0) {
+          rawSgst = rawSgst / 2;
+          rawCgst = rawSgst;
+        }
 
         return {
           id: item.id,
@@ -1141,9 +1207,13 @@ router.get("/:id", async (req, res) => {
           discount: item.discount,
           amount: item.amount,
 
-          cgstRate: item.cgstRate,
-          sgstRate: item.sgstRate,
-          igstRate: item.igstRate,
+          cgstRate: rawCgst,
+          sgstRate: rawSgst,
+          igstRate: rawIgst,
+
+          cgstLedgerId,
+          sgstLedgerId,
+          gstLedgerId,
 
           godownId: item.godownId,
           purchaseLedgerId: item.purchaseLedgerId,
@@ -1184,20 +1254,43 @@ router.get("/:id", async (req, res) => {
       entries = ledgerRows;
     }
 
-    // 🔍 Fallback: If tdsLedgerId is missing in main row, try to get it from first item
-    // ⚠️ tdsRate column might be DECIMAL(10,2), so we must parse it to INT to match matches frontend ID
+    // 🔍 Fallback: If tdsLedgerId / purchaseLedgerId is missing in main row, try to get it from items
     let fallbackTdsId = 0;
     let fallbackDiscountId = 0;
-    if (voucher.mode === "item-invoice") {
+    let fallbackPLedgerId = 0;
+    if (voucher.mode === "item-invoice" || !voucher.mode) {
       const itemWithTds = entries.find(i => Number(i.tdsRate) > 0);
       if (itemWithTds) fallbackTdsId = Math.round(Number(itemWithTds.tdsRate));
 
       const itemWithDiscount = entries.find(i => Number(i.discountLedgerId) > 0);
       if (itemWithDiscount) fallbackDiscountId = Math.round(Number(itemWithDiscount.discountLedgerId));
+
+      const itemWithPL = entries.find(i => Number(i.purchaseLedgerId) > 0);
+      if (itemWithPL) fallbackPLedgerId = Math.round(Number(itemWithPL.purchaseLedgerId));
     }
 
     const tdsLedgerId = voucher.tdsLedgerId || (fallbackTdsId > 0 ? fallbackTdsId : null);
-    const discountLedgerId = voucher.discountLedgerId || (fallbackDiscountId > 0 ? fallbackDiscountId : null);
+    let discountLedgerId = voucher.discountLedgerId || (fallbackDiscountId > 0 ? fallbackDiscountId : null);
+    if (!discountLedgerId && Number(voucher.discountTotal || 0) > 0) {
+      const vCompId = voucher.company_id || req.query.company_id || null;
+      if (vCompId) {
+        const [rebateRows] = await db.execute(
+          `SELECT id FROM ledgers WHERE company_id = ? AND (LOWER(name) LIKE '%rebate%' OR LOWER(name) LIKE '%discount%') LIMIT 1`,
+          [vCompId]
+        );
+        if (rebateRows.length > 0) {
+          discountLedgerId = rebateRows[0].id;
+        }
+      }
+    }
+    const purchaseLedgerId = voucher.purchaseLedgerId || (fallbackPLedgerId > 0 ? fallbackPLedgerId : null);
+
+    // Update entries if item.purchaseLedgerId was missing
+    if (purchaseLedgerId) {
+      entries.forEach(e => {
+        if (!e.purchaseLedgerId) e.purchaseLedgerId = purchaseLedgerId;
+      });
+    }
 
     console.log('subtotal: voucher.subtotal', voucher.subtotal,
       voucher.cgstTotal,
@@ -1223,13 +1316,14 @@ router.get("/:id", async (req, res) => {
       dispatchThrough: voucher.dispatchThrough,
       destination: voucher.destination,
 
-      purchaseLedgerId: voucher.purchaseLedgerId,
+      purchaseLedgerId: purchaseLedgerId,
 
       subtotal: voucher.subtotal,
       cgstTotal: voucher.cgstTotal,
       sgstTotal: voucher.sgstTotal,
       igstTotal: voucher.igstTotal,
       discountTotal: voucher.discountTotal,
+      discountAmount: voucher.discountTotal,
       discountLedgerId,
       tdsTotal: voucher.tdsTotal, // ✅ Added
       tdsLedgerId: tdsLedgerId, // ✅ Use the calculated variable with fallback
@@ -1500,15 +1594,28 @@ router.put("/:id", async (req, res) => {
         `;
 
         const itemValues = validItems.map((e) => {
+          const totalGst = Number(e.gstRate || 0);
+          let cRate = Number(e.cgstRate || 0);
+          let sRate = Number(e.sgstRate || 0);
+          let iRate = Number(e.igstRate || 0);
+
+          if (cRate > 40) cRate = 0;
+          if (sRate > 40) sRate = 0;
+          if (iRate > 40) iRate = 0;
+
           if (isIntra) {
+            if (cRate === 0 && sRate === 0 && totalGst > 0) {
+              cRate = totalGst / 2;
+              sRate = totalGst / 2;
+            }
             return [
               voucherId,
               e.itemId,
               Number(e.quantity || 0),
               Number(e.rate || 0),
               Number(e.discount || 0),
-              Number(e.cgstLedgerId || 0),
-              Number(e.sgstLedgerId || 0),
+              cRate,
+              sRate,
               0,
               Number(e.amount || 0),
               Number(e.tdsRate || 0),
@@ -1519,6 +1626,9 @@ router.put("/:id", async (req, res) => {
             ];
           }
 
+          if (iRate === 0 && totalGst > 0) {
+            iRate = totalGst;
+          }
           return [
             voucherId,
             e.itemId,
@@ -1527,7 +1637,7 @@ router.put("/:id", async (req, res) => {
             Number(e.discount || 0),
             0,
             0,
-            Number(e.gstLedgerId || 0),
+            iRate,
             Number(e.amount || 0),
             Number(e.tdsRate || 0),
             e.godownId || null,

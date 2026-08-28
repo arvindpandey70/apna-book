@@ -63,6 +63,16 @@ router.get("/report", async (req, res) => {
     }
 
     const ledger = ledRows[0];
+    const lNameLower = String(ledger.name || "").toLowerCase();
+    const isCgstLedger = lNameLower.includes("cgst");
+    const isSgstLedger = lNameLower.includes("sgst") || lNameLower.includes("utgst");
+    const isIgstLedger = lNameLower.includes("igst");
+    const isGstLedger = isCgstLedger || isSgstLedger || isIgstLedger;
+    let ledgerGstPct = 0;
+    const pctMatch = lNameLower.match(/(\d+(\.\d+)?)/);
+    if (isGstLedger && pctMatch) {
+      ledgerGstPct = parseFloat(pctMatch[1]);
+    }
 
     /* ===============================
        2️⃣ PURCHASE VOUCHERS → DEBIT/CREDIT
@@ -108,9 +118,9 @@ LEFT JOIN ledgers l_purchase
 WHERE
      pv.partyId = ?
   OR pvi.purchaseLedgerId = ?
-  OR pvi.cgstRate = ?
-  OR pvi.sgstRate = ?
-  OR pvi.igstRate = ?
+  OR pvi.cgstRate = ? OR (${isCgstLedger && ledgerGstPct > 0 ? "pvi.cgstRate = ?" : "1=0"})
+  OR pvi.sgstRate = ? OR (${isSgstLedger && ledgerGstPct > 0 ? "pvi.sgstRate = ?" : "1=0"})
+  OR pvi.igstRate = ? OR (${isIgstLedger && ledgerGstPct > 0 ? "pvi.igstRate = ?" : "1=0"})
   OR pvi.tdsRate = ?
   OR pvi.discountLedgerId = ?
 
@@ -118,7 +128,13 @@ GROUP BY pv.id
 
 ORDER BY pv.date ASC
 `,
-      [ledgerId, ledgerId, ledgerId, ledgerId, ledgerId, ledgerId, ledgerId]
+      [
+        ledgerId, ledgerId, 
+        ledgerId, ...(isCgstLedger && ledgerGstPct > 0 ? [ledgerGstPct] : []),
+        ledgerId, ...(isSgstLedger && ledgerGstPct > 0 ? [ledgerGstPct] : []),
+        ledgerId, ...(isIgstLedger && ledgerGstPct > 0 ? [ledgerGstPct] : []),
+        ledgerId, ledgerId
+      ]
     );
 
 
@@ -546,19 +562,19 @@ ORDER BY vm.date ASC
       }
 
       /* ========= IGST ========= */
-      else if (currentLedger === Number(pv.igstRate)) {
+      else if (currentLedger === Number(pv.igstRate) || (isIgstLedger && ledgerGstPct > 0 && Number(pv.igstRate) === ledgerGstPct)) {
         debit = Number(pv.igstTotal || 0);
         particulars = pv.partyName;
       }
 
       /* ========= CGST ========= */
-      else if (currentLedger === Number(pv.cgstRate)) {
+      else if (currentLedger === Number(pv.cgstRate) || (isCgstLedger && ledgerGstPct > 0 && Number(pv.cgstRate) === ledgerGstPct)) {
         debit = Number(pv.cgstTotal || 0);
         particulars = pv.partyName;
       }
 
       /* ========= SGST ========= */
-      else if (currentLedger === Number(pv.sgstRate)) {
+      else if (currentLedger === Number(pv.sgstRate) || (isSgstLedger && ledgerGstPct > 0 && Number(pv.sgstRate) === ledgerGstPct)) {
         debit = Number(pv.sgstTotal || 0);
         particulars = pv.partyName;
       }

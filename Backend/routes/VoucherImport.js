@@ -1685,8 +1685,29 @@ router.post("/debit_note_import", async (req, res) => {
 // PURCHASE SUMMARY IMPORT (GST TEMPLATE)
 // =========================================
 
+let isDiscountLedgerCheckedInImport = false;
+const ensureDiscountLedgerColumns = async () => {
+    if (isDiscountLedgerCheckedInImport) return;
+    try {
+        const [vRows] = await db.execute(`SHOW COLUMNS FROM purchase_vouchers LIKE 'discountLedgerId'`);
+        if (vRows.length === 0) {
+            await db.execute(`ALTER TABLE purchase_vouchers ADD COLUMN discountLedgerId INT NULL`);
+            console.log("✅ discountLedgerId column created in purchase_vouchers");
+        }
+        const [iRows] = await db.execute(`SHOW COLUMNS FROM purchase_voucher_items LIKE 'discountLedgerId'`);
+        if (iRows.length === 0) {
+            await db.execute(`ALTER TABLE purchase_voucher_items ADD COLUMN discountLedgerId INT NULL`);
+            console.log("✅ discountLedgerId column created in purchase_voucher_items");
+        }
+    } catch (err) {
+        console.error("ensureDiscountLedgerColumns error:", err);
+    }
+    isDiscountLedgerCheckedInImport = true;
+};
+
 router.post("/purchase_summary_import", async (req, res) => {
     try {
+        await ensureDiscountLedgerColumns();
         const { voucher, companyId, ownerType, ownerId } = req.body;
 
         console.log("Received Grouped Purchase Import Request:", {
@@ -1713,6 +1734,38 @@ router.post("/purchase_summary_import", async (req, res) => {
             [companyId]
         );
 
+        const findPurchaseLedger = (inputName) => {
+            if (!inputName) return null;
+            const target = String(inputName).toLowerCase().replace(/\s+/g, ' ').trim();
+            if (!target) return null;
+
+            // 1. Exact match
+            let found = ledgers.find(l => (l.name || '').toLowerCase().replace(/\s+/g, ' ').trim() === target);
+            if (found) return found;
+
+            // 2. Includes match (either direction)
+            found = ledgers.find(l => {
+                const lName = (l.name || '').toLowerCase().replace(/\s+/g, ' ').trim();
+                return lName.includes(target) || target.includes(lName);
+            });
+            if (found) return found;
+
+            // 3. Match by percentage and intra/inter state
+            const matchPct = target.match(/(\d+(\.\d+)?)/);
+            const pct = matchPct ? matchPct[1] : null;
+            const isInter = target.includes("inter");
+            const isIntra = target.includes("intra");
+
+            found = ledgers.find(l => {
+                const lName = (l.name || '').toLowerCase();
+                if (pct && !lName.includes(pct)) return false;
+                if (isInter && !lName.includes("inter")) return false;
+                if (isIntra && !lName.includes("intra")) return false;
+                return lName.includes("purchase");
+            });
+            return found || null;
+        };
+
         const defaultPLedger = ledgers.find(l => l.name.toLowerCase().includes("purchase"));
         const defaultPurchaseLedgerId = defaultPLedger ? defaultPLedger.id : null;
 
@@ -1723,10 +1776,10 @@ router.post("/purchase_summary_import", async (req, res) => {
 
         // Determine Purchase Ledger for the whole voucher
         let purchaseLedgerId = defaultPurchaseLedgerId;
-        const firstRowPurchaseLedgerName = voucher["Purchase Ledger"] ? String(voucher["Purchase Ledger"]).toLowerCase().trim() : null;
-        if (firstRowPurchaseLedgerName) {
-            const pLedger = ledgers.find(l => l.name.toLowerCase().includes(firstRowPurchaseLedgerName));
-            if (pLedger) purchaseLedgerId = pLedger.id;
+        const rawPLedgerName = voucher["Purchase Ledger"] || voucher["purchaseLedger"] || null;
+        const matchedPLedger = findPurchaseLedger(rawPLedgerName);
+        if (matchedPLedger) {
+            purchaseLedgerId = matchedPLedger.id;
         }
 
         // DATE FORMATTING
@@ -1810,23 +1863,59 @@ router.post("/purchase_summary_import", async (req, res) => {
                 }
 
                 const findGstLedger = (type, pct) => {
-                    let l = ledgers.find(ld => ld.name.toLowerCase().includes(type) && ld.name.includes(pct.toString()));
-                    if (!l) l = ledgers.find(ld => ld.name.toLowerCase().includes(type));
+                    let l = ledgers.find(ld => (ld.name || '').toLowerCase().includes(type) && (ld.name || '').includes(pct.toString()));
+                    if (!l) l = ledgers.find(ld => (ld.name || '').toLowerCase().includes(type));
                     return l ? l.id : 0;
                 };
+
+                let itemCgstRate = 0;
+                let itemSgstRate = 0;
+                let itemIgstRate = 0;
+
+                if (igst > 0 || (cgst === 0 && sgst === 0 && rate > 0)) {
+                    const rawPct = igst > 0 && taxable > 0 ? Number(((igst / taxable) * 100).toFixed(2)) : rate;
+                    const resolvedIgstId = findGstLedger("igst", rawPct);
+                    itemIgstRate = resolvedIgstId > 0 ? resolvedIgstId : rawPct;
+                } else {
+                    let computedCgst = cgst > 0 && taxable > 0 ? Number(((cgst / taxable) * 100).toFixed(2)) : (rate > 0 ? rate / 2 : 0);
+                    let computedSgst = sgst > 0 && taxable > 0 ? Number(((sgst / taxable) * 100).toFixed(2)) : (rate > 0 ? rate / 2 : 0);
+
+                    if (computedCgst > 14 && (computedCgst === computedSgst || computedSgst === 0)) {
+                        computedCgst = computedCgst / 2;
+                        computedSgst = computedCgst;
+                    } else if (computedSgst > 14 && computedCgst === 0) {
+                        computedSgst = computedSgst / 2;
+                        computedSgst = computedSgst;
+                    }
+
+                    const resolvedCgstId = findGstLedger("cgst", computedCgst);
+                    const resolvedSgstId = findGstLedger("sgst", computedSgst);
+
+                    itemCgstRate = resolvedCgstId > 0 ? resolvedCgstId : computedCgst;
+                    itemSgstRate = resolvedSgstId > 0 ? resolvedSgstId : computedSgst;
+                }
+
+                const discount = Number(item["Discount"] || item["Discount (₹)"] || item["Discount (%)"] || 0);
+                discountTotal += discount;
 
                 processedItems.push({
                     itemId: finalItemId,
                     itemName: itemName,
                     quantity: parseFloat(item["Quantity"]) || 1,
                     rate: parseFloat(item["Item Rate (₹)"]) || taxable,
+                    discount: discount,
                     amount: taxable,
-                    cgstRate: cgst > 0 ? findGstLedger('cgst', rate / 2) : 0,
-                    sgstRate: sgst > 0 ? findGstLedger('sgst', rate / 2) : 0,
-                    igstRate: igst > 0 ? findGstLedger('igst', rate) : 0,
+                    cgstRate: itemCgstRate,
+                    sgstRate: itemSgstRate,
+                    igstRate: itemIgstRate,
                     hsnCode: item["HSN Code"] || "",
                     batchNo: item["Batch No"] || ""
                 });
+            }
+
+            const payloadDiscount = Number(voucher["Discount"] || voucher.discountTotal || 0);
+            if (payloadDiscount > 0 && discountTotal === 0) {
+                discountTotal = payloadDiscount;
             }
         } else {
             // accounting-mode
@@ -1879,6 +1968,15 @@ router.post("/purchase_summary_import", async (req, res) => {
 
         const totalVal = subtotal + cgstTotal + sgstTotal + igstTotal;
 
+        let discountLedgerId = null;
+        if (discountTotal > 0) {
+            const rebDL = ledgers.find(l => {
+                const lName = (l.name || "").toLowerCase();
+                return lName.includes("rebate") || lName.includes("discount");
+            });
+            if (rebDL) discountLedgerId = rebDL.id;
+        }
+
         // GENERATE VOUCHER NUMBER
         const voucherNumber = await generateVoucherNumber({
             companyId,
@@ -1893,12 +1991,12 @@ router.post("/purchase_summary_import", async (req, res) => {
             `INSERT INTO purchase_vouchers (
                 number, date, supplierInvoiceDate, narration, partyId, referenceNo, 
                 subtotal, cgstTotal, sgstTotal, igstTotal, discountTotal, total, 
-                company_id, owner_type, owner_id, mode, purchaseLedgerId
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                company_id, owner_type, owner_id, mode, purchaseLedgerId, discountLedgerId
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
             [
                 voucherNumber, date, date, voucher.narration || `Imported ${importMode === 'item' ? 'Multi-item' : 'Accounting'}`, partyId, invoiceNo,
                 subtotal, cgstTotal, sgstTotal, igstTotal, discountTotal, totalVal,
-                companyId, ownerType, ownerId, importMode === 'item' ? 'item-invoice' : 'accounting-invoice', purchaseLedgerId
+                companyId, ownerType, ownerId, importMode === 'item' ? 'item-invoice' : 'accounting-invoice', purchaseLedgerId, discountLedgerId
             ]
         );
 
@@ -1909,11 +2007,11 @@ router.post("/purchase_summary_import", async (req, res) => {
             for (const pi of processedItems) {
                 await db.execute(
                     `INSERT INTO purchase_voucher_items (
-                        voucherId, itemId, quantity, rate, amount, 
+                        voucherId, itemId, quantity, rate, discount, amount, 
                         cgstRate, sgstRate, igstRate, purchaseLedgerId
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     [
-                        voucherId, pi.itemId, pi.quantity, pi.rate, pi.amount,
+                        voucherId, pi.itemId, pi.quantity, pi.rate, pi.discount || 0, pi.amount,
                         pi.cgstRate, pi.sgstRate, pi.igstRate, purchaseLedgerId
                     ]
                 );
@@ -2128,15 +2226,26 @@ router.post("/sales_summary_import", async (req, res) => {
                     if (l) discountLedgerId = l.id;
                 }
 
+                let itemCgstRate = 0;
+                let itemSgstRate = 0;
+                let itemIgstRate = 0;
+
+                if (igst > 0 || (cgst === 0 && sgst === 0 && rate > 0)) {
+                    itemIgstRate = igst > 0 && taxable > 0 ? Number(((igst / taxable) * 100).toFixed(2)) : rate;
+                } else {
+                    itemCgstRate = cgst > 0 && taxable > 0 ? Number(((cgst / taxable) * 100).toFixed(2)) : (rate > 0 ? rate / 2 : 0);
+                    itemSgstRate = sgst > 0 && taxable > 0 ? Number(((sgst / taxable) * 100).toFixed(2)) : (rate > 0 ? rate / 2 : 0);
+                }
+
                 processedItems.push({
                     itemId: finalItemId,
                     itemName: itemName,
                     quantity: parseFloat(item["Quantity"]) || 1,
                     rate: parseFloat(item["Item Rate (₹)"]) || taxable,
                     amount: taxable,
-                    cgstRate: cgst > 0 ? findGstLedger('cgst', rate / 2) : 0,
-                    sgstRate: sgst > 0 ? findGstLedger('sgst', rate / 2) : 0,
-                    igstRate: igst > 0 ? findGstLedger('igst', rate) : 0,
+                    cgstRate: itemCgstRate,
+                    sgstRate: itemSgstRate,
+                    igstRate: itemIgstRate,
                     hsnCode: item["HSN Code"] || "",
                     batchNo: item["Batch No"] || "",
                     discount: discountAmt,
