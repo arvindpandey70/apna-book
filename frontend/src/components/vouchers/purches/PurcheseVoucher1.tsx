@@ -100,11 +100,9 @@ const resolvePurchaseGst = (
   companyState: string,
   supplierState: string
 ) => {
-
-
   const isIntra =
-    companyState &&
-    supplierState &&
+    !cleanState(companyState) ||
+    !cleanState(supplierState) ||
     cleanState(companyState) === cleanState(supplierState);
 
   if (isIntra) {
@@ -223,6 +221,87 @@ const extractGstPercent = (name = "") => {
   return match ? Number(match[1]) : 0;
 };
 
+const findTaxLedger = (
+  prefix: string,
+  rate: number,
+  ledgers: LedgerWithGroup[]
+) => {
+  if (!ledgers || !Array.isArray(ledgers) || rate <= 0) return null;
+  return ledgers.find((l) => {
+    const name = String(l.name).toLowerCase();
+    const groupName = String(l.groupName || "").toLowerCase();
+    const isTaxGroup =
+      groupName.includes("duties") ||
+      groupName.includes("tax") ||
+      name.includes("gst");
+    if (!isTaxGroup) return false;
+    return (
+      name.includes(prefix) &&
+      (name.includes(`${rate}%`) ||
+        name.includes(`${rate} %`) ||
+        name.includes(`@${rate}`) ||
+        name.includes(`@ ${rate}`) ||
+        name.includes(` ${rate}`))
+    );
+  });
+};
+
+const resolveEntryGstRate = (
+  entry: any,
+  ledgers: LedgerWithGroup[],
+  stockItems: StockItem[]
+): number => {
+  if (!entry) return 0;
+
+  let cgst = Number(entry.cgstRate || 0);
+  let sgst = Number(entry.sgstRate || 0);
+  let igst = Number(entry.igstRate || 0);
+
+  if (cgst > 40 && entry.cgstLedgerId) cgst = extractGstPercent(getLedgerNameById(entry.cgstLedgerId, ledgers));
+  else if (cgst > 40) cgst = 0;
+
+  if (sgst > 40 && entry.sgstLedgerId) sgst = extractGstPercent(getLedgerNameById(entry.sgstLedgerId, ledgers));
+  else if (sgst > 40) sgst = 0;
+
+  if (igst > 40 && entry.gstLedgerId) igst = extractGstPercent(getLedgerNameById(entry.gstLedgerId, ledgers));
+  else if (igst > 40) igst = 0;
+
+  const explicitSum = cgst + sgst + igst;
+  if (explicitSum > 0 && explicitSum <= 100) return explicitSum;
+
+  if (Number(entry.gstRate) > 0 && Number(entry.gstRate) <= 100) return Number(entry.gstRate);
+
+  if (entry.purchaseLedgerId) {
+    const purchaseLedgerName = getLedgerNameById(entry.purchaseLedgerId, ledgers);
+    const rateFromLedger = extractGstPercent(purchaseLedgerName);
+    if (rateFromLedger > 0) return rateFromLedger;
+  }
+
+  if (entry.itemId) {
+    const item = stockItems.find((i) => String(i.id) === String(entry.itemId));
+    const itemGst = Number(item?.gstRate || (item as any)?._doc?.gstRate || 0);
+    if (itemGst > 0) return itemGst;
+
+    if (item?.gstLedgerId) {
+      const taxLedgerName = getLedgerNameById(item.gstLedgerId, ledgers);
+      const taxRate = extractGstPercent(taxLedgerName);
+      if (taxRate > 0) return taxRate;
+    }
+  }
+
+  if (entry.gstLedgerId) {
+    const rate = extractGstPercent(getLedgerNameById(entry.gstLedgerId, ledgers));
+    if (rate > 0) return rate;
+  }
+  if (entry.cgstLedgerId && entry.sgstLedgerId) {
+    const cRate = extractGstPercent(getLedgerNameById(entry.cgstLedgerId, ledgers));
+    const sRate = extractGstPercent(getLedgerNameById(entry.sgstLedgerId, ledgers));
+    if (cRate + sRate > 0) return cRate + sRate;
+  }
+
+  return 0;
+};
+
 const PurchaseVoucher: React.FC = () => {
   const { theme, companyInfo } = useAppContext();
 
@@ -247,29 +326,18 @@ const PurchaseVoucher: React.FC = () => {
   const [originalEntries, setOriginalEntries] = useState<any[]>([]);
   const partyLedgers = ledgers;
 
-  const purchaseLedgers = ledgers.filter((l) =>
-    String(l.name).toLowerCase().includes("purchase") ||
-    String(l.groupName).toLowerCase().includes("purchase accounts")
-  );
+
 
   const tdsLedgers = useMemo(() => ledgers.filter((l) =>
     String(l.name).toUpperCase().includes("TDS")
   ), [ledgers]);
 
-  const discountLedgers = useMemo(() => ledgers.filter((l) =>
-    String(l.name).toLowerCase().includes("discount") &&
-    (Number(l.groupId) === -11 ||
-      String(l.groupName).toLowerCase().includes("income") ||
-      String(l.type).toLowerCase().includes("income") ||
-      String(l.groupType).toLowerCase().includes("income"))
-  ), [ledgers]);
+  const discountLedgers = useMemo(() => ledgers.filter((l) => {
+    const name = String(l.name || "").toLowerCase();
+    return name.includes("discount") || name.includes("rebate");
+  }), [ledgers]);
 
-  // Auto-select TDS Ledger if only one exists
-  useEffect(() => {
-    if (tdsLedgers.length === 1 && !formData.tdsLedgerId) {
-      setFormData((prev) => ({ ...prev, tdsLedgerId: String(tdsLedgers[0].id) }));
-    }
-  }, [tdsLedgers]);
+
 
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const { id } = useParams();
@@ -825,14 +893,15 @@ const PurchaseVoucher: React.FC = () => {
             if (parsedData.date) updated.supplierInvoiceDate = parsedData.date;
             if (parsedData.tdsAmount) {
               updated.tdsAmount = parsedData.tdsAmount;
-              if (tdsLedgers && tdsLedgers.length > 0) {
-                updated.tdsLedgerId = String(tdsLedgers[0].id);
-              }
             }
             if (parsedData.discountAmount) {
               updated.discountAmount = parsedData.discountAmount;
-              if (discountLedgers && discountLedgers.length > 0) {
-                updated.discountLedgerId = String(discountLedgers[0].id);
+              if (!updated.discountLedgerId && discountLedgers && discountLedgers.length > 0) {
+                const rebL = discountLedgers.find((l) => {
+                  const n = String(l.name || "").toLowerCase();
+                  return n.includes("rebate") || n.includes("discount");
+                });
+                if (rebL) updated.discountLedgerId = String(rebL.id);
               }
             }
             
@@ -1117,10 +1186,21 @@ const PurchaseVoucher: React.FC = () => {
           referenceNo: data.referenceNo || "",
           partyId: data.partyId || "",
           purchaseLedgerId: data.purchaseLedgerId || "",
-          tdsLedgerId: data.tdsLedgerId || "",
+          tdsLedgerId: data.tdsLedgerId ? String(data.tdsLedgerId) : "",
           tdsAmount: data.tdsAmount || 0,
-          discountLedgerId: data.discountLedgerId || "",
-          discountAmount: data.discountAmount || 0,
+          discountLedgerId: (() => {
+            if (data.discountLedgerId) return String(data.discountLedgerId);
+            const amt = Number(data.discountTotal || data.discountAmount || 0);
+            if (amt > 0 && ledgers.length > 0) {
+              const rebL = ledgers.find((l) => {
+                const n = String(l.name || "").toLowerCase();
+                return n.includes("rebate") || n.includes("discount");
+              });
+              if (rebL) return String(rebL.id);
+            }
+            return "";
+          })(),
+          discountAmount: Number(data.discountTotal || data.discountAmount || 0),
           narration: data.narration || "",
           number: id ? (data.number || prev.number) : "", // Clear number for copy
           mode: data.mode || "item-invoice",
@@ -1138,8 +1218,53 @@ const PurchaseVoucher: React.FC = () => {
                 (item) => String(item.id) === String(e.itemId)
               );
 
+              let rawCgst = Number(e.cgstRate) || 0;
+              let rawSgst = Number(e.sgstRate) || 0;
+              let rawIgst = Number(e.igstRate) || 0;
+
+              let cgstLedgerId = e.cgstLedgerId || "";
+              let sgstLedgerId = e.sgstLedgerId || "";
+              let gstLedgerId = e.gstLedgerId || "";
+
+              if (rawCgst > 40) {
+                if (!cgstLedgerId) cgstLedgerId = Math.round(rawCgst);
+                rawCgst = extractGstPercent(getLedgerNameById(cgstLedgerId, ledgers));
+              }
+              if (rawSgst > 40) {
+                if (!sgstLedgerId) sgstLedgerId = Math.round(rawSgst);
+                rawSgst = extractGstPercent(getLedgerNameById(sgstLedgerId, ledgers));
+              }
+              if (rawIgst > 40) {
+                if (!gstLedgerId) gstLedgerId = Math.round(rawIgst);
+                rawIgst = extractGstPercent(getLedgerNameById(gstLedgerId, ledgers));
+              }
+
+              if (rawCgst > 14 && (rawCgst === rawSgst || rawSgst === 0)) {
+                rawCgst = rawCgst / 2;
+                rawSgst = rawCgst;
+              } else if (rawSgst > 14 && rawCgst === 0) {
+                rawSgst = rawSgst / 2;
+                rawCgst = rawSgst;
+              }
+
               // Calculate total saved GST rate to populate the dropdown/display if needed
-              const savedGstRate = (Number(e.cgstRate) || 0) + (Number(e.sgstRate) || 0) + (Number(e.igstRate) || 0);
+              const savedGstRate = rawCgst + rawSgst + rawIgst;
+
+              let itemPLedgerId = e.purchaseLedgerId ? String(e.purchaseLedgerId) : (data.purchaseLedgerId ? String(data.purchaseLedgerId) : "");
+
+              // Fallback resolution if purchaseLedgerId is empty
+              if (!itemPLedgerId && ledgers.length > 0) {
+                const itemGst = savedGstRate || stockItem?.gstRate || 0;
+                const isIntra = !cleanState(companyState) || !cleanState(supplierState) || cleanState(companyState) === cleanState(supplierState);
+                const matchedPL = ledgers.find(l => {
+                  const lName = String(l.name).toLowerCase();
+                  if (!lName.includes("purchase") && !String(l.groupName || "").toLowerCase().includes("purchase")) return false;
+                  const pctMatch = lName.includes(`${itemGst}%`) || lName.includes(`${itemGst} %`) || lName.includes(`@${itemGst}%`);
+                  if (itemGst > 0 && !pctMatch) return false;
+                  return isIntra ? lName.includes("intra") : lName.includes("inter");
+                }) || ledgers.find(l => String(l.name).toLowerCase().includes("purchase"));
+                if (matchedPL) itemPLedgerId = String(matchedPL.id);
+              }
 
               return {
                 id: "e" + (idx + 1),
@@ -1155,9 +1280,9 @@ const PurchaseVoucher: React.FC = () => {
 
                 // Use saved GST Rate logic
                 gstRate: savedGstRate || stockItem?.gstRate || 0,
-                cgstRate: e.cgstRate || 0,
-                sgstRate: e.sgstRate || 0,
-                igstRate: e.igstRate || 0,
+                cgstRate: rawCgst,
+                sgstRate: rawSgst,
+                igstRate: rawIgst,
 
                 // BATCH Auto Fill from Saved Data
                 batches: stockItem?.batches || [],
@@ -1166,20 +1291,20 @@ const PurchaseVoucher: React.FC = () => {
                 batchManufacturingDate: e.batchManufacturingDate || "",
 
                 // TAX LEDGERS (Critical for Totals Calculation)
-                gstLedgerId: e.gstLedgerId || stockItem?.gstLedgerId || "",
-                sgstLedgerId: e.sgstLedgerId || stockItem?.sgstLedgerId || "",
-                cgstLedgerId: e.cgstLedgerId || stockItem?.cgstLedgerId || "",
+                gstLedgerId: gstLedgerId || stockItem?.gstLedgerId || "",
+                sgstLedgerId: sgstLedgerId || stockItem?.sgstLedgerId || "",
+                cgstLedgerId: cgstLedgerId || stockItem?.cgstLedgerId || "",
 
                 // Godown
                 godownId: e.godownId || "",
 
                 // Discount
-                discount: Math.round(e.discount || 0),
+                discount: Number(e.discount || 0),
                 discountLedgerId: e.discountLedgerId || "",
 
                 // Ledger Mode Support
                 ledgerId: e.ledgerId || "",
-                purchaseLedgerId: e.purchaseLedgerId || data.purchaseLedgerId || "",
+                purchaseLedgerId: itemPLedgerId,
                 type: e.type || "debit",
                 narration: e.narration || "",
 
@@ -1479,6 +1604,26 @@ const PurchaseVoucher: React.FC = () => {
   // ✅ Always-fresh ref to formData — prevents stale closure in async barcode lookup
   const formDataRef = useRef<any>(null);
   useEffect(() => { formDataRef.current = formData; }, [formData]);
+
+  const purchaseLedgers = useMemo(() => {
+    const activeSelectedIds = new Set(
+      formData?.entries?.map((e: any) => String(e.purchaseLedgerId)).filter(Boolean) || []
+    );
+    if (formData?.purchaseLedgerId) activeSelectedIds.add(String(formData.purchaseLedgerId));
+
+    return ledgers.filter((l) => {
+      if (activeSelectedIds.has(String(l.id))) return true;
+      const name = String(l.name || "").toLowerCase();
+      const groupName = String(l.groupName || "").toLowerCase();
+      return (
+        name.includes("purchase") ||
+        groupName.includes("purchase") ||
+        Number(l.groupId) === -11
+      );
+    });
+  }, [ledgers, formData?.entries, formData?.purchaseLedgerId]);
+
+
 
   const [isDuplicateVoucher, setIsDuplicateVoucher] = useState(false);
 
@@ -1952,7 +2097,14 @@ const PurchaseVoucher: React.FC = () => {
           (item) => String(item.id) === String(value)
         );
 
-        const gst = Number(selected?.gstRate || selected?._doc?.gstRate || 0);
+        let gst = Number(selected?.gstRate || selected?._doc?.gstRate || 0);
+        if (gst === 0 && entry.purchaseLedgerId) {
+          gst = extractGstPercent(getLedgerNameById(entry.purchaseLedgerId, ledgers));
+        }
+        if (gst === 0 && selected?.gstLedgerId) {
+          const taxLedgerName = getLedgerNameById(selected.gstLedgerId, ledgers);
+          gst = extractGstPercent(taxLedgerName);
+        }
 
         const calculated = calculateEntryValues(
           0, // quantity
@@ -1962,34 +2114,27 @@ const PurchaseVoucher: React.FC = () => {
           supplierState
         );
 
-        // Auto selection of Purchase Ledger based on GST rate
-        // Improved matching: Case-insensitive, handles various formats like "18%", "18 %", "@18%"
         let gstToMatch = gst;
-        if (gstToMatch === 0 && selected?.gstLedgerId) {
-          const taxLedgerName = getLedgerNameById(selected.gstLedgerId, ledgers);
-          gstToMatch = extractGstPercent(taxLedgerName);
-        }
-
         const isIntra =
-          cleanState(companyState) &&
-          cleanState(supplierState) &&
+          !cleanState(companyState) ||
+          !cleanState(supplierState) ||
           cleanState(companyState) === cleanState(supplierState);
 
         const matchingPurchaseLedger = purchaseLedgers.find((l) => {
-          const name = String(l.name).toLowerCase();
+          const lName = String(l.name).toLowerCase();
           const gstMatch =
-            name.includes(`${gstToMatch}%`) ||
-            name.includes(`${gstToMatch} %`) ||
-            name.includes(`purchase ${gstToMatch}`) ||
-            name.includes(`@${gstToMatch}%`) ||
-            name.includes(`@ ${gstToMatch}%`);
+            lName.includes(`${gstToMatch}%`) ||
+            lName.includes(`${gstToMatch} %`) ||
+            lName.includes(`purchase ${gstToMatch}`) ||
+            lName.includes(`@${gstToMatch}%`) ||
+            lName.includes(`@ ${gstToMatch}%`);
 
           if (!gstMatch) return false;
 
           if (isIntra) {
-            return name.includes("intra");
+            return lName.includes("intra");
           } else {
-            return name.includes("inter");
+            return lName.includes("inter");
           }
         });
 
@@ -2000,6 +2145,23 @@ const PurchaseVoucher: React.FC = () => {
             icon: "warning",
             confirmButtonColor: "#3085d6",
           });
+        }
+
+        let cgstLedgerId = selected?.cgstLedgerId || entry.cgstLedgerId || "";
+        let sgstLedgerId = selected?.sgstLedgerId || entry.sgstLedgerId || "";
+        let gstLedgerId = selected?.gstLedgerId || entry.gstLedgerId || "";
+
+        if (calculated.cgstRate > 0 && !cgstLedgerId) {
+          const matchedCgst = findTaxLedger("cgst", calculated.cgstRate, ledgers);
+          if (matchedCgst) cgstLedgerId = String(matchedCgst.id);
+        }
+        if (calculated.sgstRate > 0 && !sgstLedgerId) {
+          const matchedSgst = findTaxLedger("sgst", calculated.sgstRate, ledgers);
+          if (matchedSgst) sgstLedgerId = String(matchedSgst.id);
+        }
+        if (calculated.igstRate > 0 && !gstLedgerId) {
+          const matchedIgst = findTaxLedger("igst", calculated.igstRate, ledgers);
+          if (matchedIgst) gstLedgerId = String(matchedIgst.id);
         }
 
         updatedEntries[index] = {
@@ -2018,11 +2180,10 @@ const PurchaseVoucher: React.FC = () => {
           purchaseLedgerId: matchingPurchaseLedger?.id || entry.purchaseLedgerId || "",
 
           // ✅ GST LEDGER IDS
-          gstLedgerId: selected?.gstLedgerId || "",
-          sgstLedgerId: selected?.sgstLedgerId || "",
-          cgstLedgerId: selected?.cgstLedgerId || "",
+          gstLedgerId,
+          sgstLedgerId,
+          cgstLedgerId,
           godownId: selected?.godown_id?.toString() || "",
-          // ... rest
           batches: selected?.batches || [],
           batchNumber: "",
           batchExpiryDate: "",
@@ -2059,6 +2220,58 @@ const PurchaseVoucher: React.FC = () => {
         return;
       }
 
+      // 1.5️⃣ PURCHASE LEDGER CHANGE
+      if (name === "purchaseLedgerId") {
+        const ledgerName = getLedgerNameById(value, ledgers);
+        const ledgerGst = extractGstPercent(ledgerName);
+        const currentEntryWithNewLedger = { ...entry, purchaseLedgerId: value };
+        const effectiveGst = ledgerGst > 0 ? ledgerGst : resolveEntryGstRate(currentEntryWithNewLedger, ledgers, stockItems);
+
+        const qty = Number(entry.quantity || 0);
+        const r = Number(entry.rate || 0);
+
+        const calculated = calculateEntryValues(
+          qty,
+          r,
+          effectiveGst,
+          companyState || "",
+          supplierState
+        );
+
+        let cgstLedgerId = entry.cgstLedgerId;
+        let sgstLedgerId = entry.sgstLedgerId;
+        let gstLedgerId = entry.gstLedgerId;
+
+        if (calculated.cgstRate > 0) {
+          const matchedCgst = findTaxLedger("cgst", calculated.cgstRate, ledgers);
+          if (matchedCgst) cgstLedgerId = String(matchedCgst.id);
+        }
+        if (calculated.sgstRate > 0) {
+          const matchedSgst = findTaxLedger("sgst", calculated.sgstRate, ledgers);
+          if (matchedSgst) sgstLedgerId = String(matchedSgst.id);
+        }
+        if (calculated.igstRate > 0) {
+          const matchedIgst = findTaxLedger("igst", calculated.igstRate, ledgers);
+          if (matchedIgst) gstLedgerId = String(matchedIgst.id);
+        }
+
+        updatedEntries[index] = {
+          ...entry,
+          purchaseLedgerId: value,
+          gstRate: effectiveGst,
+          cgstRate: calculated.cgstRate,
+          sgstRate: calculated.sgstRate,
+          igstRate: calculated.igstRate,
+          cgstLedgerId,
+          sgstLedgerId,
+          gstLedgerId,
+          amount: calculated.amount,
+        };
+
+        setFormData((prev) => ({ ...prev, entries: updatedEntries }));
+        return;
+      }
+
       // 2.5️⃣ TRACKING ID CHANGE
       if (name === "tracking_id") {
         updatedEntries[index] = {
@@ -2083,10 +2296,6 @@ const PurchaseVoucher: React.FC = () => {
               b.id
             ) === String(value)
         );
-        // Batch select generally only sets meta info, not rate/qty unless needed.
-        // Keeping as is, but we ensure amounts are consistent if anything else changed? 
-        // No, batch change doesn't usually change price unless batch specific price exists.
-        // Assuming batch select logic is just meta for now.
 
         const availableQty = Number(
           selectedBatch?.batchQuantity ?? selectedBatch?.quantity ?? 0
@@ -2153,7 +2362,8 @@ const PurchaseVoucher: React.FC = () => {
           newRate = newAmount / newQty;
         }
 
-        const gst = Number(entry.gstRate || 0);
+        const currentEntryForGst = { ...entry, [name]: newVal };
+        const gst = resolveEntryGstRate(currentEntryForGst, ledgers, stockItems);
 
         const calculated = calculateEntryValues(
           newQty,
@@ -2163,11 +2373,35 @@ const PurchaseVoucher: React.FC = () => {
           supplierState
         );
 
+        let cgstLedgerId = entry.cgstLedgerId;
+        let sgstLedgerId = entry.sgstLedgerId;
+        let gstLedgerId = entry.gstLedgerId;
+
+        if (calculated.cgstRate > 0 && !cgstLedgerId) {
+          const matchedCgst = findTaxLedger("cgst", calculated.cgstRate, ledgers);
+          if (matchedCgst) cgstLedgerId = String(matchedCgst.id);
+        }
+        if (calculated.sgstRate > 0 && !sgstLedgerId) {
+          const matchedSgst = findTaxLedger("sgst", calculated.sgstRate, ledgers);
+          if (matchedSgst) sgstLedgerId = String(matchedSgst.id);
+        }
+        if (calculated.igstRate > 0 && !gstLedgerId) {
+          const matchedIgst = findTaxLedger("igst", calculated.igstRate, ledgers);
+          if (matchedIgst) gstLedgerId = String(matchedIgst.id);
+        }
+
         updatedEntries[index] = {
           ...entry,
           quantity: newQty,
           rate: calculated.rate,
           amount: name === "amount" ? newAmount : calculated.amount,
+          gstRate: gst,
+          cgstRate: calculated.cgstRate,
+          sgstRate: calculated.sgstRate,
+          igstRate: calculated.igstRate,
+          cgstLedgerId,
+          sgstLedgerId,
+          gstLedgerId,
         };
 
         setFormData((prev) => ({ ...prev, entries: updatedEntries }));
@@ -2399,25 +2633,47 @@ const PurchaseVoucher: React.FC = () => {
           const rate = Number(entry.rate || 0);
           const discount = Number(entry.discount || 0);
 
-          // ✅ GST % from Ledger Names
-          const sgst = extractGstPercent(
-            getLedgerNameById(entry.sgstLedgerId, ledgers)
-          );
+          const entryGstRate = resolveEntryGstRate(entry, ledgers, stockItems);
 
-          const cgst = extractGstPercent(
-            getLedgerNameById(entry.cgstLedgerId, ledgers)
-          );
+          let sgst = Number(entry.sgstRate || 0);
+          let cgst = Number(entry.cgstRate || 0);
+          let igst = Number(entry.igstRate || 0);
 
-          const igst = extractGstPercent(
-            getLedgerNameById(entry.gstLedgerId, ledgers)
-          );
+          if (isIntraState) {
+            if (sgst > 14 && (cgst === sgst || cgst === 0)) {
+              sgst = sgst / 2;
+              cgst = sgst;
+            } else if (cgst > 14 && sgst === 0) {
+              cgst = cgst / 2;
+              sgst = cgst;
+            }
+            if (sgst === 0 && cgst === 0 && entryGstRate > 0) {
+              sgst = entryGstRate / 2;
+              cgst = entryGstRate / 2;
+            }
+            igst = 0;
+          } else {
+            if (igst === 0 && entryGstRate > 0) {
+              igst = entryGstRate;
+            }
+            sgst = 0;
+            cgst = 0;
+          }
 
-          // ✅ Total GST Rate (respecting Intra/Inter state)
+          if (isIntraState && sgst === 0) {
+            sgst = extractGstPercent(getLedgerNameById(entry.sgstLedgerId, ledgers));
+          }
+          if (isIntraState && cgst === 0) {
+            cgst = extractGstPercent(getLedgerNameById(entry.cgstLedgerId, ledgers));
+          }
+          if (!isIntraState && igst === 0) {
+            igst = extractGstPercent(getLedgerNameById(entry.gstLedgerId, ledgers));
+          }
+
           const totalGstRate = isIntraState ? (sgst + cgst) : igst;
 
           const baseAmount = qty * rate;
           const gstAmount = (baseAmount * totalGstRate) / 100;
-          const totalAmount = baseAmount + gstAmount - discount;
 
           return {
             subtotal: acc.subtotal + baseAmount,
@@ -4235,11 +4491,25 @@ const PurchaseVoucher: React.FC = () => {
                           {visibleColumns.gst && isIntraState && (
                             <>
                               <td className="px-1 py-2 text-xs text-center align-top">
-                                {extractGstPercent(getLedgerNameById(entry.sgstLedgerId, ledgers))}%
+                                {(() => {
+                                  let r = entry.sgstRate;
+                                  if (r > 14 && (entry.cgstRate === r || !entry.cgstRate)) {
+                                    r = r / 2;
+                                  }
+                                  if (!r) r = resolveEntryGstRate(entry, ledgers, stockItems) / 2;
+                                  return r || extractGstPercent(getLedgerNameById(entry.sgstLedgerId, ledgers));
+                                })()}%
                               </td>
 
                               <td className="px-1 py-2 text-xs text-center align-top">
-                                {extractGstPercent(getLedgerNameById(entry.cgstLedgerId, ledgers))}%
+                                {(() => {
+                                  let r = entry.cgstRate;
+                                  if (r > 14 && (entry.sgstRate === r || !entry.sgstRate)) {
+                                    r = r / 2;
+                                  }
+                                  if (!r) r = resolveEntryGstRate(entry, ledgers, stockItems) / 2;
+                                  return r || extractGstPercent(getLedgerNameById(entry.cgstLedgerId, ledgers));
+                                })()}%
                               </td>
                             </>
                           )}
@@ -4247,7 +4517,10 @@ const PurchaseVoucher: React.FC = () => {
                           {/* Inter State */}
                           {visibleColumns.gst && !isIntraState && (
                             <td className="px-1 py-2 text-xs text-center align-top">
-                              {extractGstPercent(getLedgerNameById(entry.gstLedgerId, ledgers))}%
+                              {(() => {
+                                const r = entry.igstRate ?? resolveEntryGstRate(entry, ledgers, stockItems);
+                                return r || extractGstPercent(getLedgerNameById(entry.gstLedgerId, ledgers));
+                              })()}%
                             </td>
                           )}
 
@@ -4299,7 +4572,7 @@ const PurchaseVoucher: React.FC = () => {
                           <td className="px-1 py-2 min-w-[120px] align-top">
                             <select
                               name="purchaseLedgerId"
-                              value={entry.purchaseLedgerId || ""}
+                              value={entry.purchaseLedgerId ? String(entry.purchaseLedgerId) : ""}
                               onChange={(e) => handleEntryChange(index, e)}
                               className={`${TABLE_STYLES.select} min-w-[120px] text-xs ${errors[`entry${index}.purchaseLedgerId`]
                                 ? "border-red-500"
@@ -4308,7 +4581,7 @@ const PurchaseVoucher: React.FC = () => {
                             >
                               <option value="">Select Ledger</option>
                               {purchaseLedgers.map((ledger) => (
-                                <option key={ledger.id} value={ledger.id}>
+                                <option key={ledger.id} value={String(ledger.id)}>
                                   {ledger.name} {ledger.gstNumber ? `\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0\u00A0 ${ledger.gstNumber}` : ""}
                                 </option>
                               ))}
@@ -4483,7 +4756,7 @@ const PurchaseVoucher: React.FC = () => {
                             <td colSpan={colSpanBeforeAmount} className="px-4 py-2 text-right">
                               <div className="flex items-center justify-end gap-3 pr-6">
                                 <span className="whitespace-nowrap">
-                                  Discount:
+                                  Discount (Optional):
                                 </span>
                                 <select
                                   name="discountLedgerId"
