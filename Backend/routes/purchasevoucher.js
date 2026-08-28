@@ -387,7 +387,7 @@ router.post("/", async (req, res) => {
     await ensureTDSColumns();
     await ensureModeColumn();
     await ensureTrackingIdColumn();
-    await ensureDiscountLedgerColumn();
+    await ensureDiscountLedgerColumns();
 
     let companyState = "";
     let partyState = "";
@@ -1441,7 +1441,7 @@ router.put("/:id", async (req, res) => {
     await ensureTDSColumns();
     await ensureModeColumn();
     await ensureTrackingIdColumn();
-    await ensureDiscountLedgerColumn();
+    await ensureDiscountLedgerColumns();
 
     let companyState = "";
     let partyState = "";
