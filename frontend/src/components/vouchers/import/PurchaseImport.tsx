@@ -270,27 +270,76 @@ const PurchaseImport: React.FC = () => {
         return `${baseNum}-${index + 1}`;
     };
 
-    // Helper: Tax Ledger Resolution (matches e.g. "18% CGST", "9% CGST", "CGST 18%", "CGST")
-    const resolveTaxLedger = (taxType: 'CGST' | 'SGST' | 'IGST', rateVal: number, ledgersList: any[]): { found: boolean; ledgerName: string } => {
-        if (!rateVal || rateVal <= 0) return { found: true, ledgerName: "" };
-        const targetType = taxType.toLowerCase();
-        const rateStr = String(rateVal);
+    // Helper: Flexible Ledger Resolution (handles case & space variations like "9% CGST", "9 % sgst", "9% Cgst", "9 % Sgst", etc.)
+    const matchLedgerFlexibly = (ledgerNameInput: string, ledgersList: any[]): any => {
+        if (!ledgerNameInput) return null;
+        const rawInput = ledgerNameInput.trim();
+        if (!rawInput) return null;
 
-        const matched = ledgersList.find(l => {
-            const lName = (l.name || "").toLowerCase().replace(/\s+/g, " ").trim();
-            const isCorrectType = lName.includes(targetType);
-            if (!isCorrectType) return false;
+        // 1. Direct exact match (lowercase, single space normalized)
+        const cleanInput = rawInput.toLowerCase().replace(/\s+/g, " ").trim();
+        let found = ledgersList.find(l => {
+            const lName = (l.name || l.ledger_name || "").toLowerCase().replace(/\s+/g, " ").trim();
+            return lName === cleanInput;
+        });
+        if (found) return found;
 
-            return lName.includes(`${rateStr}%`) ||
-                lName.includes(` ${rateStr} `) ||
-                lName.endsWith(` ${rateStr}`) ||
-                lName.startsWith(`${rateStr} `) ||
-                lName.includes(`${rateStr}percent`);
-        }) || ledgersList.find(l => {
-            const lName = (l.name || "").toLowerCase().replace(/\s+/g, " ").trim();
-            return lName === targetType || lName === `input ${targetType}` || lName === `output ${targetType}` || lName.includes(targetType);
+        // 2. No-whitespace match (e.g. "9 % sgst" -> "9%sgst" vs "9%sgst")
+        const noSpaceInput = rawInput.toLowerCase().replace(/[\s_]+/g, "");
+        found = ledgersList.find(l => {
+            const lNoSpace = (l.name || l.ledger_name || "").toLowerCase().replace(/[\s_]+/g, "");
+            return lNoSpace === noSpaceInput;
+        });
+        if (found) return found;
+
+        // 3. Special Tax Ledger matching: If input contains tax keywords ("cgst", "sgst", "igst", "gst")
+        const lowerInput = rawInput.toLowerCase();
+        const taxTypeMatch = lowerInput.match(/(cgst|sgst|igst|gst)/i);
+        const numMatch = lowerInput.match(/(\d+(?:\.\d+)?)/);
+
+        if (taxTypeMatch) {
+            const taxType = taxTypeMatch[1].toLowerCase();
+            const taxRate = numMatch ? numMatch[1] : "";
+
+            found = ledgersList.find(l => {
+                const lName = (l.name || l.ledger_name || "").toLowerCase();
+                const lNoSpace = lName.replace(/[\s_]+/g, "");
+                const hasTaxType = lName.includes(taxType);
+                if (!hasTaxType) return false;
+
+                if (taxRate) {
+                    const lNumMatch = lName.match(/(\d+(?:\.\d+)?)/);
+                    if (lNumMatch && lNumMatch[1] === taxRate) return true;
+                    if (lName.includes(`${taxRate}%`) || lNoSpace.includes(`${taxRate}%`)) return true;
+                    return false;
+                }
+                return true;
+            });
+
+            if (found) return found;
+
+            // Fallback: match any ledger containing taxType (e.g. "CGST" or "Input CGST")
+            found = ledgersList.find(l => {
+                const lName = (l.name || l.ledger_name || "").toLowerCase();
+                return lName === taxType || lName === `input ${taxType}` || lName === `output ${taxType}` || lName.includes(taxType);
+            });
+            if (found) return found;
+        }
+
+        // 4. Substring / Alias fallback
+        found = ledgersList.find(l => {
+            const lName = (l.name || l.ledger_name || "").toLowerCase().replace(/\s+/g, " ").trim();
+            return lName.includes(cleanInput) || cleanInput.includes(lName);
         });
 
+        return found || null;
+    };
+
+    // Helper: Tax Ledger Resolution using flexible matching
+    const resolveTaxLedger = (taxType: 'CGST' | 'SGST' | 'IGST', rateVal: number, ledgersList: any[]): { found: boolean; ledgerName: string } => {
+        if (!rateVal || rateVal <= 0) return { found: true, ledgerName: "" };
+        const queryStr = `${rateVal}% ${taxType}`;
+        const matched = matchLedgerFlexibly(queryStr, ledgersList) || matchLedgerFlexibly(`${taxType} ${rateVal}%`, ledgersList) || matchLedgerFlexibly(taxType, ledgersList);
         return { found: !!matched, ledgerName: matched ? (matched.name || matched.ledger_name || "") : "" };
     };
 
@@ -469,18 +518,23 @@ const PurchaseImport: React.FC = () => {
                                 });
                             }
                         } else {
-                            const ledgerName = String(row[0] || row[1] || "").trim();
-                            const amount = Number(row[1] || row[2] || 0);
-                            const typeStr = String(row[2] || row[3] || "Debit").trim();
-                            const type: "Credit" | "Debit" = typeStr.toLowerCase().startsWith("c") ? "Credit" : "Debit";
+                            // Support horizontal entries on a single row (or vertical fallback)
+                            let addedEntries = false;
+                            for (let c = 0; c < row.length; c += 3) {
+                                const ledgerName = String(row[c] || "").trim();
+                                const amount = Number(row[c + 1] || 0);
+                                const typeStr = String(row[c + 2] || "Debit").trim();
+                                const type: "Credit" | "Debit" = typeStr.toLowerCase().startsWith("c") ? "Credit" : "Debit";
 
-                            if (ledgerName && ledgerName !== "Ledger" && !ledgerName.toLowerCase().includes("amount")) {
-                                currentGroup.accountingEntries.push({
-                                    srNo: currentGroup.accountingEntries.length + 1,
-                                    ledgerName,
-                                    amount,
-                                    type,
-                                });
+                                if (ledgerName && ledgerName !== "Ledger" && !ledgerName.toLowerCase().includes("amount") && !ledgerName.toLowerCase().includes("voucher date")) {
+                                    currentGroup.accountingEntries.push({
+                                        srNo: currentGroup.accountingEntries.length + 1,
+                                        ledgerName,
+                                        amount,
+                                        type,
+                                    });
+                                    addedEntries = true;
+                                }
                             }
                         }
                     }
@@ -603,17 +657,51 @@ const PurchaseImport: React.FC = () => {
                             });
                         }
                     } else {
-                        const ledgerName = String(row["Ledger"] || row["Particulars (Ledger Name)"] || "").trim();
-                        const amount = Number(row["Amount"] || row["Amount (₹)"] || 0);
-                        const typeStr = String(row["Type"] || "Debit").trim();
-                        const type: "Credit" | "Debit" = typeStr.toLowerCase().startsWith("c") ? "Credit" : "Debit";
-                        if (ledgerName || amount > 0) {
-                            rawGroups[groupKey].accountingEntries.push({
-                                srNo: rawGroups[groupKey].accountingEntries.length + 1,
-                                ledgerName: ledgerName || "Purchase Account",
-                                amount,
-                                type
-                            });
+                        // Support horizontal single-row Accounting Invoice entries (Ledger 1, Amount 1, Type 1...)
+                        let hasHorizontalKeys = false;
+                        for (let k = 1; k <= 10; k++) {
+                            if (row[`Ledger ${k}`] || row[`Ledger_${k}`] || row[`Particulars ${k}`]) {
+                                hasHorizontalKeys = true;
+                                break;
+                            }
+                        }
+
+                        if (hasHorizontalKeys) {
+                            for (let k = 1; k <= 15; k++) {
+                                const ledgerName = String(
+                                    row[`Ledger ${k}`] || row[`Ledger_${k}`] || row[`Particulars ${k}`] || ""
+                                ).trim();
+                                const amount = Number(
+                                    row[`Amount ${k}`] || row[`Amount_${k}`] || row[`Amount (₹) ${k}`] || 0
+                                );
+                                const typeStr = String(
+                                    row[`Type ${k}`] || row[`Type_${k}`] || row[`Debit/Credit ${k}`] || "Debit"
+                                ).trim();
+                                const type: "Credit" | "Debit" = typeStr.toLowerCase().startsWith("c") ? "Credit" : "Debit";
+
+                                if (ledgerName && ledgerName !== "Ledger" && !ledgerName.toLowerCase().includes("amount")) {
+                                    rawGroups[groupKey].accountingEntries.push({
+                                        srNo: rawGroups[groupKey].accountingEntries.length + 1,
+                                        ledgerName,
+                                        amount,
+                                        type
+                                    });
+                                }
+                            }
+                        } else {
+                            // Vertical multi-row fallback
+                            const ledgerName = String(row["Ledger"] || row["Particulars (Ledger Name)"] || "").trim();
+                            const amount = Number(row["Amount"] || row["Amount (₹)"] || 0);
+                            const typeStr = String(row["Type"] || "Debit").trim();
+                            const type: "Credit" | "Debit" = typeStr.toLowerCase().startsWith("c") ? "Credit" : "Debit";
+                            if (ledgerName || amount > 0) {
+                                rawGroups[groupKey].accountingEntries.push({
+                                    srNo: rawGroups[groupKey].accountingEntries.length + 1,
+                                    ledgerName: ledgerName || "Purchase Account",
+                                    amount,
+                                    type
+                                });
+                            }
                         }
                     }
                 });
@@ -631,7 +719,13 @@ const PurchaseImport: React.FC = () => {
                 let errors: string[] = [];
 
                 // 1. Party / Supplier Name Resolution & Validation against Ledgers Master
-                const partyName = group.partyName;
+                let partyName = group.partyName;
+                if (group.mode === "Accounting Invoice" && (!partyName || partyName === "Supplier")) {
+                    const creditEntry = group.accountingEntries.find(e => e.type === "Credit");
+                    if (creditEntry) {
+                        partyName = creditEntry.ledgerName;
+                    }
+                }
                 const cleanPartyName = partyName.toLowerCase().replace(/\s+/g, " ").trim();
 
                 const matchedPartyLedger = partyName
@@ -796,13 +890,13 @@ const PurchaseImport: React.FC = () => {
                     // Accounting Invoice Mode
                     let accEntriesValidated: ManualAccountingRow[] = [];
                     group.accountingEntries.forEach((ae: any) => {
-                        const cleanLName = (ae.ledgerName || "").toLowerCase().replace(/\s+/g, " ").trim();
-                        const matchedLedger = ledgers.find(l => (l.name || "").toLowerCase().replace(/\s+/g, " ").trim() === cleanLName);
+                        const matchedLedger = matchLedgerFlexibly(ae.ledgerName, ledgers);
                         const ledgerFound = !!matchedLedger;
                         if (!ledgerFound) errors.push(`Ledger '${ae.ledgerName}' Not Found in Ledger Master`);
 
                         accEntriesValidated.push({
                             ...ae,
+                            ledgerName: matchedLedger ? (matchedLedger.name || matchedLedger.ledger_name || ae.ledgerName) : ae.ledgerName,
                             ledgerFound,
                             _matchedLedgerId: matchedLedger?.id
                         });
@@ -831,7 +925,7 @@ const PurchaseImport: React.FC = () => {
                     voucherNo: autoVoucherNo,
                     supplierInvoice: group.supplierInvoice,
                     invoiceDate: group.invoiceDate,
-                    partyName: matchedPartyLedger?.name || group.partyName,
+                    partyName: matchedPartyLedger?.name || partyName || group.partyName,
                     mode: group.mode,
                     godownTracking: group.godownTracking,
                     gstin: partyGstin,
@@ -1019,23 +1113,38 @@ const PurchaseImport: React.FC = () => {
             XLSX.writeFile(workbook, `Purchase_Item_Invoice_Template.xlsx`);
         } else {
             const sheetData = [
-                // SINGLE HORIZONTAL HEADER ROW
+                // SINGLE HORIZONTAL ROW PER ACCOUNTING INVOICE (WITHOUT PARTY NAME & GODOWN TRACKING)
                 [
-                    "Voucher Date", "Supplier Invoice", "Invoice Date", "Party / Supplier Name",
-                    "Transaction Mode", "Godown Tracking", "Ledger", "Amount", "Type", "Action"
+                    "Voucher Date", "Supplier Invoice", "Invoice Date", "Transaction Mode",
+                    "Ledger 1", "Amount 1", "Type 1",
+                    "Ledger 2", "Amount 2", "Type 2",
+                    "Ledger 3", "Amount 3", "Type 3",
+                    "Ledger 4", "Amount 4", "Type 4"
                 ],
-                // SAMPLE DATA ROWS
-                ["2026-03-30", "INV-123", "2026-03-30", "nuvoico trader", "Accounting Invoice", "Disabled (No)", "18% Intra State Purchase", 10000, "Debit", ""],
-                ["2026-03-30", "INV-123", "2026-03-30", "nuvoico trader", "Accounting Invoice", "Disabled (No)", "CGST", 900, "Debit", ""],
-                ["2026-03-30", "INV-123", "2026-03-30", "nuvoico trader", "Accounting Invoice", "Disabled (No)", "SGST", 900, "Debit", ""],
-                ["2026-03-30", "INV-123", "2026-03-30", "nuvoico trader", "Accounting Invoice", "Disabled (No)", "nuvoico trader", 11800, "Credit", ""]
+                // SAMPLE DATA ROWS (ONE COMPLETE INVOICE PER ROW)
+                [
+                    "2026-03-30", "INV-123", "2026-03-30", "Accounting Invoice",
+                    "18% Intra State Purchase", 10000, "Debit",
+                    "CGST", 900, "Debit",
+                    "SGST", 900, "Debit",
+                    "nuvoico trader", 11800, "Credit"
+                ],
+                [
+                    "2026-03-31", "INV-124", "2026-03-31", "Accounting Invoice",
+                    "18% Inter State Purchase", 50000, "Debit",
+                    "IGST", 9000, "Debit",
+                    "MONGIA STEEL LIMITED", 59000, "Credit",
+                    "", "", ""
+                ]
             ];
 
             const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
             worksheet['!cols'] = [
-                { wch: 14 }, { wch: 22 }, { wch: 14 }, { wch: 28 },
-                { wch: 18 }, { wch: 18 }, { wch: 28 }, { wch: 14 },
-                { wch: 12 }, { wch: 12 }
+                { wch: 14 }, { wch: 22 }, { wch: 14 }, { wch: 18 },
+                { wch: 26 }, { wch: 14 }, { wch: 10 },
+                { wch: 16 }, { wch: 14 }, { wch: 10 },
+                { wch: 16 }, { wch: 14 }, { wch: 10 },
+                { wch: 26 }, { wch: 14 }, { wch: 10 }
             ];
 
             worksheet['!rows'] = [{ hpt: 26 }]; // Header row height
@@ -1052,7 +1161,7 @@ const PurchaseImport: React.FC = () => {
                 }
             };
 
-            for (let c = 0; c < 10; c++) {
+            for (let c = 0; c < 16; c++) {
                 const cellRef = XLSX.utils.encode_cell({ r: 0, c });
                 if (worksheet[cellRef]) worksheet[cellRef].s = headerStyle;
             }
@@ -1624,13 +1733,13 @@ const PurchaseImport: React.FC = () => {
                                 <div>
                                     <h4 className="text-lg font-bold text-gray-900">Accounting Invoice Excel Template</h4>
                                     <span className="text-xs text-indigo-600 font-semibold bg-indigo-50 px-2 py-0.5 rounded">
-                                        Debit/Credit Ledger Structure
+                                        Single Horizontal Row Layout (1 Row per Invoice)
                                     </span>
                                 </div>
                             </div>
                             <p className="text-xs text-gray-600 mb-4 leading-relaxed">
-                                <strong>Single Header Row:</strong> Voucher Date, Supplier Invoice, Invoice Date, Party Name, Mode, Godown Tracking, Ledger, Amount, Type (Debit/Credit), Action.<br />
-                                <span className="text-indigo-700 font-medium">Tip: Voucher-level fields only need to be filled on the first row of each voucher.</span>
+                                <strong>Single Header Row (Horizontal Layout):</strong> Voucher Date, Supplier Invoice, Invoice Date, Party Name, Mode, Godown Tracking, Ledger 1, Amount 1, Type 1, Ledger 2, Amount 2, Type 2, Ledger 3, Amount 3, Type 3, Party Ledger, Credit Amount, Credit Type.<br />
+                                <span className="text-indigo-700 font-medium">Tip: Every accounting invoice's complete Debit/Credit entries are arranged horizontally on a single row for easy Excel copy-pasting.</span>
                             </p>
                             <button
                                 onClick={() => downloadTemplate('Accounting Invoice')}
