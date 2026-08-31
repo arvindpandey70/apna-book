@@ -284,8 +284,8 @@ const ReceiptVoucher: React.FC = () => {
     number: "",
     narration: "",
     entries: [
-      { id: "1", ledgerId: "", amount: 0, type: "debit", narration: "" },
-      { id: "2", ledgerId: "", amount: 0, type: "credit", narration: "" },
+      { id: "1", ledgerId: "", amount: 0, type: "credit", narration: "" },
+      { id: "2", ledgerId: "", amount: 0, type: "debit", narration: "" },
     ],
     mode: "double-entry",
     referenceNo: "",
@@ -564,14 +564,14 @@ const ReceiptVoucher: React.FC = () => {
                   id: "1",
                   ledgerId: "",
                   amount: 0,
-                  type: "debit",
+                  type: "credit",
                   narration: "",
                 },
                 {
                   id: "2",
                   ledgerId: "",
                   amount: 0,
-                  type: "credit",
+                  type: "debit",
                   narration: "",
                 },
               ],
@@ -1325,17 +1325,23 @@ const ReceiptVoucher: React.FC = () => {
                         <td className="px-4 py-2">
                           <select
                             name="type"
-                            value={entry.type}
+                            value={index === 0 ? "credit" : entry.type}
                             onChange={(e) => handleEntryChange(index, e)}
                             required
-                            title="Entry Type"
+                            disabled={index === 0}
+                            title={
+                              index === 0
+                                ? "Credit is fixed for first entry"
+                                : "Select debit or credit"
+                            }
                             className={`w-full p-2 rounded border ${theme === "dark"
                               ? "bg-gray-700 border-gray-600 text-gray-100"
                               : "bg-white border-gray-300 text-gray-900"
+                              } ${index === 0 ? "opacity-60 cursor-not-allowed" : ""
                               } focus:border-blue-500 focus:ring-blue-500`}
                           >
-                            <option value="debit">Dr</option>
                             <option value="credit">Cr</option>
+                            {index !== 0 && <option value="debit">Dr</option>}
                           </select>
                         </td>
                         <td className="px-4 py-2">

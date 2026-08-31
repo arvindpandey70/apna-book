@@ -860,25 +860,7 @@ const PaymentVoucher: React.FC = () => {
         </h1>
         <div className="ml-auto flex space-x-2">
           <button
-            title="Save Voucher"
-            onClick={handleSubmit}
-            disabled={isSubmitting}
-            className={`p-2 rounded-md ${theme === "dark"
-              ? "bg-blue-600 hover:bg-blue-700"
-              : "bg-blue-500 hover:bg-blue-600"
-              } text-white flex items-center ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`}
-          >
-            <Save size={18} className="mr-2" /> {isSubmitting ? "Saving..." : "Save"}
-          </button>
-          <button
-            title="Print Voucher"
-            onClick={handlePrint}
-            className={`p-2 rounded-md ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"
-              }`}
-          >
-            <Printer size={18} />
-          </button>
-          <button
+            type="button"
             title="Configure"
             onClick={() => setShowConfigPanel(!showConfigPanel)}
             className={`p-2 rounded-md ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"
@@ -1554,6 +1536,31 @@ const PaymentVoucher: React.FC = () => {
               </div>
             </div>
           )}
+          {/* Bottom Right Action Buttons (Save & Print) */}
+          <div className="flex justify-end items-center gap-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <button
+              type="button"
+              title="Print Voucher"
+              onClick={handlePrint}
+              className={`px-4 py-2 rounded-md font-medium flex items-center transition-colors ${theme === "dark"
+                ? "bg-gray-700 hover:bg-gray-600 text-gray-200 border border-gray-600"
+                : "bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300"
+                }`}
+            >
+              <Printer size={18} className="mr-2" /> Print
+            </button>
+            <button
+              type="submit"
+              title="Save Voucher"
+              disabled={isSubmitting}
+              className={`px-5 py-2 rounded-md font-medium flex items-center text-white transition-colors ${theme === "dark"
+                ? "bg-blue-600 hover:bg-blue-700"
+                : "bg-blue-600 hover:bg-blue-700"
+                } ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""}`}
+            >
+              <Save size={18} className="mr-2" /> {isSubmitting ? "Saving..." : "Save"}
+            </button>
+          </div>
         </form>
       </div>
 

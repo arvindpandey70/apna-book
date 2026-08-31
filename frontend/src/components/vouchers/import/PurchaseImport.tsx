@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useCompany } from "../../../context/CompanyContext";
+import { extractStateCode } from "../../../utils/ledgerUtils";
 import * as XLSX from "xlsx-js-style";
 import axios from "axios";
 import Swal from "sweetalert2";
@@ -28,6 +29,8 @@ interface ManualItemRow {
     quantity: number;
     unit: string;
     rate: number;
+    discount?: number;
+    rawGstRate?: number;
     sgstRate: number;
     cgstRate: number;
     igstRate: number;
@@ -46,6 +49,10 @@ interface ManualItemRow {
     unitFound: boolean;
     cgstLedgerFound: boolean;
     sgstLedgerFound: boolean;
+    igstLedgerFound: boolean;
+    matchedCgstLedgerName?: string;
+    matchedSgstLedgerName?: string;
+    matchedIgstLedgerName?: string;
     purchaseLedgerFound: boolean;
     calculationWarning?: string;
 }
@@ -82,6 +89,7 @@ interface ManualGroupedVoucher {
     totalDebit: number;
     totalCredit: number;
     invoiceValue: number;
+    discountTotal?: number;
     purchaseLedger: string;
     status: "pending" | "importing" | "imported" | "error";
     errorMessage?: string;
@@ -89,6 +97,11 @@ interface ManualGroupedVoucher {
     isBalanceMatched: boolean; // Debit === Credit
     _matchedLedgerId?: string | number;
     _matchedPurchaseLedgerId?: string | number;
+    gstType: "same-state" | "different-state" | "unknown";
+    companyStateCode: string;
+    companyStateName: string;
+    partyStateCode: string;
+    partyStateName: string;
     items: ManualItemRow[];
     accountingEntries: ManualAccountingRow[];
 }
@@ -257,28 +270,77 @@ const PurchaseImport: React.FC = () => {
         return `${baseNum}-${index + 1}`;
     };
 
-    // Helper: Tax Ledger Resolution (matches e.g. "18% CGST", "9% CGST", "CGST 18%", "CGST")
-    const resolveTaxLedger = (taxType: 'CGST' | 'SGST' | 'IGST', rateVal: number, ledgersList: any[]) => {
-        if (!rateVal || rateVal <= 0) return true;
-        const targetType = taxType.toLowerCase();
-        const rateStr = String(rateVal);
+    // Helper: Flexible Ledger Resolution (handles case & space variations like "9% CGST", "9 % sgst", "9% Cgst", "9 % Sgst", etc.)
+    const matchLedgerFlexibly = (ledgerNameInput: string, ledgersList: any[]): any => {
+        if (!ledgerNameInput) return null;
+        const rawInput = ledgerNameInput.trim();
+        if (!rawInput) return null;
 
-        const matched = ledgersList.find(l => {
-            const lName = (l.name || "").toLowerCase().replace(/\s+/g, " ").trim();
-            const isCorrectType = lName.includes(targetType);
-            if (!isCorrectType) return false;
+        // 1. Direct exact match (lowercase, single space normalized)
+        const cleanInput = rawInput.toLowerCase().replace(/\s+/g, " ").trim();
+        let found = ledgersList.find(l => {
+            const lName = (l.name || l.ledger_name || "").toLowerCase().replace(/\s+/g, " ").trim();
+            return lName === cleanInput;
+        });
+        if (found) return found;
 
-            return lName.includes(`${rateStr}%`) ||
-                lName.includes(` ${rateStr} `) ||
-                lName.endsWith(` ${rateStr}`) ||
-                lName.startsWith(`${rateStr} `) ||
-                lName.includes(`${rateStr}percent`);
-        }) || ledgersList.find(l => {
-            const lName = (l.name || "").toLowerCase().replace(/\s+/g, " ").trim();
-            return lName === targetType || lName === `input ${targetType}` || lName === `output ${targetType}` || lName.includes(targetType);
+        // 2. No-whitespace match (e.g. "9 % sgst" -> "9%sgst" vs "9%sgst")
+        const noSpaceInput = rawInput.toLowerCase().replace(/[\s_]+/g, "");
+        found = ledgersList.find(l => {
+            const lNoSpace = (l.name || l.ledger_name || "").toLowerCase().replace(/[\s_]+/g, "");
+            return lNoSpace === noSpaceInput;
+        });
+        if (found) return found;
+
+        // 3. Special Tax Ledger matching: If input contains tax keywords ("cgst", "sgst", "igst", "gst")
+        const lowerInput = rawInput.toLowerCase();
+        const taxTypeMatch = lowerInput.match(/(cgst|sgst|igst|gst)/i);
+        const numMatch = lowerInput.match(/(\d+(?:\.\d+)?)/);
+
+        if (taxTypeMatch) {
+            const taxType = taxTypeMatch[1].toLowerCase();
+            const taxRate = numMatch ? numMatch[1] : "";
+
+            found = ledgersList.find(l => {
+                const lName = (l.name || l.ledger_name || "").toLowerCase();
+                const lNoSpace = lName.replace(/[\s_]+/g, "");
+                const hasTaxType = lName.includes(taxType);
+                if (!hasTaxType) return false;
+
+                if (taxRate) {
+                    const lNumMatch = lName.match(/(\d+(?:\.\d+)?)/);
+                    if (lNumMatch && lNumMatch[1] === taxRate) return true;
+                    if (lName.includes(`${taxRate}%`) || lNoSpace.includes(`${taxRate}%`)) return true;
+                    return false;
+                }
+                return true;
+            });
+
+            if (found) return found;
+
+            // Fallback: match any ledger containing taxType (e.g. "CGST" or "Input CGST")
+            found = ledgersList.find(l => {
+                const lName = (l.name || l.ledger_name || "").toLowerCase();
+                return lName === taxType || lName === `input ${taxType}` || lName === `output ${taxType}` || lName.includes(taxType);
+            });
+            if (found) return found;
+        }
+
+        // 4. Substring / Alias fallback
+        found = ledgersList.find(l => {
+            const lName = (l.name || l.ledger_name || "").toLowerCase().replace(/\s+/g, " ").trim();
+            return lName.includes(cleanInput) || cleanInput.includes(lName);
         });
 
-        return !!matched;
+        return found || null;
+    };
+
+    // Helper: Tax Ledger Resolution using flexible matching
+    const resolveTaxLedger = (taxType: 'CGST' | 'SGST' | 'IGST', rateVal: number, ledgersList: any[]): { found: boolean; ledgerName: string } => {
+        if (!rateVal || rateVal <= 0) return { found: true, ledgerName: "" };
+        const queryStr = `${rateVal}% ${taxType}`;
+        const matched = matchLedgerFlexibly(queryStr, ledgersList) || matchLedgerFlexibly(`${taxType} ${rateVal}%`, ledgersList) || matchLedgerFlexibly(taxType, ledgersList);
+        return { found: !!matched, ledgerName: matched ? (matched.name || matched.ledger_name || "") : "" };
     };
 
     // Helper: Flexible Unit Resolution with stock-units API & aliases
@@ -430,23 +492,8 @@ const PurchaseImport: React.FC = () => {
                             const taxableVal = Number(rawTaxable || 0);
 
                             if (itemName && itemName !== "Item" && !itemName.toLowerCase().includes("sr no")) {
-                                let cgstRate = parseTaxRate(row[12]);
-                                let sgstRate = parseTaxRate(row[13]);
-                                let igstRate = parseTaxRate(row[14]);
-                                const discount = parseTaxRate(row[15] || 0);
-
-                                if (cgstRate > 0 && cgstRate === sgstRate && [5, 12, 18, 28].includes(cgstRate)) {
-                                    cgstRate = cgstRate / 2;
-                                    sgstRate = sgstRate / 2;
-                                } else if (cgstRate + sgstRate > 28 && cgstRate === sgstRate) {
-                                    cgstRate = cgstRate / 2;
-                                    sgstRate = sgstRate / 2;
-                                }
-
-                                if (igstRate > 0) {
-                                    cgstRate = 0;
-                                    sgstRate = 0;
-                                }
+                                const singleGst = parseTaxRate(row[12] !== undefined ? row[12] : (row[13] !== undefined ? row[13] : row[14]));
+                                const discount = parseTaxRate(row[13] !== undefined && row[12] !== undefined ? row[13] : (row[15] || 0));
 
                                 currentGroup.items.push({
                                     srNo: currentGroup.items.length + 1,
@@ -456,27 +503,38 @@ const PurchaseImport: React.FC = () => {
                                     unit: String(row[10] || row[4] || "PCS").trim(),
                                     rate,
                                     discount,
-                                    sgstRate,
-                                    cgstRate,
-                                    igstRate,
+                                    rawGstRate: singleGst,
+                                    gstRate: singleGst,
+                                    sgstRate: 0,
+                                    cgstRate: 0,
+                                    igstRate: 0,
+                                    sgstAmount: 0,
+                                    cgstAmount: 0,
+                                    igstAmount: 0,
                                     taxableValue: taxableVal,
-                                    godown: String(row[17] || row[16] || "Main Location").trim(),
-                                    purchaseLedger: String(row[18] || row[17] || "18% Purchase Account").trim(),
+                                    itemTotal: taxableVal,
+                                    godown: String(row[15] || row[16] || row[17] || "Main Location").trim(),
+                                    purchaseLedger: String(row[16] || row[17] || row[18] || "18% Purchase Account").trim(),
                                 });
                             }
                         } else {
-                            const ledgerName = String(row[0] || row[1] || "").trim();
-                            const amount = Number(row[1] || row[2] || 0);
-                            const typeStr = String(row[2] || row[3] || "Debit").trim();
-                            const type: "Credit" | "Debit" = typeStr.toLowerCase().startsWith("c") ? "Credit" : "Debit";
+                            // Support horizontal entries on a single row (or vertical fallback)
+                            let addedEntries = false;
+                            for (let c = 0; c < row.length; c += 3) {
+                                const ledgerName = String(row[c] || "").trim();
+                                const amount = Number(row[c + 1] || 0);
+                                const typeStr = String(row[c + 2] || "Debit").trim();
+                                const type: "Credit" | "Debit" = typeStr.toLowerCase().startsWith("c") ? "Credit" : "Debit";
 
-                            if (ledgerName && ledgerName !== "Ledger" && !ledgerName.toLowerCase().includes("amount")) {
-                                currentGroup.accountingEntries.push({
-                                    srNo: currentGroup.accountingEntries.length + 1,
-                                    ledgerName,
-                                    amount,
-                                    type,
-                                });
+                                if (ledgerName && ledgerName !== "Ledger" && !ledgerName.toLowerCase().includes("amount") && !ledgerName.toLowerCase().includes("voucher date")) {
+                                    currentGroup.accountingEntries.push({
+                                        srNo: currentGroup.accountingEntries.length + 1,
+                                        ledgerName,
+                                        amount,
+                                        type,
+                                    });
+                                    addedEntries = true;
+                                }
                             }
                         }
                     }
@@ -564,24 +622,18 @@ const PurchaseImport: React.FC = () => {
                         const rate = Number(row["Rate"] || row["Item Rate (₹)"] || 0);
                         const taxableVal = Number(row["Taxable"] || row["Taxable Value (₹)"] || (qty * rate));
                         const discount = parseTaxRate(row["Discount"] || row["Discount (₹)"] || row["Discount (%)"] || 0);
+                        
+                        // Read single GST column (GST, GST (%), GST Rate, Rate (%), or fallback to sum)
+                        const singleGst = parseTaxRate(
+                            row["GST"] !== undefined ? row["GST"] :
+                            row["GST (%)"] !== undefined ? row["GST (%)"] :
+                            row["GST Rate"] !== undefined ? row["GST Rate"] :
+                            row["GST Rate (%)"] !== undefined ? row["GST Rate (%)"] :
+                            row["Rate (%)"] !== undefined ? row["Rate (%)"] :
+                            (parseTaxRate(row["CGST (%)"] || row["CGST"] || 0) + parseTaxRate(row["SGST (%)"] || row["SGST"] || 0) || parseTaxRate(row["IGST (%)"] || row["IGST"] || 0))
+                        );
+
                         if (itemName || taxableVal > 0) {
-                            let cgstRate = parseTaxRate(row["CGST (%)"] || row["CGST"] || row["Central Tax (₹)"]);
-                            let sgstRate = parseTaxRate(row["SGST (%)"] || row["SGST"] || row["State/UT tax (₹)"]);
-                            let igstRate = parseTaxRate(row["IGST (%)"] || row["IGST"] || row["Integrated Tax (₹)"]);
-
-                            if (cgstRate > 0 && cgstRate === sgstRate && [5, 12, 18, 28].includes(cgstRate)) {
-                                cgstRate = cgstRate / 2;
-                                sgstRate = sgstRate / 2;
-                            } else if (cgstRate + sgstRate > 28 && cgstRate === sgstRate) {
-                                cgstRate = cgstRate / 2;
-                                sgstRate = sgstRate / 2;
-                            }
-
-                            if (igstRate > 0) {
-                                cgstRate = 0;
-                                sgstRate = 0;
-                            }
-
                             rawGroups[groupKey].items.push({
                                 srNo: rawGroups[groupKey].items.length + 1,
                                 itemName: itemName || "Item",
@@ -590,26 +642,66 @@ const PurchaseImport: React.FC = () => {
                                 unit: String(row["Unit"] || "PCS").trim(),
                                 rate,
                                 discount,
-                                sgstRate,
-                                cgstRate,
-                                igstRate,
+                                rawGstRate: singleGst,
+                                gstRate: singleGst,
+                                sgstRate: 0,
+                                cgstRate: 0,
+                                igstRate: 0,
+                                sgstAmount: 0,
+                                cgstAmount: 0,
+                                igstAmount: 0,
                                 taxableValue: taxableVal,
+                                itemTotal: taxableVal,
                                 godown: String(row["Godown"] || "Main Location").trim(),
                                 purchaseLedger: String(row["Purchase-Ledger"] || "18% Purchase Account").trim(),
                             });
                         }
                     } else {
-                        const ledgerName = String(row["Ledger"] || row["Particulars (Ledger Name)"] || "").trim();
-                        const amount = Number(row["Amount"] || row["Amount (₹)"] || 0);
-                        const typeStr = String(row["Type"] || "Debit").trim();
-                        const type: "Credit" | "Debit" = typeStr.toLowerCase().startsWith("c") ? "Credit" : "Debit";
-                        if (ledgerName || amount > 0) {
-                            rawGroups[groupKey].accountingEntries.push({
-                                srNo: rawGroups[groupKey].accountingEntries.length + 1,
-                                ledgerName: ledgerName || "Purchase Account",
-                                amount,
-                                type
-                            });
+                        // Support horizontal single-row Accounting Invoice entries (Ledger 1, Amount 1, Type 1...)
+                        let hasHorizontalKeys = false;
+                        for (let k = 1; k <= 10; k++) {
+                            if (row[`Ledger ${k}`] || row[`Ledger_${k}`] || row[`Particulars ${k}`]) {
+                                hasHorizontalKeys = true;
+                                break;
+                            }
+                        }
+
+                        if (hasHorizontalKeys) {
+                            for (let k = 1; k <= 15; k++) {
+                                const ledgerName = String(
+                                    row[`Ledger ${k}`] || row[`Ledger_${k}`] || row[`Particulars ${k}`] || ""
+                                ).trim();
+                                const amount = Number(
+                                    row[`Amount ${k}`] || row[`Amount_${k}`] || row[`Amount (₹) ${k}`] || 0
+                                );
+                                const typeStr = String(
+                                    row[`Type ${k}`] || row[`Type_${k}`] || row[`Debit/Credit ${k}`] || "Debit"
+                                ).trim();
+                                const type: "Credit" | "Debit" = typeStr.toLowerCase().startsWith("c") ? "Credit" : "Debit";
+
+                                if (ledgerName && ledgerName !== "Ledger" && !ledgerName.toLowerCase().includes("amount")) {
+                                    rawGroups[groupKey].accountingEntries.push({
+                                        srNo: rawGroups[groupKey].accountingEntries.length + 1,
+                                        ledgerName,
+                                        amount,
+                                        type
+                                    });
+                                }
+                            }
+                        } else {
+                            // Vertical multi-row fallback
+                            const ledgerName = String(row["Ledger"] || row["Particulars (Ledger Name)"] || "").trim();
+                            const amount = Number(row["Amount"] || row["Amount (₹)"] || 0);
+                            const typeStr = String(row["Type"] || "Debit").trim();
+                            const type: "Credit" | "Debit" = typeStr.toLowerCase().startsWith("c") ? "Credit" : "Debit";
+                            if (ledgerName || amount > 0) {
+                                rawGroups[groupKey].accountingEntries.push({
+                                    srNo: rawGroups[groupKey].accountingEntries.length + 1,
+                                    ledgerName: ledgerName || "Purchase Account",
+                                    amount,
+                                    type
+                                });
+                            }
                         }
                     }
                 });
@@ -627,7 +719,13 @@ const PurchaseImport: React.FC = () => {
                 let errors: string[] = [];
 
                 // 1. Party / Supplier Name Resolution & Validation against Ledgers Master
-                const partyName = group.partyName;
+                let partyName = group.partyName;
+                if (group.mode === "Accounting Invoice" && (!partyName || partyName === "Supplier")) {
+                    const creditEntry = group.accountingEntries.find(e => e.type === "Credit");
+                    if (creditEntry) {
+                        partyName = creditEntry.ledgerName;
+                    }
+                }
                 const cleanPartyName = partyName.toLowerCase().replace(/\s+/g, " ").trim();
 
                 const matchedPartyLedger = partyName
@@ -642,11 +740,40 @@ const PurchaseImport: React.FC = () => {
 
                 const partyMatch = !!matchedPartyLedger;
 
-                if (!partyMatch) {
-                    errors.push(`Party / Supplier Name '${partyName}' Not Found in Ledger Master`);
+                // 2. GST State Detection: Company State vs Party State Code
+                const companyGstin = (companyInfo?.gstNumber || (companyInfo as any)?.gst_number || (companyInfo as any)?.gstin || "").trim();
+                const companyStateStr = (companyInfo?.state || "").trim();
+                const companyStateRes = extractStateCode(companyGstin || companyStateStr);
+
+                const partyGstin = (matchedPartyLedger?.gst_number || matchedPartyLedger?.gstNumber || group.gstin || "").trim();
+                const partyStateStr = (matchedPartyLedger?.state || group.pos || "").trim();
+                const partyStateRes = extractStateCode(partyGstin || partyStateStr);
+
+                let isSameState = false;
+                let isDifferentState = false;
+                let gstType: "same-state" | "different-state" | "unknown" = "unknown";
+
+                if (!companyStateRes.code) {
+                    errors.push(`Company GSTIN or State is missing/invalid in Company Profile. State cannot be determined.`);
                 }
 
-                // 2. Validate Items, HSN/SAC, Unit, Tax Rates & Purchase-Ledger (Item Invoice Mode)
+                if (!partyMatch) {
+                    errors.push(`Party / Supplier Name '${partyName}' Not Found in Ledger Master`);
+                } else if (!partyStateRes.code) {
+                    errors.push(`Party '${partyName}' GSTIN ('${partyGstin || 'Missing'}') or State is missing/invalid. State cannot be determined.`);
+                }
+
+                if (companyStateRes.code && partyStateRes.code) {
+                    if (partyStateRes.code === companyStateRes.code) {
+                        isSameState = true;
+                        gstType = "same-state";
+                    } else {
+                        isDifferentState = true;
+                        gstType = "different-state";
+                    }
+                }
+
+                // 3. Validate Items, HSN/SAC, Unit, Tax Rates & Purchase-Ledger (Item Invoice Mode)
                 let itemsValidated: ManualItemRow[] = [];
                 let totalDebit = 0;
                 let totalCredit = 0;
@@ -678,10 +805,42 @@ const PurchaseImport: React.FC = () => {
                             : null;
                         const purchaseLedgerFound = !!matchedPL;
 
-                        // CGST, SGST & IGST Tax Ledgers Matching
-                        const cgstLedgerFound = resolveTaxLedger('CGST', it.cgstRate, ledgers);
-                        const sgstLedgerFound = resolveTaxLedger('SGST', it.sgstRate, ledgers);
-                        const igstLedgerFound = resolveTaxLedger('IGST', it.igstRate, ledgers);
+                        // Dynamic Tax Split calculation based on determined State
+                        const rawGstRate = Number(it.rawGstRate ?? it.gstRate ?? 0);
+                        let cgstRate = 0;
+                        let sgstRate = 0;
+                        let igstRate = 0;
+
+                        let cgstRes = { found: true, ledgerName: "" };
+                        let sgstRes = { found: true, ledgerName: "" };
+                        let igstRes = { found: true, ledgerName: "" };
+
+                        if (isSameState) {
+                            cgstRate = Number((rawGstRate / 2).toFixed(2));
+                            sgstRate = Number((rawGstRate / 2).toFixed(2));
+                            igstRate = 0;
+
+                            if (cgstRate > 0) {
+                                cgstRes = resolveTaxLedger('CGST', cgstRate, ledgers);
+                                sgstRes = resolveTaxLedger('SGST', sgstRate, ledgers);
+                                if (!cgstRes.found) errors.push(`${cgstRate}% CGST Tax Ledger Not Found in Ledger Master`);
+                                if (!sgstRes.found) errors.push(`${sgstRate}% SGST Tax Ledger Not Found in Ledger Master`);
+                            }
+                        } else if (isDifferentState) {
+                            igstRate = rawGstRate;
+                            cgstRate = 0;
+                            sgstRate = 0;
+
+                            if (igstRate > 0) {
+                                igstRes = resolveTaxLedger('IGST', igstRate, ledgers);
+                                if (!igstRes.found) errors.push(`${igstRate}% IGST Tax Ledger Not Found in Ledger Master`);
+                            }
+                        } else {
+                            // Cannot determine state due to missing/invalid GSTIN
+                            cgstRes = { found: false, ledgerName: "" };
+                            sgstRes = { found: false, ledgerName: "" };
+                            igstRes = { found: false, ledgerName: "" };
+                        }
 
                         if (!itemFound) errors.push(`Stock Item '${it.itemName}' Not Found in Stock Item Master`);
                         else {
@@ -689,39 +848,36 @@ const PurchaseImport: React.FC = () => {
                             if (!unitFound) errors.push(`Unit '${it.unit}' Mismatch for Item '${it.itemName}'`);
                         }
                         if (!purchaseLedgerFound) errors.push(`Purchase-Ledger '${it.purchaseLedger}' Not Found in Ledger Master`);
-                        if (!cgstLedgerFound) errors.push(`${it.cgstRate}% CGST Tax Ledger Not Found in Ledger Master`);
-                        if (!sgstLedgerFound) errors.push(`${it.sgstRate}% SGST Tax Ledger Not Found in Ledger Master`);
-                        if (!igstLedgerFound) errors.push(`${it.igstRate}% IGST Tax Ledger Not Found in Ledger Master`);
 
-                        // Validate mutual exclusion between IGST and CGST/SGST
-                        if (it.igstRate > 0 && (it.cgstRate > 0 || it.sgstRate > 0)) {
-                            errors.push(`Cannot specify both IGST and CGST/SGST on Item '${it.itemName}' (Sr No ${it.srNo}). Please use either CGST+SGST or IGST.`);
-                        }
-
-                        // Calculate Exact Tax Amounts from Percentage Rates
-                        const isInter = it.igstRate > 0;
                         const taxableValue = Number((it.quantity * it.rate).toFixed(2));
                         const discountAmt = Number(it.discount || 0);
-                        const sgstAmount = !isInter ? Number(((taxableValue * (it.sgstRate || 0)) / 100).toFixed(2)) : 0;
-                        const cgstAmount = !isInter ? Number(((taxableValue * (it.cgstRate || 0)) / 100).toFixed(2)) : 0;
-                        const igstAmount = isInter ? Number(((taxableValue * (it.igstRate || 0)) / 100).toFixed(2)) : 0;
+                        const cgstAmount = isSameState ? Number(((taxableValue * cgstRate) / 100).toFixed(2)) : 0;
+                        const sgstAmount = isSameState ? Number(((taxableValue * sgstRate) / 100).toFixed(2)) : 0;
+                        const igstAmount = isDifferentState ? Number(((taxableValue * igstRate) / 100).toFixed(2)) : 0;
                         const itemTotal = Math.max(0, taxableValue + sgstAmount + cgstAmount + igstAmount - discountAmt);
 
                         itemsValidated.push({
                             ...it,
+                            rawGstRate,
+                            gstRate: rawGstRate,
+                            cgstRate,
+                            sgstRate,
+                            igstRate,
+                            cgstAmount,
+                            sgstAmount,
+                            igstAmount,
                             taxableValue,
                             discount: discountAmt,
-                            sgstAmount,
-                            cgstAmount,
-                            igstAmount,
                             itemTotal,
-                            gstRate: it.cgstRate + it.sgstRate + it.igstRate,
                             itemFound,
                             hsnFound,
                             unitFound,
-                            cgstLedgerFound,
-                            sgstLedgerFound,
-                            igstLedgerFound,
+                            cgstLedgerFound: cgstRes.found,
+                            sgstLedgerFound: sgstRes.found,
+                            igstLedgerFound: igstRes.found,
+                            matchedCgstLedgerName: cgstRes.ledgerName,
+                            matchedSgstLedgerName: sgstRes.ledgerName,
+                            matchedIgstLedgerName: igstRes.ledgerName,
                             purchaseLedgerFound,
                             _matchedItemId: matchedItem?.id,
                         });
@@ -729,19 +885,18 @@ const PurchaseImport: React.FC = () => {
                         totalDebit += itemTotal;
                     });
 
-                    // In Item Invoice mode, Party is Credited for total invoice value
                     totalCredit = totalDebit;
                 } else {
-                    // Accounting Invoice Mode Validation
+                    // Accounting Invoice Mode
                     let accEntriesValidated: ManualAccountingRow[] = [];
                     group.accountingEntries.forEach((ae: any) => {
-                        const cleanLName = (ae.ledgerName || "").toLowerCase().replace(/\s+/g, " ").trim();
-                        const matchedLedger = ledgers.find(l => (l.name || "").toLowerCase().replace(/\s+/g, " ").trim() === cleanLName);
+                        const matchedLedger = matchLedgerFlexibly(ae.ledgerName, ledgers);
                         const ledgerFound = !!matchedLedger;
                         if (!ledgerFound) errors.push(`Ledger '${ae.ledgerName}' Not Found in Ledger Master`);
 
                         accEntriesValidated.push({
                             ...ae,
+                            ledgerName: matchedLedger ? (matchedLedger.name || matchedLedger.ledger_name || ae.ledgerName) : ae.ledgerName,
                             ledgerFound,
                             _matchedLedgerId: matchedLedger?.id
                         });
@@ -756,7 +911,6 @@ const PurchaseImport: React.FC = () => {
                     group.accountingEntries = accEntriesValidated;
                 }
 
-                // 3. Debit = Credit Balance Validation
                 const isBalanceMatched = Math.abs(totalDebit - totalCredit) < 0.05 && totalDebit > 0;
                 if (!isBalanceMatched && group.mode === "Accounting Invoice") {
                     errors.push(`Balance Mismatch: Total Debit (₹${totalDebit}) != Total Credit (₹${totalCredit})`);
@@ -768,14 +922,14 @@ const PurchaseImport: React.FC = () => {
                 validatedVouchers.push({
                     id: group.id,
                     voucherDate: group.voucherDate,
-                    voucherNo: autoVoucherNo, // Sequential Voucher No from API
+                    voucherNo: autoVoucherNo,
                     supplierInvoice: group.supplierInvoice,
                     invoiceDate: group.invoiceDate,
-                    partyName: matchedPartyLedger?.name || group.partyName,
+                    partyName: matchedPartyLedger?.name || partyName || group.partyName,
                     mode: group.mode,
                     godownTracking: group.godownTracking,
-                    gstin: matchedPartyLedger?.gst_number || matchedPartyLedger?.gstNumber || "",
-                    pos: matchedPartyLedger?.state || "",
+                    gstin: partyGstin,
+                    pos: partyStateRes.name || matchedPartyLedger?.state || "",
                     totalDebit,
                     totalCredit,
                     invoiceValue: Math.max(totalDebit, totalCredit),
@@ -786,6 +940,11 @@ const PurchaseImport: React.FC = () => {
                     partyMatch,
                     isBalanceMatched,
                     _matchedLedgerId: matchedPartyLedger?.id || null,
+                    gstType,
+                    companyStateCode: companyStateRes.code || "",
+                    companyStateName: companyStateRes.name || "Unknown",
+                    partyStateCode: partyStateRes.code || "",
+                    partyStateName: partyStateRes.name || "Unknown",
                     items: itemsValidated,
                     accountingEntries: group.accountingEntries || [],
                 });
@@ -910,16 +1069,16 @@ const PurchaseImport: React.FC = () => {
     const downloadTemplate = (mode: 'Item Invoice' | 'Accounting Invoice') => {
         if (mode === 'Item Invoice') {
             const sheetData = [
-                // SINGLE HORIZONTAL HEADER ROW
+                // SINGLE HORIZONTAL HEADER ROW WITH SINGLE GST COLUMN
                 [
                     "Voucher Date", "Supplier Invoice", "Invoice Date", "Party / Supplier Name",
                     "Transaction Mode", "Godown Tracking", "Sr No", "Item", "HSN/SAC",
-                    "Quantity", "Unit", "Rate", "CGST (%)", "SGST (%)", "IGST (%)", "Discount", "Taxable", "Godown", "Purchase-Ledger"
+                    "Quantity", "Unit", "Rate", "GST", "Discount", "Taxable", "Godown", "Purchase-Ledger"
                 ],
                 // SAMPLE DATA ROWS
-                ["2026-02-16", "MSL/25-26/14420", "2026-02-16", "MONGIA STEEL LIMITED", "Item Invoice", "Enabled (Yes)", 1, "Biscute", "5555", 100, "PCS", 4000, 9, 9, 0, 100, 400000, "Main Location", "18% intra state purchase"],
-                ["", "", "", "", "", "", 2, "Steel Bar", "7214", 50, "KG", 1200, 9, 9, 0, 0, 60000, "Main Location", "18% intra state purchase"],
-                ["2026-02-20", "MSL/25-26/14425", "2026-02-20", "MONGIA STEEL LIMITED", "Item Invoice", "Enabled (Yes)", 1, "Cement", "2523", 200, "BAG", 350, 0, 0, 18, 50, 70000, "Main Location", "18% Inter State Purchase"]
+                ["2026-02-16", "MSL/25-26/14420", "2026-02-16", "MONGIA STEEL LIMITED", "Item Invoice", "Enabled (Yes)", 1, "Biscute", "5555", 100, "PCS", 4000, 18, 100, 400000, "Main Location", "18% intra state purchase"],
+                ["", "", "", "", "", "", 2, "Steel Bar", "7214", 50, "KG", 1200, 18, 0, 60000, "Main Location", "18% intra state purchase"],
+                ["2026-02-20", "MSL/25-26/14425", "2026-02-20", "MONGIA STEEL LIMITED", "Item Invoice", "Enabled (Yes)", 1, "Cement", "2523", 200, "BAG", 350, 18, 50, 70000, "Main Location", "18% Inter State Purchase"]
             ];
 
             const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
@@ -927,8 +1086,7 @@ const PurchaseImport: React.FC = () => {
                 { wch: 14 }, { wch: 22 }, { wch: 14 }, { wch: 28 },
                 { wch: 18 }, { wch: 18 }, { wch: 8 }, { wch: 20 },
                 { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 12 },
-                { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 12 },
-                { wch: 14 }, { wch: 16 }, { wch: 26 }
+                { wch: 10 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 26 }
             ];
 
             worksheet['!rows'] = [{ hpt: 26 }]; // Header row height
@@ -945,7 +1103,7 @@ const PurchaseImport: React.FC = () => {
                 }
             };
 
-            for (let c = 0; c < 19; c++) {
+            for (let c = 0; c < 17; c++) {
                 const cellRef = XLSX.utils.encode_cell({ r: 0, c });
                 if (worksheet[cellRef]) worksheet[cellRef].s = headerStyle;
             }
@@ -955,23 +1113,38 @@ const PurchaseImport: React.FC = () => {
             XLSX.writeFile(workbook, `Purchase_Item_Invoice_Template.xlsx`);
         } else {
             const sheetData = [
-                // SINGLE HORIZONTAL HEADER ROW
+                // SINGLE HORIZONTAL ROW PER ACCOUNTING INVOICE (WITHOUT PARTY NAME & GODOWN TRACKING)
                 [
-                    "Voucher Date", "Supplier Invoice", "Invoice Date", "Party / Supplier Name",
-                    "Transaction Mode", "Godown Tracking", "Ledger", "Amount", "Type", "Action"
+                    "Voucher Date", "Supplier Invoice", "Invoice Date", "Transaction Mode",
+                    "Ledger 1", "Amount 1", "Type 1",
+                    "Ledger 2", "Amount 2", "Type 2",
+                    "Ledger 3", "Amount 3", "Type 3",
+                    "Ledger 4", "Amount 4", "Type 4"
                 ],
-                // SAMPLE DATA ROWS
-                ["2026-03-30", "INV-123", "2026-03-30", "nuvoico trader", "Accounting Invoice", "Disabled (No)", "18% Intra State Purchase", 10000, "Debit", ""],
-                ["2026-03-30", "INV-123", "2026-03-30", "nuvoico trader", "Accounting Invoice", "Disabled (No)", "CGST", 900, "Debit", ""],
-                ["2026-03-30", "INV-123", "2026-03-30", "nuvoico trader", "Accounting Invoice", "Disabled (No)", "SGST", 900, "Debit", ""],
-                ["2026-03-30", "INV-123", "2026-03-30", "nuvoico trader", "Accounting Invoice", "Disabled (No)", "nuvoico trader", 11800, "Credit", ""]
+                // SAMPLE DATA ROWS (ONE COMPLETE INVOICE PER ROW)
+                [
+                    "2026-03-30", "INV-123", "2026-03-30", "Accounting Invoice",
+                    "18% Intra State Purchase", 10000, "Debit",
+                    "CGST", 900, "Debit",
+                    "SGST", 900, "Debit",
+                    "nuvoico trader", 11800, "Credit"
+                ],
+                [
+                    "2026-03-31", "INV-124", "2026-03-31", "Accounting Invoice",
+                    "18% Inter State Purchase", 50000, "Debit",
+                    "IGST", 9000, "Debit",
+                    "MONGIA STEEL LIMITED", 59000, "Credit",
+                    "", "", ""
+                ]
             ];
 
             const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
             worksheet['!cols'] = [
-                { wch: 14 }, { wch: 22 }, { wch: 14 }, { wch: 28 },
-                { wch: 18 }, { wch: 18 }, { wch: 28 }, { wch: 14 },
-                { wch: 12 }, { wch: 12 }
+                { wch: 14 }, { wch: 22 }, { wch: 14 }, { wch: 18 },
+                { wch: 26 }, { wch: 14 }, { wch: 10 },
+                { wch: 16 }, { wch: 14 }, { wch: 10 },
+                { wch: 16 }, { wch: 14 }, { wch: 10 },
+                { wch: 26 }, { wch: 14 }, { wch: 10 }
             ];
 
             worksheet['!rows'] = [{ hpt: 26 }]; // Header row height
@@ -988,7 +1161,7 @@ const PurchaseImport: React.FC = () => {
                 }
             };
 
-            for (let c = 0; c < 10; c++) {
+            for (let c = 0; c < 16; c++) {
                 const cellRef = XLSX.utils.encode_cell({ r: 0, c });
                 if (worksheet[cellRef]) worksheet[cellRef].s = headerStyle;
             }
@@ -1202,19 +1375,35 @@ const PurchaseImport: React.FC = () => {
                                             </div>
                                         </div>
 
-                                        {/* SECTION 1: HEADER BLOCK WITH DYNAMICALLY EXTRACTED SUPPLIER */}
+                                        {/* SECTION 1: HEADER BLOCK WITH DYNAMICALLY EXTRACTED SUPPLIER & STATE DETECTION */}
                                         <div className="p-4 mb-6 rounded-xl border border-gray-200 bg-gray-50/70 space-y-4">
-                                            <div className="text-[11px] font-bold uppercase tracking-wider text-blue-800 border-b border-gray-200 pb-1 flex items-center justify-between">
+                                            <div className="text-[11px] font-bold uppercase tracking-wider text-blue-800 border-b border-gray-200 pb-1 flex flex-wrap items-center justify-between gap-2">
                                                 <span>Voucher Header (Auto Sequence Generated)</span>
-                                                {voucher.isBalanceMatched ? (
-                                                    <span className="text-green-700 bg-green-100 px-2 py-0.5 rounded text-[10px] font-bold">
-                                                        ✓ Balanced (Debit = Credit = ₹{voucher.invoiceValue.toLocaleString()})
-                                                    </span>
-                                                ) : (
-                                                    <span className="text-red-700 bg-red-100 px-2 py-0.5 rounded text-[10px] font-bold">
-                                                        ✗ Balance Mismatch (Debit: ₹{voucher.totalDebit} | Credit: ₹{voucher.totalCredit})
-                                                    </span>
-                                                )}
+                                                <div className="flex items-center gap-2">
+                                                    {/* State Detection Badge */}
+                                                    {voucher.gstType === "same-state" ? (
+                                                        <span className="text-green-700 bg-green-100 px-2.5 py-0.5 rounded text-[10px] font-bold flex items-center gap-1">
+                                                            ✓ Same State (Intra-State: CGST + SGST)
+                                                        </span>
+                                                    ) : voucher.gstType === "different-state" ? (
+                                                        <span className="text-indigo-700 bg-indigo-100 px-2.5 py-0.5 rounded text-[10px] font-bold flex items-center gap-1">
+                                                            ✓ Different State (Inter-State: IGST)
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-red-700 bg-red-100 px-2.5 py-0.5 rounded text-[10px] font-bold flex items-center gap-1">
+                                                            ✗ State Cannot Be Determined
+                                                        </span>
+                                                    )}
+                                                    {voucher.isBalanceMatched ? (
+                                                        <span className="text-green-700 bg-green-100 px-2 py-0.5 rounded text-[10px] font-bold">
+                                                            ✓ Balanced (₹{voucher.invoiceValue.toLocaleString()})
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-red-700 bg-red-100 px-2 py-0.5 rounded text-[10px] font-bold">
+                                                            ✗ Balance Mismatch (Debit: ₹{voucher.totalDebit} | Credit: ₹{voucher.totalCredit})
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </div>
                                             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                                                 <div>
@@ -1240,23 +1429,37 @@ const PurchaseImport: React.FC = () => {
                                             </div>
                                             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                                                 <div className="md:col-span-2">
-                                                    <label className="block text-[10px] font-bold uppercase tracking-wider mb-1 text-gray-500">Party / Supplier Name</label>
+                                                    <label className="block text-[10px] font-bold uppercase tracking-wider mb-1 text-gray-500">
+                                                        Party / Supplier Name & State
+                                                    </label>
                                                     <div className="p-2 bg-white rounded border border-gray-300 text-xs font-bold flex items-center justify-between">
-                                                        <span>{voucher.partyName}</span>
-                                                        {voucher.partyMatch ? (
-                                                            <span className="text-[10px] text-green-700 bg-green-50 px-2 py-0.5 rounded font-bold">✓ Found</span>
+                                                        <span>
+                                                            {voucher.partyName}
+                                                            <span className="text-[10px] font-normal text-gray-500 ml-2">
+                                                                ({voucher.partyStateName} - {voucher.partyStateCode || 'No Code'})
+                                                            </span>
+                                                        </span>
+                                                        {voucher.partyMatch && voucher.partyStateCode ? (
+                                                            <span className="text-[10px] text-green-700 bg-green-50 px-2 py-0.5 rounded font-bold">✓ Party & State Valid</span>
                                                         ) : (
-                                                            <span className="text-[10px] text-red-700 bg-red-50 px-2 py-0.5 rounded font-bold">✗ Not Found</span>
+                                                            <span className="text-[10px] text-red-700 bg-red-50 px-2 py-0.5 rounded font-bold">✗ {voucher.partyMatch ? 'State Missing' : 'Party Not Found'}</span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[10px] font-bold uppercase tracking-wider mb-1 text-gray-500">Company State</label>
+                                                    <div className="p-2 bg-white rounded border border-gray-300 text-xs font-medium flex items-center justify-between">
+                                                        <span>{voucher.companyStateName} ({voucher.companyStateCode || 'N/A'})</span>
+                                                        {voucher.companyStateCode ? (
+                                                            <span className="text-[10px] text-green-700 bg-green-50 px-1.5 py-0.5 rounded font-bold">✓ Configured</span>
+                                                        ) : (
+                                                            <span className="text-[10px] text-red-700 bg-red-50 px-1.5 py-0.5 rounded font-bold">✗ Missing</span>
                                                         )}
                                                     </div>
                                                 </div>
                                                 <div>
                                                     <label className="block text-[10px] font-bold uppercase tracking-wider mb-1 text-gray-500">Transaction Mode</label>
                                                     <div className="p-2 bg-white rounded border border-gray-300 text-xs font-medium">{voucher.mode}</div>
-                                                </div>
-                                                <div>
-                                                    <label className="block text-[10px] font-bold uppercase tracking-wider mb-1 text-gray-500">Godown Tracking</label>
-                                                    <div className="p-2 bg-white rounded border border-gray-300 text-xs font-medium">{voucher.godownTracking}</div>
                                                 </div>
                                             </div>
                                         </div>
@@ -1277,9 +1480,8 @@ const PurchaseImport: React.FC = () => {
                                                                 <th className="px-3 py-2 text-right">Qty</th>
                                                                 <th className="px-3 py-2">Unit</th>
                                                                 <th className="px-3 py-2 text-right">Rate</th>
-                                                                <th className="px-3 py-2 text-right">SGST (%)</th>
-                                                                <th className="px-3 py-2 text-right">CGST (%)</th>
-                                                                <th className="px-3 py-2 text-right">IGST (%)</th>
+                                                                <th className="px-3 py-2 text-right">GST (%)</th>
+                                                                <th className="px-3 py-2">Tax Split & Ledger Mapping</th>
                                                                 <th className="px-3 py-2 text-right">Taxable</th>
                                                                 <th className="px-3 py-2 text-right">Item Total</th>
                                                                 <th className="px-3 py-2">Purchase-Ledger</th>
@@ -1321,41 +1523,56 @@ const PurchaseImport: React.FC = () => {
                                                                         </div>
                                                                     </td>
                                                                     <td className="px-3 py-2 text-right">₹{item.rate.toLocaleString()}</td>
-                                                                    {/* SGST % & Amount */}
-                                                                    <td className="px-3 py-2 text-right">
-                                                                        <div className="flex flex-col items-end">
-                                                                            <span className="font-semibold text-gray-800">{item.sgstRate}%</span>
-                                                                            <span className="text-[10px] text-gray-500">(₹{item.sgstAmount.toLocaleString()})</span>
-                                                                            {item.sgstLedgerFound ? (
-                                                                                <span className="text-[9px] text-green-700 bg-green-50 px-1.5 py-0.5 rounded font-bold mt-0.5">✓ Found</span>
-                                                                            ) : (
-                                                                                <span className="text-[9px] text-red-700 bg-red-50 px-1.5 py-0.5 rounded font-bold mt-0.5">✗ Not Found</span>
-                                                                            )}
-                                                                        </div>
-                                                                    </td>
-                                                                    {/* CGST % & Amount */}
-                                                                    <td className="px-3 py-2 text-right">
-                                                                        <div className="flex flex-col items-end">
-                                                                            <span className="font-semibold text-gray-800">{item.cgstRate}%</span>
-                                                                            <span className="text-[10px] text-gray-500">(₹{item.cgstAmount.toLocaleString()})</span>
-                                                                            {item.cgstLedgerFound ? (
-                                                                                <span className="text-[9px] text-green-700 bg-green-50 px-1.5 py-0.5 rounded font-bold mt-0.5">✓ Found</span>
-                                                                            ) : (
-                                                                                <span className="text-[9px] text-red-700 bg-red-50 px-1.5 py-0.5 rounded font-bold mt-0.5">✗ Not Found</span>
-                                                                            )}
-                                                                        </div>
-                                                                    </td>
-                                                                    {/* IGST % & Amount */}
-                                                                    <td className="px-3 py-2 text-right">
-                                                                        <div className="flex flex-col items-end">
-                                                                            <span className="font-semibold text-gray-800">{item.igstRate}%</span>
-                                                                            <span className="text-[10px] text-gray-500">(₹{item.igstAmount.toLocaleString()})</span>
-                                                                            {item.igstLedgerFound ? (
-                                                                                <span className="text-[9px] text-green-700 bg-green-50 px-1.5 py-0.5 rounded font-bold mt-0.5">✓ Found</span>
-                                                                            ) : (
-                                                                                <span className="text-[9px] text-red-700 bg-red-50 px-1.5 py-0.5 rounded font-bold mt-0.5">✗ Not Found</span>
-                                                                            )}
-                                                                        </div>
+                                                                    <td className="px-3 py-2 text-right font-bold text-blue-800">{item.gstRate}%</td>
+                                                                    {/* Tax Split & Ledger Mapping with Green Tick */}
+                                                                    <td className="px-3 py-2 min-w-[200px]">
+                                                                        {voucher.gstType === "same-state" ? (
+                                                                            <div className="flex flex-col gap-1 text-[11px]">
+                                                                                <div className="flex items-center justify-between gap-2">
+                                                                                    <span className="font-semibold text-gray-700">CGST {item.cgstRate}% (₹{item.cgstAmount.toLocaleString()})</span>
+                                                                                    {item.cgstLedgerFound ? (
+                                                                                        <span className="text-[9px] text-green-700 bg-green-50 px-1.5 py-0.5 rounded font-bold flex items-center gap-0.5" title={item.matchedCgstLedgerName}>
+                                                                                            <CheckCircle size={10} /> Mapped ({item.matchedCgstLedgerName || 'CGST'})
+                                                                                        </span>
+                                                                                    ) : (
+                                                                                        <span className="text-[9px] text-red-700 bg-red-50 px-1.5 py-0.5 rounded font-bold" title="CGST Ledger Not Found">
+                                                                                            ✗ Ledger Missing
+                                                                                        </span>
+                                                                                    )}
+                                                                                </div>
+                                                                                <div className="flex items-center justify-between gap-2">
+                                                                                    <span className="font-semibold text-gray-700">SGST {item.sgstRate}% (₹{item.sgstAmount.toLocaleString()})</span>
+                                                                                    {item.sgstLedgerFound ? (
+                                                                                        <span className="text-[9px] text-green-700 bg-green-50 px-1.5 py-0.5 rounded font-bold flex items-center gap-0.5" title={item.matchedSgstLedgerName}>
+                                                                                            <CheckCircle size={10} /> Mapped ({item.matchedSgstLedgerName || 'SGST'})
+                                                                                        </span>
+                                                                                    ) : (
+                                                                                        <span className="text-[9px] text-red-700 bg-red-50 px-1.5 py-0.5 rounded font-bold" title="SGST Ledger Not Found">
+                                                                                            ✗ Ledger Missing
+                                                                                        </span>
+                                                                                    )}
+                                                                                </div>
+                                                                            </div>
+                                                                        ) : voucher.gstType === "different-state" ? (
+                                                                            <div className="flex flex-col gap-1 text-[11px]">
+                                                                                <div className="flex items-center justify-between gap-2">
+                                                                                    <span className="font-semibold text-gray-700">IGST {item.igstRate}% (₹{item.igstAmount.toLocaleString()})</span>
+                                                                                    {item.igstLedgerFound ? (
+                                                                                        <span className="text-[9px] text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded font-bold flex items-center gap-0.5" title={item.matchedIgstLedgerName}>
+                                                                                            <CheckCircle size={10} /> Mapped ({item.matchedIgstLedgerName || 'IGST'})
+                                                                                        </span>
+                                                                                    ) : (
+                                                                                        <span className="text-[9px] text-red-700 bg-red-50 px-1.5 py-0.5 rounded font-bold" title="IGST Ledger Not Found">
+                                                                                            ✗ Ledger Missing
+                                                                                        </span>
+                                                                                    )}
+                                                                                </div>
+                                                                            </div>
+                                                                        ) : (
+                                                                            <span className="text-[10px] text-red-700 bg-red-50 px-2 py-0.5 rounded font-bold">
+                                                                                ✗ State Detection Failed
+                                                                            </span>
+                                                                        )}
                                                                     </td>
                                                                     <td className="px-3 py-2 text-right font-bold">₹{item.taxableValue.toLocaleString()}</td>
                                                                     <td className="px-3 py-2 text-right font-bold text-blue-700">₹{item.itemTotal.toLocaleString()}</td>
@@ -1374,7 +1591,7 @@ const PurchaseImport: React.FC = () => {
                                                         </tbody>
                                                         <tfoot className="bg-gray-50 font-bold border-t border-gray-300">
                                                             <tr>
-                                                                <td colSpan={9} className="px-3 py-2 text-right">Total Invoice Value:</td>
+                                                                <td colSpan={8} className="px-3 py-2 text-right">Total Invoice Value:</td>
                                                                 <td className="px-3 py-2 text-right text-blue-700 text-sm">₹{voucher.invoiceValue.toLocaleString()}</td>
                                                                 <td colSpan={2}></td>
                                                             </tr>
@@ -1490,13 +1707,13 @@ const PurchaseImport: React.FC = () => {
                                 <div>
                                     <h4 className="text-lg font-bold text-gray-900">Item Invoice Excel Template</h4>
                                     <span className="text-xs text-blue-600 font-semibold bg-blue-50 px-2 py-0.5 rounded">
-                                        SGST/CGST Percentage Numeric Format
+                                        Single GST Column & Auto State Detection
                                     </span>
                                 </div>
                             </div>
                             <p className="text-xs text-gray-600 mb-4 leading-relaxed">
-                                <strong>Single Header Row:</strong> Voucher Date, Supplier Invoice, Invoice Date, Party Name, Mode, Godown Tracking, Sr No, Item, HSN/SAC, Quantity, Unit, Rate, CGST (%), SGST (%), IGST (%), Discount, Taxable, Godown, Purchase-Ledger.<br />
-                                <span className="text-blue-700 font-medium">Tip: Specify either CGST+SGST (Intra-State) or IGST (Inter-State) on each item. Do not specify both together.</span>
+                                <strong>Single Header Row:</strong> Voucher Date, Supplier Invoice, Invoice Date, Party Name, Mode, Godown Tracking, Sr No, Item, HSN/SAC, Quantity, Unit, Rate, GST, Discount, Taxable, Godown, Purchase-Ledger.<br />
+                                <span className="text-blue-700 font-medium">Tip: Enter total GST rate (e.g. 18). The system automatically determines Intra-State (CGST + SGST) vs Inter-State (IGST) based on Party & Company GSTIN state codes.</span>
                             </p>
                             <button
                                 onClick={() => downloadTemplate('Item Invoice')}
@@ -1516,13 +1733,13 @@ const PurchaseImport: React.FC = () => {
                                 <div>
                                     <h4 className="text-lg font-bold text-gray-900">Accounting Invoice Excel Template</h4>
                                     <span className="text-xs text-indigo-600 font-semibold bg-indigo-50 px-2 py-0.5 rounded">
-                                        Debit/Credit Ledger Structure
+                                        Single Horizontal Row Layout (1 Row per Invoice)
                                     </span>
                                 </div>
                             </div>
                             <p className="text-xs text-gray-600 mb-4 leading-relaxed">
-                                <strong>Single Header Row:</strong> Voucher Date, Supplier Invoice, Invoice Date, Party Name, Mode, Godown Tracking, Ledger, Amount, Type (Debit/Credit), Action.<br />
-                                <span className="text-indigo-700 font-medium">Tip: Voucher-level fields only need to be filled on the first row of each voucher.</span>
+                                <strong>Single Header Row (Horizontal Layout):</strong> Voucher Date, Supplier Invoice, Invoice Date, Party Name, Mode, Godown Tracking, Ledger 1, Amount 1, Type 1, Ledger 2, Amount 2, Type 2, Ledger 3, Amount 3, Type 3, Party Ledger, Credit Amount, Credit Type.<br />
+                                <span className="text-indigo-700 font-medium">Tip: Every accounting invoice's complete Debit/Credit entries are arranged horizontally on a single row for easy Excel copy-pasting.</span>
                             </p>
                             <button
                                 onClick={() => downloadTemplate('Accounting Invoice')}

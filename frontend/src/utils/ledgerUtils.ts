@@ -48,6 +48,95 @@ export const isB2BLedger = (ledger: Ledger): boolean => {
   return Boolean(ledger.gstNumber && ledger.gstNumber.trim().length > 0);
 };
 
+export const STATE_CODES: { [key: string]: string } = {
+  '01': 'Jammu and Kashmir',
+  '02': 'Himachal Pradesh',
+  '03': 'Punjab',
+  '04': 'Chandigarh',
+  '05': 'Uttarakhand',
+  '06': 'Haryana',
+  '07': 'Delhi',
+  '08': 'Rajasthan',
+  '09': 'Uttar Pradesh',
+  '10': 'Bihar',
+  '11': 'Sikkim',
+  '12': 'Arunachal Pradesh',
+  '13': 'Nagaland',
+  '14': 'Manipur',
+  '15': 'Mizoram',
+  '16': 'Tripura',
+  '17': 'Meghalaya',
+  '18': 'Assam',
+  '19': 'West Bengal',
+  '20': 'Jharkhand',
+  '21': 'Odisha',
+  '22': 'Chhattisgarh',
+  '23': 'Madhya Pradesh',
+  '24': 'Gujarat',
+  '25': 'Daman and Diu',
+  '26': 'Dadra and Nagar Haveli',
+  '27': 'Maharashtra',
+  '28': 'Andhra Pradesh',
+  '29': 'Karnataka',
+  '30': 'Goa',
+  '31': 'Lakshadweep',
+  '32': 'Kerala',
+  '33': 'Tamil Nadu',
+  '34': 'Puducherry',
+  '35': 'Andaman and Nicobar Islands',
+  '36': 'Telangana',
+  '37': 'Andhra Pradesh (New)',
+  '38': 'Ladakh'
+};
+
+export const STATE_NAME_TO_CODE: { [key: string]: string } = Object.entries(STATE_CODES).reduce(
+  (acc, [code, name]) => {
+    acc[name.toLowerCase()] = code;
+    return acc;
+  },
+  {
+    'west bengal': '19',
+    'wb': '19',
+    'maharashtra': '27',
+    'mh': '27',
+    'orissa': '21',
+    'pondicherry': '34'
+  } as { [key: string]: string }
+);
+
+/**
+ * Extracts 2-digit Indian state code from GSTIN or state name
+ */
+export const extractStateCode = (gstinOrState?: string | null): { code: string | null; name: string | null } => {
+  if (!gstinOrState) return { code: null, name: null };
+  const clean = gstinOrState.trim();
+  if (!clean) return { code: null, name: null };
+
+  // Check if first two chars are digits matching a valid state code
+  if (clean.length >= 2 && /^\d{2}/.test(clean)) {
+    const code = clean.substring(0, 2);
+    if (STATE_CODES[code]) {
+      return { code, name: STATE_CODES[code] };
+    }
+  }
+
+  // Fallback: search by state name
+  const lower = clean.toLowerCase();
+  if (STATE_NAME_TO_CODE[lower]) {
+    const code = STATE_NAME_TO_CODE[lower];
+    return { code, name: STATE_CODES[code] || clean };
+  }
+
+  // Partial match by name
+  for (const [code, name] of Object.entries(STATE_CODES)) {
+    if (lower.includes(name.toLowerCase()) || name.toLowerCase().includes(lower)) {
+      return { code, name };
+    }
+  }
+
+  return { code: null, name: null };
+};
+
 /**
  * Gets the GST state code from GSTIN
  * @param gstin - The GSTIN number
@@ -55,50 +144,8 @@ export const isB2BLedger = (ledger: Ledger): boolean => {
  */
 export const getGSTStateCode = (gstin: string): string => {
   if (!gstin || gstin.length < 2) return '';
-  
   const stateCode = gstin.substring(0, 2);
-  const stateCodes: { [key: string]: string } = {
-    '01': 'Jammu and Kashmir',
-    '02': 'Himachal Pradesh',
-    '03': 'Punjab',
-    '04': 'Chandigarh',
-    '05': 'Uttarakhand',
-    '06': 'Haryana',
-    '07': 'Delhi',
-    '08': 'Rajasthan',
-    '09': 'Uttar Pradesh',
-    '10': 'Bihar',
-    '11': 'Sikkim',
-    '12': 'Arunachal Pradesh',
-    '13': 'Nagaland',
-    '14': 'Manipur',
-    '15': 'Mizoram',
-    '16': 'Tripura',
-    '17': 'Meghalaya',
-    '18': 'Assam',
-    '19': 'West Bengal',
-    '20': 'Jharkhand',
-    '21': 'Odisha',
-    '22': 'Chhattisgarh',
-    '23': 'Madhya Pradesh',
-    '24': 'Gujarat',
-    '25': 'Daman and Diu',
-    '26': 'Dadra and Nagar Haveli',
-    '27': 'Maharashtra',
-    '28': 'Andhra Pradesh',
-    '29': 'Karnataka',
-    '30': 'Goa',
-    '31': 'Lakshadweep',
-    '32': 'Kerala',
-    '33': 'Tamil Nadu',
-    '34': 'Puducherry',
-    '35': 'Andaman and Nicobar Islands',
-    '36': 'Telangana',
-    '37': 'Andhra Pradesh (New)',
-    '38': 'Ladakh'
-  };
-  
-  return stateCodes[stateCode] || '';
+  return STATE_CODES[stateCode] || '';
 };
 
 /**
@@ -147,6 +194,8 @@ export default {
   categorizeLedgers,
   isB2BLedger,
   getGSTStateCode,
+  extractStateCode,
   formatGSTNumber,
   getBusinessTypeSuggestion
 };
+
