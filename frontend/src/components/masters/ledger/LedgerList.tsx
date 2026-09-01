@@ -14,6 +14,7 @@ const LedgerList: React.FC = () => {
   const [categoryFilter, setCategoryFilter] = useState<"all" | "b2b" | "b2c">(
     "all"
   );
+  const [selectedGroupFilter, setSelectedGroupFilter] = useState<string>("all");
   const [ledgers, setLedgers] = useState<Ledger[]>([]);
   const [ledgerGroups, setLedgerGroups] = useState<LedgerGroup[]>([]);
   const [showExportPopup, setShowExportPopup] = useState(false);
@@ -153,6 +154,31 @@ const LedgerList: React.FC = () => {
     return ledgers.filter((l) => l.ownerId !== 0);
   }, [ledgers]);
 
+  const availableGroups = useMemo(() => {
+    const map = new Map<string, string>();
+
+    // Add base groups
+    baseGroups.forEach((g) => map.set(String(g.id), g.name));
+
+    // Add user custom groups
+    ledgerGroups.forEach((g) => map.set(String(g.id), g.name));
+
+    // Collect any additional groups present directly on user ledgers
+    userLedgers.forEach((l) => {
+      if (l.groupId !== undefined && l.groupId !== null) {
+        const idStr = String(l.groupId);
+        if (!map.has(idStr)) {
+          const resolvedName = getGroupName(l.groupId);
+          map.set(idStr, resolvedName !== "—" ? resolvedName : idStr);
+        }
+      }
+    });
+
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [ledgerGroups, userLedgers]);
+
   const filteredLedgers = Array.isArray(userLedgers)
     ? userLedgers.filter((ledger) => {
       const matchesSearch = ledger.name
@@ -165,7 +191,22 @@ const LedgerList: React.FC = () => {
           ledger.gstNumber.trim().length > 0) ||
         (categoryFilter === "b2c" &&
           (!ledger.gstNumber || ledger.gstNumber.trim().length === 0));
-      return matchesSearch && matchesCategory;
+
+      let matchesGroup = true;
+      if (selectedGroupFilter !== "all") {
+        const selectedGroupObj = availableGroups.find((g) => g.id === selectedGroupFilter);
+        const selectedGroupName = selectedGroupObj ? selectedGroupObj.name.toLowerCase() : "";
+
+        const ledgerGroupIdStr = String(ledger.groupId);
+        const ledgerGroupName = getGroupName(ledger.groupId).toLowerCase();
+
+        matchesGroup =
+          ledgerGroupIdStr === selectedGroupFilter ||
+          Number(ledger.groupId) === Number(selectedGroupFilter) ||
+          (selectedGroupName !== "" && ledgerGroupName === selectedGroupName);
+      }
+
+      return matchesSearch && matchesCategory && matchesGroup;
     })
     .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
     : [];
@@ -572,6 +613,22 @@ const LedgerList: React.FC = () => {
                 <option value="all">All Ledgers</option>
                 <option value="b2b">B2B (With GST)</option>
                 <option value="b2c">B2C (Without GST)</option>
+              </select>
+
+              <select
+                value={selectedGroupFilter}
+                onChange={(e) => setSelectedGroupFilter(e.target.value)}
+                className={`px-3 py-2 rounded-md border ${theme === "dark"
+                  ? "bg-gray-700 border-gray-600 text-white"
+                  : "bg-white border-gray-300 text-gray-900"
+                  }`}
+              >
+                <option value="all">All Groups</option>
+                {availableGroups.map((group) => (
+                  <option key={group.id} value={group.id}>
+                    {group.name}
+                  </option>
+                ))}
               </select>
             </div>
 
