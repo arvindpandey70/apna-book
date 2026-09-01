@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Plus, Edit, Trash2, Package, Upload, X, Search } from "lucide-react";
 import { useAppContext } from "../../../context/AppContext";
@@ -8,7 +8,8 @@ import Swal from "sweetalert2";
 interface StockItem {
   id: string;
   name: string;
-  stockGroupId: string;
+  stockGroupId?: string | number;
+  categoryId?: string | number;
   unit: string;
   openingBalance: number;
   gstLedgerId?: string | number;
@@ -30,16 +31,22 @@ const StockItemList = () => {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const itemsPerPage = 10;
 
+  // Filter state for Stock Group & Stock Category
+  const [stockGroups, setStockGroups] = useState<any[]>([]);
+  const [stockCategories, setStockCategories] = useState<any[]>([]);
+  const [selectedStockGroup, setSelectedStockGroup] = useState<string>("all");
+  const [selectedStockCategory, setSelectedStockCategory] = useState<string>("all");
+
   const companyId = localStorage.getItem("company_id");
   const ownerType = localStorage.getItem("supplier");
   const ownerId = localStorage.getItem(
     ownerType === "employee" ? "employee_id" : "user_id"
   );
 
-  // Reset page when search term changes
+  // Reset page when search or filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm]);
+  }, [searchTerm, selectedStockGroup, selectedStockCategory]);
 
   // fetch units from database
   const [unitsData, setUnitsData] = useState<any[]>([]);
@@ -128,10 +135,89 @@ const StockItemList = () => {
     fetchLedgers();
   }, [companyId, ownerType, ownerId]);
 
-  // Filter stock items by item name (case-insensitive)
+  // fetch stock groups from database
+  useEffect(() => {
+    if (!companyId || !ownerType || !ownerId) return;
+
+    const fetchStockGroups = async () => {
+      try {
+        const res = await fetch(
+          `${import.meta.env.VITE_API_URL}/api/stock-groups/list?company_id=${companyId}&owner_type=${ownerType}&owner_id=${ownerId}`
+        );
+        const data = await res.json();
+        setStockGroups(Array.isArray(data) ? data : []);
+      } catch (error) {
+        console.error("Failed to fetch stock groups:", error);
+        setStockGroups([]);
+      }
+    };
+
+    fetchStockGroups();
+  }, [companyId, ownerType, ownerId]);
+
+  // fetch stock categories from database
+  useEffect(() => {
+    if (!companyId || !ownerType || !ownerId) return;
+
+    const fetchStockCategories = async () => {
+      try {
+        const params = new URLSearchParams({
+          company_id: companyId,
+          owner_type: ownerType,
+          owner_id: ownerId,
+        });
+        const res = await fetch(
+          `${import.meta.env.VITE_API_URL}/api/stock-categories?${params.toString()}`
+        );
+        const data = await res.json();
+        setStockCategories(Array.isArray(data) ? data : []);
+      } catch (error) {
+        console.error("Failed to fetch stock categories:", error);
+        setStockCategories([]);
+      }
+    };
+
+    fetchStockCategories();
+  }, [companyId, ownerType, ownerId]);
+
+  // Filter category options based on selected stock group
+  const filteredCategoryOptions = useMemo(() => {
+    if (selectedStockGroup === "all") return stockCategories;
+    const filtered = stockCategories.filter(
+      (c) => String(c.parent) === selectedStockGroup || String(c.group_id) === selectedStockGroup
+    );
+    return filtered.length > 0 ? filtered : stockCategories;
+  }, [stockCategories, selectedStockGroup]);
+
+  // Filter stock items by item name, group, and category
   const filteredStockItems = stockItems.filter((item) => {
     if (!item.id || !item.name) return false;
-    return item.name.toLowerCase().includes(searchTerm.toLowerCase().trim());
+
+    // 1. Search term match
+    const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase().trim());
+    if (!matchesSearch) return false;
+
+    // 2. Stock Group match
+    let matchesGroup = true;
+    if (selectedStockGroup !== "all") {
+      const itemCat = stockCategories.find((c) => String(c.id) === String(item.categoryId));
+      const itemCatParent = itemCat ? String(itemCat.parent) : "";
+
+      matchesGroup =
+        String(item.stockGroupId) === selectedStockGroup ||
+        (itemCatParent !== "" && itemCatParent === selectedStockGroup);
+    }
+    if (!matchesGroup) return false;
+
+    // 3. Stock Category match
+    let matchesCategory = true;
+    if (selectedStockCategory !== "all") {
+      matchesCategory =
+        String(item.categoryId) === selectedStockCategory ||
+        String((item as any).category) === selectedStockCategory;
+    }
+
+    return matchesCategory;
   });
 
   const totalPages = Math.ceil(filteredStockItems.length / itemsPerPage) || 1;
@@ -273,34 +359,77 @@ const StockItemList = () => {
         </div>
       </div>
 
-      {/* Search Input Box */}
-      <div className="mb-4 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4">
-        <div className="relative flex-1 max-w-md">
-          <Search className={`absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 ${theme === "dark" ? "text-gray-400" : "text-gray-500"}`} />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search item by name..."
-            className={`w-full pl-9 pr-9 py-2 rounded-lg border text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+      {/* Search & Filter Controls */}
+      <div className="mb-4 flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
+          {/* Search Input Box */}
+          <div className="relative flex-1 max-w-md">
+            <Search className={`absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 ${theme === "dark" ? "text-gray-400" : "text-gray-500"}`} />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search item by name..."
+              className={`w-full pl-9 pr-9 py-2 rounded-lg border text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                theme === "dark"
+                  ? "bg-gray-800 border-gray-700 text-gray-100 placeholder-gray-400 focus:border-blue-500"
+                  : "bg-white border-gray-300 text-gray-900 placeholder-gray-500 focus:border-blue-500"
+              }`}
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors p-1"
+                title="Clear search"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Stock Group Filter Dropdown */}
+          <select
+            value={selectedStockGroup}
+            onChange={(e) => {
+              setSelectedStockGroup(e.target.value);
+              setSelectedStockCategory("all");
+            }}
+            className={`px-3 py-2 rounded-lg border text-sm transition-colors outline-none cursor-pointer ${
               theme === "dark"
-                ? "bg-gray-800 border-gray-700 text-gray-100 placeholder-gray-400 focus:border-blue-500"
-                : "bg-white border-gray-300 text-gray-900 placeholder-gray-500 focus:border-blue-500"
+                ? "bg-gray-800 border-gray-700 text-gray-100 focus:border-blue-500"
+                : "bg-white border-gray-300 text-gray-900 focus:border-blue-500"
             }`}
-          />
-          {searchTerm && (
-            <button
-              onClick={() => setSearchTerm("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors p-1"
-              title="Clear search"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          )}
+          >
+            <option value="all">All Stock Groups</option>
+            {stockGroups.map((group) => (
+              <option key={group.id} value={String(group.id)}>
+                {group.name}
+              </option>
+            ))}
+          </select>
+
+          {/* Stock Category Filter Dropdown */}
+          <select
+            value={selectedStockCategory}
+            onChange={(e) => setSelectedStockCategory(e.target.value)}
+            className={`px-3 py-2 rounded-lg border text-sm transition-colors outline-none cursor-pointer ${
+              theme === "dark"
+                ? "bg-gray-800 border-gray-700 text-gray-100 focus:border-blue-500"
+                : "bg-white border-gray-300 text-gray-900 focus:border-blue-500"
+            }`}
+          >
+            <option value="all">All Stock Categories</option>
+            {filteredCategoryOptions.map((cat) => (
+              <option key={cat.id} value={String(cat.id)}>
+                {cat.name}
+              </option>
+            ))}
+          </select>
         </div>
-        {searchTerm && (
+
+        {(searchTerm || selectedStockGroup !== "all" || selectedStockCategory !== "all") && (
           <div className={`text-sm font-medium ${theme === "dark" ? "text-gray-400" : "text-gray-600"}`}>
-            Found <span className="text-blue-500 font-semibold">{filteredStockItems.length}</span> {filteredStockItems.length === 1 ? "item" : "items"} matching "{searchTerm}"
+            Found <span className="text-blue-500 font-semibold">{filteredStockItems.length}</span> {filteredStockItems.length === 1 ? "item" : "items"}
           </div>
         )}
       </div>
@@ -418,12 +547,16 @@ const StockItemList = () => {
                         <div className="flex flex-col items-center justify-center py-4">
                           <Package className="h-10 w-10 text-gray-400 mb-2 stroke-1" />
                           <p className="font-semibold text-base">No items found</p>
-                          <p className="text-xs text-gray-400 mt-1">No stock items match "{searchTerm}"</p>
+                          <p className="text-xs text-gray-400 mt-1">No stock items match the selected search or filter criteria.</p>
                           <button
-                            onClick={() => setSearchTerm("")}
+                            onClick={() => {
+                              setSearchTerm("");
+                              setSelectedStockGroup("all");
+                              setSelectedStockCategory("all");
+                            }}
                             className="mt-3 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-md transition-colors"
                           >
-                            Clear Search
+                            Clear All Filters
                           </button>
                         </div>
                       </td>
