@@ -4282,7 +4282,7 @@ const SalesVoucher: React.FC = () => {
                                 colSpan={colspan}
                               >
                                 <div className="flex items-center gap-3 flex-wrap">
-                                  <span>Overall Discount:</span>
+                                  <span>Overall:</span>
                                   <select
                                     name="discountLedgerId"
                                     value={formData.discountLedgerId || ""}
