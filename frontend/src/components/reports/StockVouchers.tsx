@@ -50,7 +50,7 @@ const StockVouchers = () => {
     ) || "";
 
   useEffect(() => {
-    if (!itemName || !batchName || !monthLabel) return;
+    if (!itemName || !monthLabel) return;
     loadVouchers();
   }, [itemName, batchName, monthLabel]);
 
@@ -124,14 +124,14 @@ const StockVouchers = () => {
     }
     setUnitName(matchedUnitName);
 
-    const isDefaultBatch = batchName === "Default";
+    const isAllBatches = !batchName || batchName === "null" || batchName === "undefined" || batchName === "All" || batchName === "";
+    const isDefaultBatch = isAllBatches || batchName.toLowerCase() === "default";
 
-    // 🔹 Detect REAL opening batch
     // 🔹 Match Logic Helper (Consistent with ItemMonthlySummary)
     const isMatch = (itemBatch: string | null | undefined) => {
-      if (itemBatch === batchName) return true;
-      if (isDefaultBatch && (!itemBatch || itemBatch === "default" || itemBatch === "Default")) return true;
-      return false;
+      if (isAllBatches || isDefaultBatch) return true;
+      if (!itemBatch) return false;
+      return itemBatch.toLowerCase() === batchName.toLowerCase();
     };
 
     // Backfill imported purchases from stock items batches
