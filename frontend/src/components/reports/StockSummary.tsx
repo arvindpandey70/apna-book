@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronRight,
   Settings,
+  Filter,
   Edit,
   Check,
   X,
@@ -37,6 +38,10 @@ const StockSummary: React.FC = () => {
   const [categoryVouchers, setCategoryVouchers] = useState<{ purchase: any[], sales: any[] } | null>(null);
   const [categoryVouchersLoading, setCategoryVouchersLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showFilter, setShowFilter] = useState(false);
+  const [showOpening, setShowOpening] = useState(true);
+  const [showInward, setShowInward] = useState(true);
+  const [showOutward, setShowOutward] = useState(true);
   const [editLedgerId, setEditLedgerId] = useState<number | null>(null);
   const [editClosingBalance, setEditClosingBalance] = useState<string>("");
 
@@ -1168,12 +1173,65 @@ const StockSummary: React.FC = () => {
 
         <div className="ml-auto flex space-x-2 relative">
           <button
-            onClick={() => setShowSettings((p) => !p)}
+            onClick={() => {
+              setShowSettings((p) => !p);
+              setShowFilter(false);
+            }}
             className="p-2 rounded-md hover:bg-gray-200"
             title="Settings"
           >
             <Settings size={18} />
           </button>
+
+          <div className="relative">
+            <button
+              onClick={() => {
+                setShowFilter((p) => !p);
+                setShowSettings(false);
+              }}
+              className={`p-2 rounded-md hover:bg-gray-200 ${showFilter ? "bg-gray-200 dark:bg-gray-700" : ""}`}
+              title="Filter Columns"
+            >
+              <Filter size={18} />
+            </button>
+
+            {showFilter && (
+              <div className={`absolute right-0 top-10 w-56 border shadow-lg rounded z-50 p-3 text-sm ${theme === "dark" ? "bg-gray-800 border-gray-700 text-white" : "bg-white border-gray-200 text-black"}`}>
+                <div className="font-semibold border-b pb-2 mb-2 text-xs uppercase tracking-wider text-gray-500">
+                  Column Visibility
+                </div>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={showOpening}
+                      onChange={(e) => setShowOpening(e.target.checked)}
+                      className="rounded"
+                    />
+                    Opening Balance
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={showInward}
+                      onChange={(e) => setShowInward(e.target.checked)}
+                      className="rounded"
+                    />
+                    Inward
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={showOutward}
+                      onChange={(e) => setShowOutward(e.target.checked)}
+                      className="rounded"
+                    />
+                    Outward
+                  </label>
+                </div>
+              </div>
+            )}
+          </div>
 
           <button onClick={() => window.print()} className="p-2 rounded-md">
             <Printer size={18} />
@@ -1416,36 +1474,38 @@ const StockSummary: React.FC = () => {
                         >
                           Particulars
                         </th>
-                        {(reportView === "All" || reportView === "Categories") && (
-                          <>
-                            <th
-                              colSpan={3}
-                              className={`border ${theme === "dark"
-                                ? "border-gray-500"
-                                : "border-gray-400"
-                                } p-1 text-center font-semibold`}
-                            >
-                              Opening Balance
-                            </th>
-                            <th
-                              colSpan={3}
-                              className={`border ${theme === "dark"
-                                ? "border-gray-500"
-                                : "border-gray-400"
-                                } p-1 text-center font-semibold`}
-                            >
-                              Inwards
-                            </th>
-                            <th
-                              colSpan={3}
-                              className={`border ${theme === "dark"
-                                ? "border-gray-500"
-                                : "border-gray-400"
-                                } p-1 text-center font-semibold`}
-                            >
-                              Outwards
-                            </th>
-                          </>
+                        {showOpening && (
+                          <th
+                            colSpan={3}
+                            className={`border ${theme === "dark"
+                              ? "border-gray-500"
+                              : "border-gray-400"
+                              } p-1 text-center font-semibold`}
+                          >
+                            Opening Balance
+                          </th>
+                        )}
+                        {showInward && (
+                          <th
+                            colSpan={3}
+                            className={`border ${theme === "dark"
+                              ? "border-gray-500"
+                              : "border-gray-400"
+                              } p-1 text-center font-semibold`}
+                          >
+                            Inwards
+                          </th>
+                        )}
+                        {showOutward && (
+                          <th
+                            colSpan={3}
+                            className={`border ${theme === "dark"
+                              ? "border-gray-500"
+                              : "border-gray-400"
+                              } p-1 text-center font-semibold`}
+                          >
+                            Outwards
+                          </th>
                         )}
                         <th
                           colSpan={3}
@@ -1465,19 +1525,22 @@ const StockSummary: React.FC = () => {
                             : "bg-gray-200 text-black"
                         }
                       >
-                        {(reportView === "All" || reportView === "Categories") && (
+                        {showOpening && (
                           <>
-                            {/* Opening */}
                             <th className={`border ${theme === "dark" ? "border-gray-500" : "border-gray-400"} p-1 text-center`}>Quantity</th>
                             <th className={`border ${theme === "dark" ? "border-gray-500" : "border-gray-400"} p-1 text-center`}>Rate</th>
                             <th className={`border ${theme === "dark" ? "border-gray-500" : "border-gray-400"} p-1 text-center`}>Value</th>
-
-                            {/* Inward */}
+                          </>
+                        )}
+                        {showInward && (
+                          <>
                             <th className={`border ${theme === "dark" ? "border-gray-500" : "border-gray-400"} p-1 text-center`}>Quantity</th>
                             <th className={`border ${theme === "dark" ? "border-gray-500" : "border-gray-400"} p-1 text-center`}>Rate</th>
                             <th className={`border ${theme === "dark" ? "border-gray-500" : "border-gray-400"} p-1 text-center`}>Value</th>
-
-                            {/* Outward */}
+                          </>
+                        )}
+                        {showOutward && (
+                          <>
                             <th className={`border ${theme === "dark" ? "border-gray-500" : "border-gray-400"} p-1 text-center`}>Quantity</th>
                             <th className={`border ${theme === "dark" ? "border-gray-500" : "border-gray-400"} p-1 text-center`}>Rate</th>
                             <th className={`border ${theme === "dark" ? "border-gray-500" : "border-gray-400"} p-1 text-center`}>Value</th>
@@ -1514,15 +1577,27 @@ const StockSummary: React.FC = () => {
                                          {group.name}
                                        </div>
                                      </td>
-                                     <td className="border p-2 text-right align-middle">{groupTotals.openingQty ? `${groupTotals.openingQty} ${group.unitName || ""}`.trim() : ""}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(groupOpRate)}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(groupTotals.openingValue)}</td>
-                                     <td className="border p-2 text-right align-middle">{groupTotals.inwardQty ? `${groupTotals.inwardQty} ${group.unitName || ""}`.trim() : ""}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(groupInRate)}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(groupTotals.inwardValue)}</td>
-                                     <td className="border p-2 text-right align-middle">{groupTotals.outwardQty ? `${groupTotals.outwardQty} ${group.unitName || ""}`.trim() : ""}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(groupOutRate)}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(groupTotals.outwardValue)}</td>
+                                     {showOpening && (
+                                       <>
+                                         <td className="border p-2 text-right align-middle">{groupTotals.openingQty ? `${groupTotals.openingQty} ${group.unitName || ""}`.trim() : ""}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(groupOpRate)}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(groupTotals.openingValue)}</td>
+                                       </>
+                                     )}
+                                     {showInward && (
+                                       <>
+                                         <td className="border p-2 text-right align-middle">{groupTotals.inwardQty ? `${groupTotals.inwardQty} ${group.unitName || ""}`.trim() : ""}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(groupInRate)}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(groupTotals.inwardValue)}</td>
+                                       </>
+                                     )}
+                                     {showOutward && (
+                                       <>
+                                         <td className="border p-2 text-right align-middle">{groupTotals.outwardQty ? `${groupTotals.outwardQty} ${group.unitName || ""}`.trim() : ""}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(groupOutRate)}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(groupTotals.outwardValue)}</td>
+                                       </>
+                                     )}
                                      <td className="border p-2 text-right align-middle">{groupTotals.closingQty ? `${groupTotals.closingQty} ${group.unitName || ""}`.trim() : ""}</td>
                                      <td className="border p-2 text-right align-middle">{formatCurrency(groupClRate)}</td>
                                      <td className="border p-2 text-right align-middle">{formatCurrency(groupTotals.closingValue)}</td>
@@ -1550,15 +1625,27 @@ const StockSummary: React.FC = () => {
                                          {category.name}
                                        </div>
                                      </td>
-                                     <td className="border p-2 text-right align-middle">{catTotals.openingQty ? `${catTotals.openingQty} ${category.unitName || ""}`.trim() : ""}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(catOpRate)}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(catTotals.openingValue)}</td>
-                                     <td className="border p-2 text-right align-middle">{catTotals.inwardQty ? `${catTotals.inwardQty} ${category.unitName || ""}`.trim() : ""}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(catInRate)}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(catTotals.inwardValue)}</td>
-                                     <td className="border p-2 text-right align-middle">{catTotals.outwardQty ? `${catTotals.outwardQty} ${category.unitName || ""}`.trim() : ""}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(catOutRate)}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(catTotals.outwardValue)}</td>
+                                     {showOpening && (
+                                       <>
+                                         <td className="border p-2 text-right align-middle">{catTotals.openingQty ? `${catTotals.openingQty} ${category.unitName || ""}`.trim() : ""}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(catOpRate)}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(catTotals.openingValue)}</td>
+                                       </>
+                                     )}
+                                     {showInward && (
+                                       <>
+                                         <td className="border p-2 text-right align-middle">{catTotals.inwardQty ? `${catTotals.inwardQty} ${category.unitName || ""}`.trim() : ""}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(catInRate)}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(catTotals.inwardValue)}</td>
+                                       </>
+                                     )}
+                                     {showOutward && (
+                                       <>
+                                         <td className="border p-2 text-right align-middle">{catTotals.outwardQty ? `${catTotals.outwardQty} ${category.unitName || ""}`.trim() : ""}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(catOutRate)}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(catTotals.outwardValue)}</td>
+                                       </>
+                                     )}
                                      <td className="border p-2 text-right align-middle">{catTotals.closingQty ? `${catTotals.closingQty} ${category.unitName || ""}`.trim() : ""}</td>
                                      <td className="border p-2 text-right align-middle">{formatCurrency(catClRate)}</td>
                                      <td className="border p-2 text-right align-middle">{formatCurrency(catTotals.closingValue)}</td>
@@ -1606,18 +1693,27 @@ const StockSummary: React.FC = () => {
                                          {item.itemName}
                                        </div>
                                      </td>
-                                     <td className="border p-2 text-right align-middle">{totals.openingQty ? `${totals.openingQty} ${item.unitName}`.trim() : ""}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(openingRate)}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(totals.openingValue)}</td>
-
-                                     <td className="border p-2 text-right align-middle">{totals.inwardQty ? `${totals.inwardQty} ${item.unitName}`.trim() : ""}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(inwardRate)}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(totals.inwardValue)}</td>
-
-                                     <td className="border p-2 text-right align-middle">{totals.outwardQty ? `${totals.outwardQty} ${item.unitName}`.trim() : ""}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(outwardRate)}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(totals.outwardValue)}</td>
-
+                                     {showOpening && (
+                                       <>
+                                         <td className="border p-2 text-right align-middle">{totals.openingQty ? `${totals.openingQty} ${item.unitName}`.trim() : ""}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(openingRate)}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(totals.openingValue)}</td>
+                                       </>
+                                     )}
+                                     {showInward && (
+                                       <>
+                                         <td className="border p-2 text-right align-middle">{totals.inwardQty ? `${totals.inwardQty} ${item.unitName}`.trim() : ""}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(inwardRate)}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(totals.inwardValue)}</td>
+                                       </>
+                                     )}
+                                     {showOutward && (
+                                       <>
+                                         <td className="border p-2 text-right align-middle">{totals.outwardQty ? `${totals.outwardQty} ${item.unitName}`.trim() : ""}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(outwardRate)}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(totals.outwardValue)}</td>
+                                       </>
+                                     )}
                                      <td className="border p-2 text-right align-middle">{totals.closingQty ? `${totals.closingQty} ${item.unitName}`.trim() : ""}</td>
                                      <td className="border p-2 text-right align-middle">{formatCurrency(closingRate)}</td>
                                      <td className="border p-2 text-right align-middle">{formatCurrency(totals.closingValue)}</td>
@@ -1626,8 +1722,9 @@ const StockSummary: React.FC = () => {
                                );
                              });
                            } else if (currentDrill.type === 'item') {
+                             const visibleColSpan = 1 + (showOpening ? 3 : 0) + (showInward ? 3 : 0) + (showOutward ? 3 : 0) + 3;
                              if (categoryVouchersLoading) {
-                               return <tr><td colSpan={13} className="text-center p-4">Loading monthly summary...</td></tr>;
+                               return <tr><td colSpan={visibleColSpan} className="text-center p-4">Loading monthly summary...</td></tr>;
                              }
                              const itemData = (currentDrill as any).data;
                              const itemMonthsData = calculateItemMonthsSummary(itemData.itemName, itemData.categoryId);
@@ -1651,18 +1748,27 @@ const StockSummary: React.FC = () => {
                                          {m.monthName}
                                        </div>
                                      </td>
-                                     <td className="border p-2 text-right align-middle">{m.openingQty || ""}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(opRate)}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(m.openingValue)}</td>
-
-                                     <td className="border p-2 text-right align-middle">{m.inQty || ""}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(inRate)}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(m.inValue)}</td>
-
-                                     <td className="border p-2 text-right align-middle">{m.outQty || ""}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(outRate)}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(m.outValue)}</td>
-
+                                     {showOpening && (
+                                       <>
+                                         <td className="border p-2 text-right align-middle">{m.openingQty || ""}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(opRate)}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(m.openingValue)}</td>
+                                       </>
+                                     )}
+                                     {showInward && (
+                                       <>
+                                         <td className="border p-2 text-right align-middle">{m.inQty || ""}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(inRate)}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(m.inValue)}</td>
+                                       </>
+                                     )}
+                                     {showOutward && (
+                                       <>
+                                         <td className="border p-2 text-right align-middle">{m.outQty || ""}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(outRate)}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(m.outValue)}</td>
+                                       </>
+                                     )}
                                      <td className="border p-2 text-right align-middle">{m.closingQty || ""}</td>
                                      <td className="border p-2 text-right align-middle">{formatCurrency(clRate)}</td>
                                      <td className="border p-2 text-right align-middle">{formatCurrency(m.closingValue)}</td>
@@ -1718,18 +1824,27 @@ const StockSummary: React.FC = () => {
                                     {item.itemName}
                                   </div>
                                 </td>
-                                <td className="border p-2 text-right align-middle">{totals.openingQty ? `${totals.openingQty} ${item.unitName}`.trim() : ""}</td>
-                                <td className="border p-2 text-right align-middle">{formatCurrency(openingRate)}</td>
-                                <td className="border p-2 text-right align-middle">{formatCurrency(totals.openingValue)}</td>
-
-                                <td className="border p-2 text-right align-middle">{totals.inwardQty ? `${totals.inwardQty} ${item.unitName}`.trim() : ""}</td>
-                                <td className="border p-2 text-right align-middle">{formatCurrency(inwardRate)}</td>
-                                <td className="border p-2 text-right align-middle">{formatCurrency(totals.inwardValue)}</td>
-
-                                <td className="border p-2 text-right align-middle">{totals.outwardQty ? `${totals.outwardQty} ${item.unitName}`.trim() : ""}</td>
-                                <td className="border p-2 text-right align-middle">{formatCurrency(outwardRate)}</td>
-                                <td className="border p-2 text-right align-middle">{formatCurrency(totals.outwardValue)}</td>
-
+                                {showOpening && (
+                                  <>
+                                    <td className="border p-2 text-right align-middle">{totals.openingQty ? `${totals.openingQty} ${item.unitName}`.trim() : ""}</td>
+                                    <td className="border p-2 text-right align-middle">{formatCurrency(openingRate)}</td>
+                                    <td className="border p-2 text-right align-middle">{formatCurrency(totals.openingValue)}</td>
+                                  </>
+                                )}
+                                {showInward && (
+                                  <>
+                                    <td className="border p-2 text-right align-middle">{totals.inwardQty ? `${totals.inwardQty} ${item.unitName}`.trim() : ""}</td>
+                                    <td className="border p-2 text-right align-middle">{formatCurrency(inwardRate)}</td>
+                                    <td className="border p-2 text-right align-middle">{formatCurrency(totals.inwardValue)}</td>
+                                  </>
+                                )}
+                                {showOutward && (
+                                  <>
+                                    <td className="border p-2 text-right align-middle">{totals.outwardQty ? `${totals.outwardQty} ${item.unitName}`.trim() : ""}</td>
+                                    <td className="border p-2 text-right align-middle">{formatCurrency(outwardRate)}</td>
+                                    <td className="border p-2 text-right align-middle">{formatCurrency(totals.outwardValue)}</td>
+                                  </>
+                                )}
                                 <td className="border p-2 text-right align-middle">{totals.closingQty ? `${totals.closingQty} ${item.unitName}`.trim() : ""}</td>
                                 <td className="border p-2 text-right align-middle">{formatCurrency(closingRate)}</td>
                                 <td className="border p-2 text-right align-middle">{formatCurrency(totals.closingValue)}</td>
@@ -1743,15 +1858,27 @@ const StockSummary: React.FC = () => {
                                     onClick={() => navigate(`/app/reports/item-monthly-summary?item=${item.itemName}&batch=${b.batchName}`)}
                                   >
                                     <td className="border pl-8 italic">{b.batchName}</td>
-                                    <td className="border p-2 text-right align-middle">{b.opening.qty ? `${b.opening.qty} ${item.unitName}`.trim() : ""}</td>
-                                    <td className="border p-2 text-right align-middle">{formatCurrency(b.opening.rate)}</td>
-                                    <td className="border p-2 text-right align-middle">{formatCurrency(b.opening.value)}</td>
-                                    <td className="border p-2 text-right align-middle">{b.inward.qty ? `${b.inward.qty} ${item.unitName}`.trim() : ""}</td>
-                                    <td className="border p-2 text-right align-middle">{b.inward.rate ? formatCurrency(b.inward.rate) : ""}</td>
-                                    <td className="border p-2 text-right align-middle">{b.inward.value ? formatCurrency(b.inward.value) : ""}</td>
-                                    <td className="border p-2 text-right align-middle">{b.outward.qty ? `${b.outward.qty} ${item.unitName}`.trim() : ""}</td>
-                                    <td className="border p-2 text-right align-middle">{b.outward.rate ? formatCurrency(b.outward.rate) : ""}</td>
-                                    <td className="border p-2 text-right align-middle">{b.outward.value ? formatCurrency(b.outward.value) : ""}</td>
+                                    {showOpening && (
+                                      <>
+                                        <td className="border p-2 text-right align-middle">{b.opening.qty ? `${b.opening.qty} ${item.unitName}`.trim() : ""}</td>
+                                        <td className="border p-2 text-right align-middle">{formatCurrency(b.opening.rate)}</td>
+                                        <td className="border p-2 text-right align-middle">{formatCurrency(b.opening.value)}</td>
+                                      </>
+                                    )}
+                                    {showInward && (
+                                      <>
+                                        <td className="border p-2 text-right align-middle">{b.inward.qty ? `${b.inward.qty} ${item.unitName}`.trim() : ""}</td>
+                                        <td className="border p-2 text-right align-middle">{b.inward.rate ? formatCurrency(b.inward.rate) : ""}</td>
+                                        <td className="border p-2 text-right align-middle">{b.inward.value ? formatCurrency(b.inward.value) : ""}</td>
+                                      </>
+                                    )}
+                                    {showOutward && (
+                                      <>
+                                        <td className="border p-2 text-right align-middle">{b.outward.qty ? `${b.outward.qty} ${item.unitName}`.trim() : ""}</td>
+                                        <td className="border p-2 text-right align-middle">{b.outward.rate ? formatCurrency(b.outward.rate) : ""}</td>
+                                        <td className="border p-2 text-right align-middle">{b.outward.value ? formatCurrency(b.outward.value) : ""}</td>
+                                      </>
+                                    )}
                                     <td className="border p-2 text-right align-middle">{b.closing.qty ? `${b.closing.qty} ${item.unitName}`.trim() : ""}</td>
                                     <td className="border p-2 text-right align-middle">{formatCurrency(b.closing.rate)}</td>
                                     <td className="border p-2 text-right align-middle">{formatCurrency(b.closing.value)}</td>
@@ -1847,7 +1974,7 @@ const StockSummary: React.FC = () => {
                           <tr className="font-bold bg-gray-200">
                             <td className="border p-2">Grand Total</td>
 
-                            {(reportView === "All" || reportView === "Categories") && (
+                            {showOpening && (
                               <>
                                 {/* Opening */}
                                 <td className="border p-2 text-right align-middle">
@@ -1859,7 +1986,11 @@ const StockSummary: React.FC = () => {
                                 <td className="border p-2 text-right align-middle">
                                   {formatCurrency(grand.openingValue)}
                                 </td>
+                              </>
+                            )}
 
+                            {showInward && (
+                              <>
                                 {/* Inward */}
                                 <td className="border p-2 text-right align-middle">
                                   {grand.inwardQty ? `${grand.inwardQty} ${repUnit}`.trim() : ""}
@@ -1870,7 +2001,11 @@ const StockSummary: React.FC = () => {
                                 <td className="border p-2 text-right align-middle">
                                   {formatCurrency(grand.inwardValue)}
                                 </td>
+                              </>
+                            )}
 
+                            {showOutward && (
+                              <>
                                 {/* Outward */}
                                 <td className="border p-2 text-right align-middle">
                                   {grand.outwardQty ? `${grand.outwardQty} ${repUnit}`.trim() : ""}
