@@ -95,14 +95,16 @@ const ItemMonthlySummary = () => {
     }
     setUnitName(matchedUnitName);
 
-    const isDefaultBatch = batchName === "Default";
+    const isAllBatches = !rawBatch || rawBatch === "null" || rawBatch === "undefined" || rawBatch === "All";
+    const batchName = isAllBatches ? "" : rawBatch;
+    const isDefaultBatch = !isAllBatches && batchName.toLowerCase() === "default";
 
     let openingQty = 0;
     let openingRate = 0;
     let openingValue = 0;
 
     if (itemData) {
-      if (isDefaultBatch) {
+      if (isAllBatches || isDefaultBatch) {
         // 1. Default to Item Level Opening Balance
         openingQty = Number(itemData.openingBalance || 0);
         openingRate = Number(itemData.openingRate || 0);
@@ -111,26 +113,38 @@ const ItemMonthlySummary = () => {
 
       // 2. Check Batches (Validation/Override)
       if (itemData.batches && Array.isArray(itemData.batches)) {
-        const matchingBatches = itemData.batches.filter((b: any) =>
-          b.batchName === batchName ||
-          (isDefaultBatch && (!b.batchName || b.batchName === "Default"))
-        );
+        const matchingBatches = itemData.batches.filter((b: any) => {
+          if (isAllBatches) return true;
+          const bName = b.batchName || "Default";
+          return bName.toLowerCase() === batchName.toLowerCase() ||
+                 (isDefaultBatch && bName.toLowerCase() === "default");
+        });
 
         let batchQtySum = 0;
         let batchValSum = 0;
         let hasOpeningBatch = false;
 
         matchingBatches.forEach((b: any) => {
-          if (b.mode === 'opening') {
-            batchQtySum += Number(b.batchQuantity || 0);
-            batchValSum += Number(b.batchQuantity || 0) * Number(b.openingRate || 0);
+          if (b.mode === 'opening' || (b.opening && b.opening.qty)) {
+            const qty = Number(b.opening?.qty || b.batchQuantity || 0);
+            const rate = Number(b.opening?.rate || b.openingRate || 0);
+            const val = Number(b.opening?.value || (qty * rate) || 0);
+            batchQtySum += qty;
+            batchValSum += val;
             hasOpeningBatch = true;
           }
         });
 
         if (hasOpeningBatch) {
-          openingQty = batchQtySum;
-          openingValue = batchValSum;
+          if (isAllBatches) {
+            if (batchQtySum > 0) {
+              openingQty = batchQtySum;
+              openingValue = batchValSum;
+            }
+          } else {
+            openingQty = batchQtySum;
+            openingValue = batchValSum;
+          }
           openingRate = openingQty > 0 ? openingValue / openingQty : 0;
         }
       }
@@ -144,6 +158,7 @@ const ItemMonthlySummary = () => {
     const purchases = purchaseData.filter((p: any) => {
       const pName = p.itemName ? p.itemName.toLowerCase().trim() : "";
       if (pName !== matchedMasterNameNormalized) return false;
+      if (isAllBatches) return true;
       const pBatch = p.batchNumber || "Default";
       if (pBatch.toLowerCase() === batchName.toLowerCase()) return true;
       if (isDefaultBatch && (!p.batchNumber || p.batchNumber === "default" || p.batchNumber === "Default")) return true;
@@ -153,6 +168,7 @@ const ItemMonthlySummary = () => {
     const sales = salesData.filter((s: any) => {
       const sName = s.itemName ? s.itemName.toLowerCase().trim() : "";
       if (sName !== matchedMasterNameNormalized) return false;
+      if (isAllBatches) return true;
       const sBatch = s.batchNumber || "Default";
       if (sBatch.toLowerCase() === batchName.toLowerCase()) return true;
       if (isDefaultBatch && (!s.batchNumber || s.batchNumber === "default" || s.batchNumber === "Default")) return true;
@@ -162,46 +178,39 @@ const ItemMonthlySummary = () => {
     // Backfill imported purchases from stock items batches
     if (itemData && itemData.batches && Array.isArray(itemData.batches)) {
       itemData.batches.forEach((b: any) => {
-        if (b.mode === "purchase") {
-          const bName = b.batchName || "Default";
-          // We check if this batch should be included for the current view
-          const matchBatch = isDefaultBatch || bName.toLowerCase() === batchName.toLowerCase();
-          if (matchBatch) {
-            const alreadyExists = purchases.some((p: any) => {
-              const pBatch = p.batchNumber || "Default";
-              return pBatch.toLowerCase() === bName.toLowerCase();
-            });
+        const bName = b.batchName || "Default";
+        const matchBatch = isAllBatches || bName.toLowerCase() === batchName.toLowerCase();
+        if (b.mode === "purchase" && matchBatch) {
+          const alreadyExists = purchases.some((p: any) => {
+            const pBatch = p.batchNumber || "Default";
+            return pBatch.toLowerCase() === bName.toLowerCase();
+          });
 
-            if (!alreadyExists) {
-              purchases.push({
-                itemName: matchedMasterName,
-                hsnCode: itemData.hsnCode || "",
-                batchNumber: bName,
-                purchaseQuantity: Number(b.batchQuantity || 0),
-                rate: Number(b.openingRate || 0),
-                purchaseDate: itemData.createdAt ? itemData.createdAt.split(" ")[0] : new Date().toISOString().split("T")[0],
-              });
-            }
+          if (!alreadyExists) {
+            purchases.push({
+              itemName: matchedMasterName,
+              hsnCode: itemData.hsnCode || "",
+              batchNumber: bName,
+              purchaseQuantity: Number(b.batchQuantity || 0),
+              rate: Number(b.openingRate || 0),
+              purchaseDate: itemData.createdAt ? itemData.createdAt.split(" ")[0] : new Date().toISOString().split("T")[0],
+            });
           }
-        } else if (b.mode === "sales") {
-          const bName = b.batchName || "Default";
-          const matchBatch = isDefaultBatch || bName.toLowerCase() === batchName.toLowerCase();
-          if (matchBatch) {
-            const alreadyExists = sales.some((s: any) => {
-              const sBatch = s.batchNumber || "Default";
-              return sBatch.toLowerCase() === bName.toLowerCase();
-            });
+        } else if (b.mode === "sales" && matchBatch) {
+          const alreadyExists = sales.some((s: any) => {
+            const sBatch = s.batchNumber || "Default";
+            return sBatch.toLowerCase() === bName.toLowerCase();
+          });
 
-            if (!alreadyExists) {
-              sales.push({
-                itemName: matchedMasterName,
-                hsnCode: itemData.hsnCode || "",
-                batchNumber: bName,
-                qtyChange: -Math.abs(Number(b.batchQuantity || 0)),
-                rate: Number(b.openingRate || 0),
-                movementDate: itemData.createdAt ? itemData.createdAt.split(" ")[0] : new Date().toISOString().split("T")[0],
-              });
-            }
+          if (!alreadyExists) {
+            sales.push({
+              itemName: matchedMasterName,
+              hsnCode: itemData.hsnCode || "",
+              batchNumber: bName,
+              qtyChange: -Math.abs(Number(b.batchQuantity || 0)),
+              rate: Number(b.openingRate || 0),
+              movementDate: itemData.createdAt ? itemData.createdAt.split(" ")[0] : new Date().toISOString().split("T")[0],
+            });
           }
         }
       });
@@ -259,29 +268,17 @@ const ItemMonthlySummary = () => {
     let runningQty = openingQty;
     let runningValue = openingValue;
 
-    // Find the first month with any activity (Opening > 0, Inward > 0, Outward > 0)
-    // Actually, Tally shows all months but values appear starting from when?
-    // User wants: "jis month me entry ho usi month se valu show kare baki upar walle month me khul vallu show na ho"
-    // Meaning: Hide Closing Qty/Value for months BEFORE the first meaningful transaction or opening balance usage?
-
-    // But wait, if there is Opening Balance (from batch), it applies from April usually. 
-    // If the user says "Opening Value ... 10", and then April... 10, May... 10.
-    // If the batch starts in April, then April should show 10.
-    // Maybe the user means if a batch was purchased in July, April-June should be blank?
-
-    // Let's determine the "Start Month" for this batch.
-    // If batch mode is Opening -> Start is Start of Year (April).
-    // If batch is Purchase/Manufacture -> Start is Purchase Date.
-
     let startMonthIndex = 0; // Default to April
-    // Find the earliest date in purchases or sales for this batch if NOT opening mode
 
     let isOpeningMode = false;
-    if (itemData && itemData.batches && Array.isArray(itemData.batches)) {
-      isOpeningMode = itemData.batches.some((b: any) =>
-        (b.batchName === batchName || (isDefaultBatch && (!b.batchName || b.batchName === "Default"))) &&
-        b.mode === 'opening'
-      );
+    if (openingQty > 0) {
+      isOpeningMode = true;
+    } else if (itemData && itemData.batches && Array.isArray(itemData.batches)) {
+      isOpeningMode = itemData.batches.some((b: any) => {
+        const bName = b.batchName || "Default";
+        const matchBatch = isAllBatches || bName.toLowerCase() === batchName.toLowerCase();
+        return matchBatch && (b.mode === 'opening' || (b.opening && b.opening.qty));
+      });
     }
 
     if (!isOpeningMode) {

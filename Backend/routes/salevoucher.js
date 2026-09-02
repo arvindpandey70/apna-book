@@ -616,6 +616,7 @@ router.get("/sale-history", async (req, res) => {
     sh.ownerId,
     su.symbol  AS unit,
 
+    sv.id      AS voucherId,
     sv.partyId AS partyId,
     l.name     AS partyName
 
@@ -860,14 +861,15 @@ router.delete("/:id", async (req, res) => {
 
 router.get("/:id", async (req, res) => {
   try {
-    const voucherId = req.params.id;
+    const rawParam = req.params.id;
+    const voucherId = decodeURIComponent(rawParam);
 
     /* ======================
        1️⃣ GET VOUCHER
     ====================== */
     const [voucherRows] = await db.execute(
-      `SELECT * FROM sales_vouchers WHERE id = ?`,
-      [voucherId]
+      `SELECT * FROM sales_vouchers WHERE id = ? OR number = ?`,
+      [voucherId, voucherId]
     );
 
     if (!voucherRows.length) {

@@ -72,6 +72,7 @@ router.get("/purchase-history", async (req, res) => {
     ph.type,
     su.symbol AS unit,
 
+    pv.id      AS voucherId,
     pv.partyId AS partyId,
     l.name     AS partyName
 
@@ -1080,15 +1081,16 @@ router.delete("/:id", async (req, res) => {
 
 router.get("/:id", async (req, res) => {
   try {
-    const voucherId = req.params.id;
+    const rawParam = req.params.id;
+    const voucherId = decodeURIComponent(rawParam);
 
     /* ======================
        1️⃣ GET VOUCHER
     ====================== */
 
     const [voucherRows] = await db.execute(
-      `SELECT * FROM purchase_vouchers WHERE id = ?`,
-      [voucherId]
+      `SELECT * FROM purchase_vouchers WHERE id = ? OR number = ?`,
+      [voucherId, voucherId]
     );
 
     if (!voucherRows.length) {

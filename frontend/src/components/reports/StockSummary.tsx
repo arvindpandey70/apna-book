@@ -7,12 +7,12 @@ import {
   ChevronDown,
   ChevronRight,
   Settings,
+  Filter,
   Edit,
   Check,
   X,
 } from "lucide-react";
 import { useAppContext } from "../../context/AppContext";
-import ReportTable from "./ReportTable";
 import { allSystemGroups } from "../../constants/ledgerGroups";
 
 const StockSummary: React.FC = () => {
@@ -38,6 +38,10 @@ const StockSummary: React.FC = () => {
   const [categoryVouchers, setCategoryVouchers] = useState<{ purchase: any[], sales: any[] } | null>(null);
   const [categoryVouchersLoading, setCategoryVouchersLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showFilter, setShowFilter] = useState(false);
+  const [showOpening, setShowOpening] = useState(true);
+  const [showInward, setShowInward] = useState(true);
+  const [showOutward, setShowOutward] = useState(true);
   const [editLedgerId, setEditLedgerId] = useState<number | null>(null);
   const [editClosingBalance, setEditClosingBalance] = useState<string>("");
 
@@ -46,8 +50,11 @@ const StockSummary: React.FC = () => {
   );
 
   const [reportView, setReportView] = useState<
-    "Opening" | "Purchase" | "Sales" | "Closing" | "All" | "Categories"
-  >(() => (localStorage.getItem("stock_report_view") as any) || "Opening");
+    "All" | "Categories"
+  >(() => {
+    const saved = localStorage.getItem("stock_report_view");
+    return saved === "Categories" ? "Categories" : "All";
+  });
 
   useEffect(() => {
     localStorage.setItem("stock_integrate", integrate);
@@ -150,386 +157,6 @@ const StockSummary: React.FC = () => {
 
     fetchData();
   }, [company_id, owner_type, owner_id]);
-
-  // console.log("group", groups);
-
-  // OPENING STOCK
-  const loadOpeningStock = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const params = new URLSearchParams({ company_id, owner_type, owner_id });
-      const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/stock-items?${params.toString()}`
-      );
-      if (!response.ok) throw new Error("Failed to load opening stock");
-
-      const json = await response.json();
-      // console.log("json", json.data);
-      const formatted = Array.isArray(json.data)
-        ? json.data.map((item: any) => {
-          let matchedUnitName = item.unitName || "";
-          if (!matchedUnitName) {
-            const matchedUnit = units.find((u) => String(u.id) === String(item.unit));
-            if (matchedUnit && matchedUnit.name) {
-              matchedUnitName = matchedUnit.name;
-            } else if (item.unit && isNaN(Number(item.unit))) {
-              matchedUnitName = item.unit;
-            }
-          }
-          return {
-            itemName: item.name,
-            unitName: matchedUnitName,
-          hsnCode: item.hsnCode || "",
-          gstRate: Number(item.gstRate || 0),
-          taxType: item.taxType || "",
-          batches: (() => {
-            const openingByBatches = (item.batches?.filter((b: any) => b.mode === "opening" || !b.mode) || []);
-            if (openingByBatches.length > 0) {
-              return openingByBatches.map((b: any) => ({
-                batchName: b.batchName || "Default",
-                opening: {
-                  qty: Number(b.batchQuantity || 0),
-                  rate: Number(b.openingRate || 0),
-                  value: Number(b.batchQuantity || 0) * Number(b.openingRate || 0),
-                },
-              }));
-            }
-            if (Number(item.openingBalance || 0) > 0) {
-              return [
-                {
-                  batchName: "Default",
-                  opening: {
-                    qty: Number(item.openingBalance || 0),
-                    rate: Number(item.openingValue && item.openingBalance ? item.openingValue / item.openingBalance : item.rate || 0),
-                    value: Number(item.openingValue || 0),
-                  },
-                },
-              ];
-            }
-            return [];
-          })(),
-        };
-      })
-        : [];
-
-
-      setData(formatted);
-    } catch (err: any) {
-      setError(err.message);
-      setData([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // PURCHASE
-  const loadPurchaseData = async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const params = new URLSearchParams({
-        company_id,
-        owner_type,
-        owner_id,
-      });
-
-      const [historyRes, stockItemsRes] = await Promise.all([
-        fetch(
-          `${import.meta.env.VITE_API_URL}/api/purchase-vouchers/purchase-history?${params.toString()}`
-        ),
-        fetch(
-          `${import.meta.env.VITE_API_URL}/api/stock-items?${params.toString()}`
-        ),
-      ]);
-
-      if (!historyRes.ok) throw new Error("Failed to load purchase vouchers");
-      if (!stockItemsRes.ok) throw new Error("Failed to load stock items");
-
-      const historyJson = await historyRes.json();
-      const stockItemsJson = await stockItemsRes.json();
-
-      const purchaseHistory = Array.isArray(historyJson.data) ? historyJson.data : [];
-      const stockItemsList = Array.isArray(stockItemsJson.data) ? stockItemsJson.data : [];
-
-      const formatted = purchaseHistory.map((v: any) => ({
-        id: v.id,
-        itemName: v.itemName,
-        hsnCode: v.hsnCode,
-        batchNumber: v.batchNumber || "Default",
-        qty: v.purchaseQuantity,
-        rate: Number(v.rate || v.purchaseRate || 0),
-        date: v.purchaseDate,
-      }));
-
-      // Find any imported purchase batches in stock items that are NOT present in purchase history
-      stockItemsList.forEach((item: any) => {
-        if (item.batches && item.batches.length > 0) {
-          item.batches.forEach((b: any) => {
-            if (b.mode === "purchase") {
-              const batchName = b.batchName || "Default";
-              // Check if already in formatted history
-              const alreadyExists = formatted.some(
-                (f) =>
-                  f.itemName.toLowerCase().trim() === item.name.toLowerCase().trim() &&
-                  (f.batchNumber || "Default").toLowerCase().trim() === batchName.toLowerCase().trim()
-              );
-
-              if (!alreadyExists) {
-                // Backfill into history
-                formatted.push({
-                  id: `imported-${item.id}-${batchName}`,
-                  itemName: item.name,
-                  hsnCode: item.hsnCode || "",
-                  batchNumber: batchName,
-                  qty: Number(b.batchQuantity || 0),
-                  rate: Number(b.openingRate || (b.batchQuantity ? b.openingValue / b.batchQuantity : 0)),
-                  date: item.createdAt ? item.createdAt.split(" ")[0] : new Date().toISOString().split("T")[0],
-                });
-              }
-            }
-          });
-        }
-      });
-
-      setData(formatted);
-    } catch (err: any) {
-      setError(err.message);
-      setData([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // SALES 📦
-  const loadSalesData = async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const params = new URLSearchParams({
-        company_id,
-        owner_type,
-        owner_id,
-      });
-
-      const response = await fetch(
-        `${import.meta.env.VITE_API_URL
-        }/api/sales-vouchers/sale-history?${params.toString()}`
-      );
-
-      if (!response.ok) throw new Error("Failed to load sales history");
-
-      const json = await response.json();
-
-      const formatted = Array.isArray(json.data)
-        ? json.data.map((v: any) => ({
-          id: v.id,
-          itemName: v.itemName,
-          hsnCode: v.hsnCode,
-          batchNumber: v.batchNumber,
-          qty: Math.abs(v.qtyChange),
-          rate: Number(v.rate || 0),
-          date: v.movementDate,
-        }))
-        : [];
-
-      setData(formatted);
-    } catch (err: any) {
-      setError(err.message);
-      setData([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // CLOSING STOCK (Only Purchase - Sales, excluding Opening)
-  const loadClosingData = async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const params = new URLSearchParams({ company_id, owner_type, owner_id });
-
-      const [stockItemsRes, purchaseRes, salesRes] = await Promise.all([
-        fetch(
-          `${import.meta.env.VITE_API_URL}/api/stock-items?${params.toString()}`
-        ),
-        fetch(
-          `${import.meta.env.VITE_API_URL
-          }/api/purchase-vouchers/purchase-history?${params.toString()}`
-        ),
-        fetch(
-          `${import.meta.env.VITE_API_URL
-          }/api/sales-vouchers/sale-history?${params.toString()}`
-        ),
-      ]);
-
-      const stockItemsData = await stockItemsRes.json();
-      const purchaseData = await purchaseRes.json();
-      const salesData = await salesRes.json();
-
-      // Create a map of item names to their unit info
-      const itemUnitMap: Record<string, { hsnCode: string; unitName: string }> =
-        {};
-      if (Array.isArray(stockItemsData.data)) {
-        stockItemsData.data.forEach((item: any) => {
-          let matchedUnitName = item.unitName || "";
-          if (!matchedUnitName) {
-            const matchedUnit = units.find((u) => String(u.id) === String(item.unit));
-            if (matchedUnit && matchedUnit.name) {
-              matchedUnitName = matchedUnit.name;
-            } else if (item.unit && isNaN(Number(item.unit))) {
-              matchedUnitName = item.unit;
-            }
-          }
-          itemUnitMap[item.name] = {
-            hsnCode: item.hsnCode || "",
-            unitName: matchedUnitName,
-          };
-        });
-      }
-
-      // Track closing balance for each item and batch (only Purchase - Sales)
-      // Batch-wise closing only for items with opening stock
-      const closingMap: Record<string, Record<string, number>> = {};
-      const itemInfo: Record<
-        string,
-        { originalName: string; hsnCode: string; unitName: string }
-      > = {};
-      const movementCheck: Record<string, boolean> = {}; // Track movement
-
-      // 1️⃣ Opening stock => default batch
-      if (Array.isArray(stockItemsData.data)) {
-        stockItemsData.data.forEach((item: any) => {
-          const itemName = item.name;
-          const lookupKey = itemName.toLowerCase().trim();
-
-          closingMap[lookupKey] = {};
-
-          let matchedUnitName = item.unitName || "";
-          if (!matchedUnitName) {
-            const matchedUnit = units.find((u) => String(u.id) === String(item.unit));
-            if (matchedUnit && matchedUnit.name) {
-              matchedUnitName = matchedUnit.name;
-            } else if (item.unit && isNaN(Number(item.unit))) {
-              matchedUnitName = item.unit;
-            }
-          }
-
-          itemInfo[lookupKey] = {
-            originalName: itemName,
-            hsnCode: item.hsnCode || "",
-            unitName: matchedUnitName,
-          };
-
-          movementCheck[lookupKey] = false; // initially no movement
-
-          let batchesProcessed = false;
-          if (item.batches && item.batches.length > 0) {
-            item.batches.forEach((b: any) => {
-              if (!b.mode || b.mode === "opening") {
-                const batch = (b.batchName || "default").toLowerCase().trim();
-                closingMap[lookupKey][batch] =
-                  (closingMap[lookupKey][batch] || 0) + Number(b.batchQuantity || 0);
-                batchesProcessed = true;
-              }
-            });
-          }
-
-          // Fallback to item level opening balance if no batches were processed
-          if (!batchesProcessed && (Number(item.openingBalance || 0) > 0)) {
-            closingMap[lookupKey]["default"] = Number(item.openingBalance || 0);
-          }
-
-          // Ensure there is always a default batch key
-          if (Object.keys(closingMap[lookupKey]).length === 0) {
-            closingMap[lookupKey]["default"] = 0;
-          }
-        });
-      }
-
-      // 2️⃣ Purchase
-      const purchaseList = Array.isArray(purchaseData.data) ? purchaseData.data : [];
-      purchaseList.forEach((v: any) => {
-        const lookupKey = v.itemName ? v.itemName.toLowerCase().trim() : "";
-        const batch = v.batchNumber || "default";
-        const qty = Number(v.purchaseQuantity || 0);
-
-        if (!closingMap[lookupKey]) return; // no opening => skip
-
-        closingMap[lookupKey][batch] =
-          (closingMap[lookupKey][batch] || 0) + qty;
-
-        movementCheck[lookupKey] = true;
-      });
-
-      // Backfill imported purchases into closingMap
-      if (Array.isArray(stockItemsData.data)) {
-        stockItemsData.data.forEach((item: any) => {
-          const itemName = item.name;
-          const lookupKey = itemName.toLowerCase().trim();
-          if (item.batches && item.batches.length > 0) {
-            item.batches.forEach((b: any) => {
-              if (b.mode === "purchase") {
-                const batch = b.batchName || "default";
-                const alreadyExists = purchaseList.some(
-                  (p: any) =>
-                    p.itemName.toLowerCase().trim() === itemName.toLowerCase().trim() &&
-                    (p.batchNumber || "default").toLowerCase().trim() === batch.toLowerCase().trim()
-                );
-
-                if (!alreadyExists && closingMap[lookupKey]) {
-                  closingMap[lookupKey][batch] =
-                    (closingMap[lookupKey][batch] || 0) + Number(b.batchQuantity || 0);
-                  movementCheck[lookupKey] = true;
-                }
-              }
-            });
-          }
-        });
-      }
-
-      // 3️⃣ Sales
-      if (Array.isArray(salesData.data)) {
-        salesData.data.forEach((v: any) => {
-          const lookupKey = v.itemName ? v.itemName.toLowerCase().trim() : "";
-          const batch = v.batchNumber || "default";
-          const qty = Math.abs(Number(v.qtyChange || 0));
-
-          if (!closingMap[lookupKey]) return;
-
-          closingMap[lookupKey][batch] =
-            (closingMap[lookupKey][batch] || 0) - qty;
-
-          movementCheck[lookupKey] = true;
-        });
-      }
-
-      // 4️⃣ Format Closing Data and Update State
-      const formattedData: any[] = [];
-      Object.entries(closingMap).forEach(([lookupKey, batches]) => {
-        const info = itemInfo[lookupKey] || { originalName: "", hsnCode: "", unitName: "" };
-        Object.entries(batches).forEach(([batchNumber, closingQty]) => {
-          formattedData.push({
-            itemName: info.originalName,
-            unitName: info.unitName,
-            hsnCode: info.hsnCode,
-            batchNumber: batchNumber === "default" ? "Default" : batchNumber,
-            closingQty: closingQty,
-          });
-        });
-      });
-
-      setData(formattedData);
-    } catch (err: any) {
-      setError(err.message);
-      setData([]);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const loadCategoriesData = async () => {
     setLoading(true);
@@ -1044,74 +671,18 @@ const StockSummary: React.FC = () => {
 
   useEffect(() => {
     if (integrate === "new") return;
-    
+
     if (prevReportViewRef.current !== reportView) {
       setExpandedItems(new Set()); // Reset expanded items when view changes
       setExpandedGroups(new Set());
       setExpandedCategories(new Set());
-      setDrillPath([{ id: 'root', name: 'Stock Groups', type: 'root' }]);
+      setDrillPath([{ id: "root", name: "Stock Groups", type: "root" }]);
       prevReportViewRef.current = reportView;
     }
-    
-    if (reportView === "Opening") loadOpeningStock();
-    else if (reportView === "Purchase") loadPurchaseData();
-    else if (reportView === "Sales") loadSalesData();
-    else if (reportView === "Closing") loadClosingData();
-    else if (reportView === "All") loadAllData();
-    else if (reportView === "Categories") loadCategoriesData();
+
+    if (reportView === "Categories") loadCategoriesData();
+    else loadAllData();
   }, [reportView, integrate]);
-
-  // Group data by item name for Purchase, Sales, Closing views
-  // For All view, group by GST rate
-  const groupedData = useMemo(() => {
-    if (reportView === "Opening") return data;
-
-    if (reportView === "All" || reportView === "Categories") {
-      // Data is already grouped by item with batches from loadAllData / loadCategoriesData
-      return data;
-    }
-
-    // For Purchase, Sales, Closing views
-    const groups: Record<string, any[]> = {};
-
-    data.forEach((item) => {
-      const key = item.itemName || item.name || "";
-      if (!groups[key]) {
-        groups[key] = [];
-      }
-      groups[key].push(item);
-    });
-
-    return Object.entries(groups).map(([itemName, transactions]) => {
-      let totalQty = 0;
-      const firstItem = transactions[0];
-      const hsnCode = firstItem.hsnCode || "";
-      const unitName = firstItem.unitName || "";
-
-      transactions.forEach((t) => {
-        let qty = 0;
-        if (reportView === "Closing") {
-          qty = Number(t.closingQty || t.qty || 0);
-        } else {
-          qty =
-            typeof t.qty === "string"
-              ? parseFloat(t.qty.replace(/[+-]/g, "")) || 0
-              : Number(t.qty) || 0;
-        }
-        totalQty += qty;
-      });
-
-      return {
-        itemName,
-        hsnCode,
-        unitName,
-        transactions,
-        totalQty,
-        transactionCount: transactions.length,
-        isGroup: true,
-      };
-    });
-  }, [data, reportView]);
 
   const toggleItem = (itemName: string) => {
     setExpandedItems((prev) => {
@@ -1155,14 +726,11 @@ const StockSummary: React.FC = () => {
     }
 
     try {
-      // If it's already a string in YYYY-MM-DD format
       if (typeof dateValue === "string") {
-        // Check if it's a valid date string
         const date = new Date(dateValue);
         if (isNaN(date.getTime())) {
-          return dateValue; // Return as is if invalid
+          return dateValue;
         }
-        // Format as DD/MM/YYYY
         return date.toLocaleDateString("en-GB", {
           day: "2-digit",
           month: "2-digit",
@@ -1170,7 +738,6 @@ const StockSummary: React.FC = () => {
         });
       }
 
-      // If it's a Date object
       if (dateValue instanceof Date) {
         return dateValue.toLocaleDateString("en-GB", {
           day: "2-digit",
@@ -1195,115 +762,46 @@ const StockSummary: React.FC = () => {
     });
   };
 
-  // TABLE COLUMNS
-  const columns = useMemo(() => {
-    if (reportView === "All") {
-      // Not used for All view - we render custom table
-      return [];
-    }
-
-    if (reportView === "Purchase") {
-      return [
-        { header: "S.No", accessor: "sno", align: "center" as const },
-        { header: "Item", accessor: "itemName", align: "center" as const },
-        { header: "HSN", accessor: "hsnCode", align: "center" as const },
-        { header: "Batch", accessor: "batchNumber", align: "center" as const },
-        { header: "Qty ", accessor: "qty", align: "right" as const, render: (r: any) => `${r.qty}`, },
-        { header: "Rate", accessor: "rate", align: "right" as const, render: (r: any) => formatCurrency(Number(r.rate || 0)), },
-        { header: "Value", accessor: "value", align: "right" as const, render: (r: any) => formatCurrency(Number(r.qty || 0) * Number(r.rate || 0)), },
-        { header: "Date", accessor: "date", align: "center" as const, render: (r: any) => formatDate(r.date), },
-      ];
-    }
-
-    if (reportView === "Sales") {
-      return [
-        { header: "S.No", accessor: "sno", align: "center" as const },
-        { header: "Item", accessor: "itemName", align: "center" as const },
-        { header: "HSN", accessor: "hsnCode", align: "center" as const },
-        { header: "Batch", accessor: "batchNumber", align: "center" as const },
-        { header: "Qty", accessor: "qty", align: "right" as const, render: (r: any) => `${r.qty}`, },
-        { header: "Rate", accessor: "rate", align: "right" as const, render: (r: any) => formatCurrency(Number(r.rate || 0)), },
-        { header: "Value", accessor: "value", align: "right" as const, render: (r: any) => formatCurrency(Number(r.qty || 0) * Number(r.rate || 0)), },
-        { header: "Sale Date", accessor: "date", align: "center" as const, render: (r: any) => formatDate(r.date), },
-      ];
-    }
-
-    if (reportView === "Closing") {
-      return [
-        { header: "S.No", accessor: "sno", align: "center" as const },
-        { header: "Item", accessor: "itemName", align: "center" as const },
-        { header: "Unit", accessor: "unitName", align: "center" as const },
-        { header: "HSN", accessor: "hsnCode", align: "center" as const },
-        { header: "Batch", accessor: "batchNumber", align: "center" as const },
-        {
-          header: "Closing Qty",
-          accessor: "closingQty",
-          align: "center" as const,
-          render: (r: any) => r.closingQty ?? r.qty ?? 0,
-        },
-      ];
-    }
-
-    // Opening Stock same
-    return [
-      {
-        header: "Stock Item",
-        accessor: "itemName",
-        align: "center" as const,
-        render: (r: any) => r.itemName ?? "",
-      },
-      {
-        header: "Unit",
-        accessor: "unitName",
-        align: "center" as const,
-        render: (r: any) => r.unitName ?? "",
-      },
-      {
-        header: "HSN",
-        accessor: "hsnCode",
-        align: "center" as const,
-        render: (r: any) => r.hsnCode ?? "",
-      },
-      {
-        header: "GST",
-        accessor: "gstRate",
-        align: "center" as const,
-        render: (r: any) => (r.gstRate ?? 0) + "%",
-      },
-      {
-        header: "Tax Type",
-        accessor: "taxType",
-        align: "center" as const,
-        render: (r: any) => r.taxType ?? "",
-      },
-    ];
-  }, [reportView]);
-
   const handleExport = () => {
     if (!data.length) return;
 
-    // For grouped views, export all transactions/batches
-    const exportData =
-      reportView === "Opening"
-        ? data
-        : reportView === "Closing"
-          ? groupedData.flatMap((group) => group.transactions)
-          : groupedData.flatMap((group) => group.transactions);
+    const headers = [
+      "Particulars",
+      "Opening Qty",
+      "Opening Value",
+      "Inward Qty",
+      "Inward Value",
+      "Outward Qty",
+      "Outward Value",
+      "Closing Qty",
+      "Closing Value",
+    ];
 
-    const csv = [
-      columns.map((c) => c.header).join(","),
-      ...exportData.map((row: any) =>
-        columns
-          .map((c: any) => {
-            if (c.render) {
-              return c.render(row);
-            }
-            const value = row[c.accessor] ?? "";
-            return typeof value === "string" ? value : String(value);
-          })
-          .join(",")
-      ),
-    ].join("\n");
+    const rows = data.map((item: any) => {
+      const name = item.groupName || item.categoryName || item.itemName || "";
+      const opQty = item.totalOpeningQty || item.opening?.qty || 0;
+      const opVal = item.totalOpeningValue || item.opening?.value || 0;
+      const inQty = item.totalInwardQty || item.inward?.qty || 0;
+      const inVal = item.totalInwardValue || item.inward?.value || 0;
+      const outQty = item.totalOutwardQty || item.outward?.qty || 0;
+      const outVal = item.totalOutwardValue || item.outward?.value || 0;
+      const clQty = item.totalClosingQty || item.closing?.qty || 0;
+      const clVal = item.totalClosingValue || item.closing?.value || 0;
+
+      return [
+        `"${name.replace(/"/g, '""')}"`,
+        opQty,
+        opVal,
+        inQty,
+        inVal,
+        outQty,
+        outVal,
+        clQty,
+        clVal,
+      ].join(",");
+    });
+
+    const csv = [headers.join(","), ...rows].join("\n");
 
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
@@ -1675,12 +1173,65 @@ const StockSummary: React.FC = () => {
 
         <div className="ml-auto flex space-x-2 relative">
           <button
-            onClick={() => setShowSettings((p) => !p)}
+            onClick={() => {
+              setShowSettings((p) => !p);
+              setShowFilter(false);
+            }}
             className="p-2 rounded-md hover:bg-gray-200"
             title="Settings"
           >
             <Settings size={18} />
           </button>
+
+          <div className="relative">
+            <button
+              onClick={() => {
+                setShowFilter((p) => !p);
+                setShowSettings(false);
+              }}
+              className={`p-2 rounded-md hover:bg-gray-200 ${showFilter ? "bg-gray-200 dark:bg-gray-700" : ""}`}
+              title="Filter Columns"
+            >
+              <Filter size={18} />
+            </button>
+
+            {showFilter && (
+              <div className={`absolute right-0 top-10 w-56 border shadow-lg rounded z-50 p-3 text-sm ${theme === "dark" ? "bg-gray-800 border-gray-700 text-white" : "bg-white border-gray-200 text-black"}`}>
+                <div className="font-semibold border-b pb-2 mb-2 text-xs uppercase tracking-wider text-gray-500">
+                  Column Visibility
+                </div>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={showOpening}
+                      onChange={(e) => setShowOpening(e.target.checked)}
+                      className="rounded"
+                    />
+                    Opening Balance
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={showInward}
+                      onChange={(e) => setShowInward(e.target.checked)}
+                      className="rounded"
+                    />
+                    Inward
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={showOutward}
+                      onChange={(e) => setShowOutward(e.target.checked)}
+                      className="rounded"
+                    />
+                    Outward
+                  </label>
+                </div>
+              </div>
+            )}
+          </div>
 
           <button onClick={() => window.print()} className="p-2 rounded-md">
             <Printer size={18} />
@@ -1734,7 +1285,7 @@ const StockSummary: React.FC = () => {
           {/* Report Views */}
           {integrate === "integrated" && (
             <div className="mt-5 flex justify-center gap-8 ">
-              {["Opening", "Purchase", "Sales", "Closing", "All", "Categories"].map(
+              {["All", "Categories"].map(
                 (view) => (
                   <label key={view} className="flex items-center gap-2">
                     <input
@@ -1879,78 +1430,7 @@ const StockSummary: React.FC = () => {
           !error &&
           integrate === "integrated" &&
           data.length > 0 && (
-            <>
-              {reportView === "Opening" ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse text-sm">
-                    <thead>
-                      <tr className={theme === "dark" ? "bg-gray-700 text-white" : "bg-gray-200"}>
-                        <th className="border p-2 text-left">Stock Item</th>
-                        <th className="border p-2 text-center">Unit</th>
-                        <th className="border p-2 text-center">HSN</th>
-                        <th className="border p-2 text-center">GST</th>
-                        <th className="border p-2 text-center">Tax Type</th>
-                        <th className="border p-2 text-right">Qty</th>
-                        <th className="border p-2 text-right">Rate</th>
-                        <th className="border p-2 text-right">Value</th>
-                      </tr>
-                    </thead>
-
-                    <tbody>
-                      {data.map((item: any, idx: number) => {
-                        const isExpanded = expandedItems.has(item.itemName);
-                        const batches = item.batches || [];
-
-                        const totalQty = batches.reduce((sum: number, b: any) => sum + Number(b.opening?.qty || 0), 0);
-                        const totalValue = batches.reduce((sum: number, b: any) => sum + Number(b.opening?.value || 0), 0);
-                        const avgRate = totalQty !== 0 ? totalValue / totalQty : 0;
-
-                        return (
-                          <React.Fragment key={idx}>
-                            {/* ITEM ROW */}
-                            <tr
-                              className={`font-semibold ${batches.length > 0 ? "cursor-pointer" : "cursor-default"} ${theme === "dark" ? "bg-gray-800 text-white" : "bg-gray-50"
-                                }`}
-                              onClick={() => batches.length > 0 && toggleItem(item.itemName)}
-                            >
-                              <td className="border p-2">
-                                {batches.length > 0 && (isExpanded ? "▼ " : "▶ ")}{item.itemName}
-                              </td>
-                              <td className="border p-2 text-center">{item.unitName}</td>
-                              <td className="border p-2 text-center">{item.hsnCode}</td>
-                              <td className="border p-2 text-center">{item.gstRate}%</td>
-                              <td className="border p-2 text-center">{item.taxType}</td>
-                              <td className="border p-2 text-right">{totalQty}</td>
-                              <td className="border p-2 text-right">{formatCurrency(avgRate)}</td>
-                              <td className="border p-2 text-right">{formatCurrency(totalValue)}</td>
-                            </tr>
-
-                            {/* BATCH ROWS */}
-                            {isExpanded &&
-                              batches.map((b: any, bIdx: number) => (
-                                <tr key={bIdx} className="bg-white hover:bg-yellow-50">
-                                  <td className="border pl-8 italic">{b?.batchName || "-"}</td>
-                                  <td className="border"></td>
-                                  <td className="border"></td>
-                                  <td className="border"></td>
-                                  <td className="border"></td>
-                                  <td className="border p-2 text-right">{b?.opening?.qty || 0}</td>
-                                  <td className="border p-2 text-right">
-                                    {formatCurrency(b?.opening?.rate || 0)}
-                                  </td>
-                                  <td className="border p-2 text-right">
-                                    {formatCurrency(b?.opening?.value || 0)}
-                                  </td>
-                                </tr>
-                              ))}
-                          </React.Fragment>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              ) : reportView === "All" || reportView === "Categories" ? (
-                <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-4">
                   {reportView === "Categories" && drillPath.length > 1 && (
                     <div className={`flex items-center gap-2 p-2 rounded-md ${theme === "dark" ? "bg-gray-800" : "bg-gray-100"}`}>
                       <button
@@ -1994,36 +1474,38 @@ const StockSummary: React.FC = () => {
                         >
                           Particulars
                         </th>
-                        {(reportView === "All" || reportView === "Categories") && (
-                          <>
-                            <th
-                              colSpan={3}
-                              className={`border ${theme === "dark"
-                                ? "border-gray-500"
-                                : "border-gray-400"
-                                } p-1 text-center font-semibold`}
-                            >
-                              Opening Balance
-                            </th>
-                            <th
-                              colSpan={3}
-                              className={`border ${theme === "dark"
-                                ? "border-gray-500"
-                                : "border-gray-400"
-                                } p-1 text-center font-semibold`}
-                            >
-                              Inwards
-                            </th>
-                            <th
-                              colSpan={3}
-                              className={`border ${theme === "dark"
-                                ? "border-gray-500"
-                                : "border-gray-400"
-                                } p-1 text-center font-semibold`}
-                            >
-                              Outwards
-                            </th>
-                          </>
+                        {showOpening && (
+                          <th
+                            colSpan={3}
+                            className={`border ${theme === "dark"
+                              ? "border-gray-500"
+                              : "border-gray-400"
+                              } p-1 text-center font-semibold`}
+                          >
+                            Opening Balance
+                          </th>
+                        )}
+                        {showInward && (
+                          <th
+                            colSpan={3}
+                            className={`border ${theme === "dark"
+                              ? "border-gray-500"
+                              : "border-gray-400"
+                              } p-1 text-center font-semibold`}
+                          >
+                            Inwards
+                          </th>
+                        )}
+                        {showOutward && (
+                          <th
+                            colSpan={3}
+                            className={`border ${theme === "dark"
+                              ? "border-gray-500"
+                              : "border-gray-400"
+                              } p-1 text-center font-semibold`}
+                          >
+                            Outwards
+                          </th>
                         )}
                         <th
                           colSpan={3}
@@ -2043,19 +1525,22 @@ const StockSummary: React.FC = () => {
                             : "bg-gray-200 text-black"
                         }
                       >
-                        {(reportView === "All" || reportView === "Categories") && (
+                        {showOpening && (
                           <>
-                            {/* Opening */}
                             <th className={`border ${theme === "dark" ? "border-gray-500" : "border-gray-400"} p-1 text-center`}>Quantity</th>
                             <th className={`border ${theme === "dark" ? "border-gray-500" : "border-gray-400"} p-1 text-center`}>Rate</th>
                             <th className={`border ${theme === "dark" ? "border-gray-500" : "border-gray-400"} p-1 text-center`}>Value</th>
-
-                            {/* Inward */}
+                          </>
+                        )}
+                        {showInward && (
+                          <>
                             <th className={`border ${theme === "dark" ? "border-gray-500" : "border-gray-400"} p-1 text-center`}>Quantity</th>
                             <th className={`border ${theme === "dark" ? "border-gray-500" : "border-gray-400"} p-1 text-center`}>Rate</th>
                             <th className={`border ${theme === "dark" ? "border-gray-500" : "border-gray-400"} p-1 text-center`}>Value</th>
-
-                            {/* Outward */}
+                          </>
+                        )}
+                        {showOutward && (
+                          <>
                             <th className={`border ${theme === "dark" ? "border-gray-500" : "border-gray-400"} p-1 text-center`}>Quantity</th>
                             <th className={`border ${theme === "dark" ? "border-gray-500" : "border-gray-400"} p-1 text-center`}>Rate</th>
                             <th className={`border ${theme === "dark" ? "border-gray-500" : "border-gray-400"} p-1 text-center`}>Value</th>
@@ -2092,15 +1577,27 @@ const StockSummary: React.FC = () => {
                                          {group.name}
                                        </div>
                                      </td>
-                                     <td className="border p-2 text-right align-middle">{groupTotals.openingQty ? `${groupTotals.openingQty} ${group.unitName || ""}`.trim() : ""}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(groupOpRate)}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(groupTotals.openingValue)}</td>
-                                     <td className="border p-2 text-right align-middle">{groupTotals.inwardQty ? `${groupTotals.inwardQty} ${group.unitName || ""}`.trim() : ""}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(groupInRate)}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(groupTotals.inwardValue)}</td>
-                                     <td className="border p-2 text-right align-middle">{groupTotals.outwardQty ? `${groupTotals.outwardQty} ${group.unitName || ""}`.trim() : ""}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(groupOutRate)}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(groupTotals.outwardValue)}</td>
+                                     {showOpening && (
+                                       <>
+                                         <td className="border p-2 text-right align-middle">{groupTotals.openingQty ? `${groupTotals.openingQty} ${group.unitName || ""}`.trim() : ""}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(groupOpRate)}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(groupTotals.openingValue)}</td>
+                                       </>
+                                     )}
+                                     {showInward && (
+                                       <>
+                                         <td className="border p-2 text-right align-middle">{groupTotals.inwardQty ? `${groupTotals.inwardQty} ${group.unitName || ""}`.trim() : ""}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(groupInRate)}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(groupTotals.inwardValue)}</td>
+                                       </>
+                                     )}
+                                     {showOutward && (
+                                       <>
+                                         <td className="border p-2 text-right align-middle">{groupTotals.outwardQty ? `${groupTotals.outwardQty} ${group.unitName || ""}`.trim() : ""}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(groupOutRate)}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(groupTotals.outwardValue)}</td>
+                                       </>
+                                     )}
                                      <td className="border p-2 text-right align-middle">{groupTotals.closingQty ? `${groupTotals.closingQty} ${group.unitName || ""}`.trim() : ""}</td>
                                      <td className="border p-2 text-right align-middle">{formatCurrency(groupClRate)}</td>
                                      <td className="border p-2 text-right align-middle">{formatCurrency(groupTotals.closingValue)}</td>
@@ -2128,15 +1625,27 @@ const StockSummary: React.FC = () => {
                                          {category.name}
                                        </div>
                                      </td>
-                                     <td className="border p-2 text-right align-middle">{catTotals.openingQty ? `${catTotals.openingQty} ${category.unitName || ""}`.trim() : ""}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(catOpRate)}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(catTotals.openingValue)}</td>
-                                     <td className="border p-2 text-right align-middle">{catTotals.inwardQty ? `${catTotals.inwardQty} ${category.unitName || ""}`.trim() : ""}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(catInRate)}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(catTotals.inwardValue)}</td>
-                                     <td className="border p-2 text-right align-middle">{catTotals.outwardQty ? `${catTotals.outwardQty} ${category.unitName || ""}`.trim() : ""}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(catOutRate)}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(catTotals.outwardValue)}</td>
+                                     {showOpening && (
+                                       <>
+                                         <td className="border p-2 text-right align-middle">{catTotals.openingQty ? `${catTotals.openingQty} ${category.unitName || ""}`.trim() : ""}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(catOpRate)}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(catTotals.openingValue)}</td>
+                                       </>
+                                     )}
+                                     {showInward && (
+                                       <>
+                                         <td className="border p-2 text-right align-middle">{catTotals.inwardQty ? `${catTotals.inwardQty} ${category.unitName || ""}`.trim() : ""}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(catInRate)}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(catTotals.inwardValue)}</td>
+                                       </>
+                                     )}
+                                     {showOutward && (
+                                       <>
+                                         <td className="border p-2 text-right align-middle">{catTotals.outwardQty ? `${catTotals.outwardQty} ${category.unitName || ""}`.trim() : ""}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(catOutRate)}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(catTotals.outwardValue)}</td>
+                                       </>
+                                     )}
                                      <td className="border p-2 text-right align-middle">{catTotals.closingQty ? `${catTotals.closingQty} ${category.unitName || ""}`.trim() : ""}</td>
                                      <td className="border p-2 text-right align-middle">{formatCurrency(catClRate)}</td>
                                      <td className="border p-2 text-right align-middle">{formatCurrency(catTotals.closingValue)}</td>
@@ -2184,18 +1693,27 @@ const StockSummary: React.FC = () => {
                                          {item.itemName}
                                        </div>
                                      </td>
-                                     <td className="border p-2 text-right align-middle">{totals.openingQty ? `${totals.openingQty} ${item.unitName}`.trim() : ""}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(openingRate)}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(totals.openingValue)}</td>
-
-                                     <td className="border p-2 text-right align-middle">{totals.inwardQty ? `${totals.inwardQty} ${item.unitName}`.trim() : ""}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(inwardRate)}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(totals.inwardValue)}</td>
-
-                                     <td className="border p-2 text-right align-middle">{totals.outwardQty ? `${totals.outwardQty} ${item.unitName}`.trim() : ""}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(outwardRate)}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(totals.outwardValue)}</td>
-
+                                     {showOpening && (
+                                       <>
+                                         <td className="border p-2 text-right align-middle">{totals.openingQty ? `${totals.openingQty} ${item.unitName}`.trim() : ""}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(openingRate)}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(totals.openingValue)}</td>
+                                       </>
+                                     )}
+                                     {showInward && (
+                                       <>
+                                         <td className="border p-2 text-right align-middle">{totals.inwardQty ? `${totals.inwardQty} ${item.unitName}`.trim() : ""}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(inwardRate)}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(totals.inwardValue)}</td>
+                                       </>
+                                     )}
+                                     {showOutward && (
+                                       <>
+                                         <td className="border p-2 text-right align-middle">{totals.outwardQty ? `${totals.outwardQty} ${item.unitName}`.trim() : ""}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(outwardRate)}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(totals.outwardValue)}</td>
+                                       </>
+                                     )}
                                      <td className="border p-2 text-right align-middle">{totals.closingQty ? `${totals.closingQty} ${item.unitName}`.trim() : ""}</td>
                                      <td className="border p-2 text-right align-middle">{formatCurrency(closingRate)}</td>
                                      <td className="border p-2 text-right align-middle">{formatCurrency(totals.closingValue)}</td>
@@ -2204,8 +1722,9 @@ const StockSummary: React.FC = () => {
                                );
                              });
                            } else if (currentDrill.type === 'item') {
+                             const visibleColSpan = 1 + (showOpening ? 3 : 0) + (showInward ? 3 : 0) + (showOutward ? 3 : 0) + 3;
                              if (categoryVouchersLoading) {
-                               return <tr><td colSpan={13} className="text-center p-4">Loading monthly summary...</td></tr>;
+                               return <tr><td colSpan={visibleColSpan} className="text-center p-4">Loading monthly summary...</td></tr>;
                              }
                              const itemData = (currentDrill as any).data;
                              const itemMonthsData = calculateItemMonthsSummary(itemData.itemName, itemData.categoryId);
@@ -2229,18 +1748,27 @@ const StockSummary: React.FC = () => {
                                          {m.monthName}
                                        </div>
                                      </td>
-                                     <td className="border p-2 text-right align-middle">{m.openingQty || ""}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(opRate)}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(m.openingValue)}</td>
-
-                                     <td className="border p-2 text-right align-middle">{m.inQty || ""}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(inRate)}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(m.inValue)}</td>
-
-                                     <td className="border p-2 text-right align-middle">{m.outQty || ""}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(outRate)}</td>
-                                     <td className="border p-2 text-right align-middle">{formatCurrency(m.outValue)}</td>
-
+                                     {showOpening && (
+                                       <>
+                                         <td className="border p-2 text-right align-middle">{m.openingQty || ""}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(opRate)}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(m.openingValue)}</td>
+                                       </>
+                                     )}
+                                     {showInward && (
+                                       <>
+                                         <td className="border p-2 text-right align-middle">{m.inQty || ""}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(inRate)}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(m.inValue)}</td>
+                                       </>
+                                     )}
+                                     {showOutward && (
+                                       <>
+                                         <td className="border p-2 text-right align-middle">{m.outQty || ""}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(outRate)}</td>
+                                         <td className="border p-2 text-right align-middle">{formatCurrency(m.outValue)}</td>
+                                       </>
+                                     )}
                                      <td className="border p-2 text-right align-middle">{m.closingQty || ""}</td>
                                      <td className="border p-2 text-right align-middle">{formatCurrency(clRate)}</td>
                                      <td className="border p-2 text-right align-middle">{formatCurrency(m.closingValue)}</td>
@@ -2296,18 +1824,27 @@ const StockSummary: React.FC = () => {
                                     {item.itemName}
                                   </div>
                                 </td>
-                                <td className="border p-2 text-right align-middle">{totals.openingQty ? `${totals.openingQty} ${item.unitName}`.trim() : ""}</td>
-                                <td className="border p-2 text-right align-middle">{formatCurrency(openingRate)}</td>
-                                <td className="border p-2 text-right align-middle">{formatCurrency(totals.openingValue)}</td>
-
-                                <td className="border p-2 text-right align-middle">{totals.inwardQty ? `${totals.inwardQty} ${item.unitName}`.trim() : ""}</td>
-                                <td className="border p-2 text-right align-middle">{formatCurrency(inwardRate)}</td>
-                                <td className="border p-2 text-right align-middle">{formatCurrency(totals.inwardValue)}</td>
-
-                                <td className="border p-2 text-right align-middle">{totals.outwardQty ? `${totals.outwardQty} ${item.unitName}`.trim() : ""}</td>
-                                <td className="border p-2 text-right align-middle">{formatCurrency(outwardRate)}</td>
-                                <td className="border p-2 text-right align-middle">{formatCurrency(totals.outwardValue)}</td>
-
+                                {showOpening && (
+                                  <>
+                                    <td className="border p-2 text-right align-middle">{totals.openingQty ? `${totals.openingQty} ${item.unitName}`.trim() : ""}</td>
+                                    <td className="border p-2 text-right align-middle">{formatCurrency(openingRate)}</td>
+                                    <td className="border p-2 text-right align-middle">{formatCurrency(totals.openingValue)}</td>
+                                  </>
+                                )}
+                                {showInward && (
+                                  <>
+                                    <td className="border p-2 text-right align-middle">{totals.inwardQty ? `${totals.inwardQty} ${item.unitName}`.trim() : ""}</td>
+                                    <td className="border p-2 text-right align-middle">{formatCurrency(inwardRate)}</td>
+                                    <td className="border p-2 text-right align-middle">{formatCurrency(totals.inwardValue)}</td>
+                                  </>
+                                )}
+                                {showOutward && (
+                                  <>
+                                    <td className="border p-2 text-right align-middle">{totals.outwardQty ? `${totals.outwardQty} ${item.unitName}`.trim() : ""}</td>
+                                    <td className="border p-2 text-right align-middle">{formatCurrency(outwardRate)}</td>
+                                    <td className="border p-2 text-right align-middle">{formatCurrency(totals.outwardValue)}</td>
+                                  </>
+                                )}
                                 <td className="border p-2 text-right align-middle">{totals.closingQty ? `${totals.closingQty} ${item.unitName}`.trim() : ""}</td>
                                 <td className="border p-2 text-right align-middle">{formatCurrency(closingRate)}</td>
                                 <td className="border p-2 text-right align-middle">{formatCurrency(totals.closingValue)}</td>
@@ -2321,15 +1858,27 @@ const StockSummary: React.FC = () => {
                                     onClick={() => navigate(`/app/reports/item-monthly-summary?item=${item.itemName}&batch=${b.batchName}`)}
                                   >
                                     <td className="border pl-8 italic">{b.batchName}</td>
-                                    <td className="border p-2 text-right align-middle">{b.opening.qty ? `${b.opening.qty} ${item.unitName}`.trim() : ""}</td>
-                                    <td className="border p-2 text-right align-middle">{formatCurrency(b.opening.rate)}</td>
-                                    <td className="border p-2 text-right align-middle">{formatCurrency(b.opening.value)}</td>
-                                    <td className="border p-2 text-right align-middle">{b.inward.qty ? `${b.inward.qty} ${item.unitName}`.trim() : ""}</td>
-                                    <td className="border p-2 text-right align-middle">{b.inward.rate ? formatCurrency(b.inward.rate) : ""}</td>
-                                    <td className="border p-2 text-right align-middle">{b.inward.value ? formatCurrency(b.inward.value) : ""}</td>
-                                    <td className="border p-2 text-right align-middle">{b.outward.qty ? `${b.outward.qty} ${item.unitName}`.trim() : ""}</td>
-                                    <td className="border p-2 text-right align-middle">{b.outward.rate ? formatCurrency(b.outward.rate) : ""}</td>
-                                    <td className="border p-2 text-right align-middle">{b.outward.value ? formatCurrency(b.outward.value) : ""}</td>
+                                    {showOpening && (
+                                      <>
+                                        <td className="border p-2 text-right align-middle">{b.opening.qty ? `${b.opening.qty} ${item.unitName}`.trim() : ""}</td>
+                                        <td className="border p-2 text-right align-middle">{formatCurrency(b.opening.rate)}</td>
+                                        <td className="border p-2 text-right align-middle">{formatCurrency(b.opening.value)}</td>
+                                      </>
+                                    )}
+                                    {showInward && (
+                                      <>
+                                        <td className="border p-2 text-right align-middle">{b.inward.qty ? `${b.inward.qty} ${item.unitName}`.trim() : ""}</td>
+                                        <td className="border p-2 text-right align-middle">{b.inward.rate ? formatCurrency(b.inward.rate) : ""}</td>
+                                        <td className="border p-2 text-right align-middle">{b.inward.value ? formatCurrency(b.inward.value) : ""}</td>
+                                      </>
+                                    )}
+                                    {showOutward && (
+                                      <>
+                                        <td className="border p-2 text-right align-middle">{b.outward.qty ? `${b.outward.qty} ${item.unitName}`.trim() : ""}</td>
+                                        <td className="border p-2 text-right align-middle">{b.outward.rate ? formatCurrency(b.outward.rate) : ""}</td>
+                                        <td className="border p-2 text-right align-middle">{b.outward.value ? formatCurrency(b.outward.value) : ""}</td>
+                                      </>
+                                    )}
                                     <td className="border p-2 text-right align-middle">{b.closing.qty ? `${b.closing.qty} ${item.unitName}`.trim() : ""}</td>
                                     <td className="border p-2 text-right align-middle">{formatCurrency(b.closing.rate)}</td>
                                     <td className="border p-2 text-right align-middle">{formatCurrency(b.closing.value)}</td>
@@ -2425,7 +1974,7 @@ const StockSummary: React.FC = () => {
                           <tr className="font-bold bg-gray-200">
                             <td className="border p-2">Grand Total</td>
 
-                            {(reportView === "All" || reportView === "Categories") && (
+                            {showOpening && (
                               <>
                                 {/* Opening */}
                                 <td className="border p-2 text-right align-middle">
@@ -2437,7 +1986,11 @@ const StockSummary: React.FC = () => {
                                 <td className="border p-2 text-right align-middle">
                                   {formatCurrency(grand.openingValue)}
                                 </td>
+                              </>
+                            )}
 
+                            {showInward && (
+                              <>
                                 {/* Inward */}
                                 <td className="border p-2 text-right align-middle">
                                   {grand.inwardQty ? `${grand.inwardQty} ${repUnit}`.trim() : ""}
@@ -2448,7 +2001,11 @@ const StockSummary: React.FC = () => {
                                 <td className="border p-2 text-right align-middle">
                                   {formatCurrency(grand.inwardValue)}
                                 </td>
+                              </>
+                            )}
 
+                            {showOutward && (
+                              <>
                                 {/* Outward */}
                                 <td className="border p-2 text-right align-middle">
                                   {grand.outwardQty ? `${grand.outwardQty} ${repUnit}`.trim() : ""}
@@ -2477,289 +2034,8 @@ const StockSummary: React.FC = () => {
                       })()}
                     </tbody>
                   </table>
-                  </div>
                 </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className={`w-full border-collapse`}>
-                    <thead>
-                      <tr
-                        className={
-                          theme === "dark"
-                            ? "bg-gray-700 text-white"
-                            : "bg-gray-200 text-black"
-                        }
-                      >
-                        {columns.map((col) => (
-                          <th
-                            key={col.accessor}
-                            className={`p-2 border ${theme === "dark"
-                              ? "border-gray-500"
-                              : "border-gray-400"
-                              } text-${col.align || "left"} font-semibold`}
-                          >
-                            {col.header}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {groupedData.map((group: any, idx: number) => {
-                        const isExpanded = expandedItems.has(group.itemName);
-                        return (
-                          <React.Fragment key={idx}>
-                            {/* Group Header Row */}
-                            <tr
-                              className={`cursor-pointer ${theme === "dark"
-                                ? "hover:bg-gray-600 text-white"
-                                : "hover:bg-gray-100 text-black"
-                                } ${theme === "dark" ? "bg-gray-800" : "bg-gray-50"
-                                }`}
-                              onClick={() => toggleItem(group.itemName)}
-                            >
-                              <td
-                                className={`p-2 border ${theme === "dark"
-                                  ? "border-gray-500"
-                                  : "border-gray-400"
-                                  } text-center`}
-                              >
-                                -
-                              </td>
-                              <td
-                                className={`p-2 border ${theme === "dark"
-                                  ? "border-gray-500"
-                                  : "border-gray-400"
-                                  }`}
-                              >
-                                <div className="flex items-center gap-2">
-                                  {isExpanded ? (
-                                    <ChevronDown size={16} />
-                                  ) : (
-                                    <ChevronRight size={16} />
-                                  )}
-                                  <span className="font-semibold">
-                                    {group.itemName}
-                                  </span>
-                                  <span className="text-xs opacity-70">
-                                    ({group.transactionCount} transactions)
-                                  </span>
-                                </div>
-                              </td>
-                              {reportView === "Closing" && (
-                                <td
-                                  className={`p-2 border ${theme === "dark"
-                                    ? "border-gray-500"
-                                    : "border-gray-400"
-                                    } text-center`}
-                                >
-                                  {group.unitName || "-"}
-                                </td>
-                              )}
-                              <td
-                                className={`p-2 border ${theme === "dark"
-                                  ? "border-gray-500"
-                                  : "border-gray-400"
-                                  } text-center`}
-                              >
-                                {group.hsnCode || "-"}
-                              </td>
-                              {/* Batch placeholder */}
-                              <td
-                                className={`p-2 border ${theme === "dark"
-                                  ? "border-gray-500"
-                                  : "border-gray-400"
-                                  } text-center`}
-                              >
-                                -
-                              </td>
-                              {/* Qty */}
-                              <td
-                                className={`p-2 border ${theme === "dark"
-                                  ? "border-gray-500"
-                                  : "border-gray-400"
-                                  } text-center font-semibold`}
-                              >
-                                {group.totalQty}
-                              </td>
-                              {/* Rate placeholder */}
-                              {reportView !== "Closing" && (
-                                <td
-                                  className={`p-2 border ${theme === "dark"
-                                    ? "border-gray-500"
-                                    : "border-gray-400"
-                                    } text-center`}
-                                >
-                                  -
-                                </td>
-                              )}
-                              {/* Value placeholder */}
-                              {reportView !== "Closing" && (
-                                <td
-                                  className={`p-2 border ${theme === "dark"
-                                    ? "border-gray-500"
-                                    : "border-gray-400"
-                                    } text-center`}
-                                >
-                                  -
-                                </td>
-                              )}
-                              {/* Date placeholder */}
-                              {reportView !== "Closing" && (
-                                <td
-                                  className={`p-2 border ${theme === "dark"
-                                    ? "border-gray-500"
-                                    : "border-gray-400"
-                                    } text-center`}
-                                >
-                                  -
-                                </td>
-                              )}
-                            </tr>
-                            {/* Expanded Transaction Rows */}
-                            {isExpanded &&
-                              group.transactions.map(
-                                (transaction: any, tIdx: number) => (
-                                  <tr
-                                    key={`${idx}-${tIdx}`}
-                                    className={`${theme === "dark"
-                                      ? "bg-gray-900 text-white"
-                                      : "bg-white text-black"
-                                      }`}
-                                  >
-                                    {reportView === "Closing" ? (
-                                      <>
-                                        <td
-                                          className={`p-2 border ${theme === "dark"
-                                            ? "border-gray-500"
-                                            : "border-gray-400"
-                                            } text-center`}
-                                        >
-                                          {tIdx + 1}
-                                        </td>
-                                        <td
-                                          className={`p-2 border ${theme === "dark"
-                                            ? "border-gray-500"
-                                            : "border-gray-400"
-                                            } text-center pl-8`}
-                                        >
-                                          {transaction.itemName}
-                                        </td>
-                                        <td
-                                          className={`p-2 border ${theme === "dark"
-                                            ? "border-gray-500"
-                                            : "border-gray-400"
-                                            } text-center`}
-                                        >
-                                          {transaction.unitName || "-"}
-                                        </td>
-                                        <td
-                                          className={`p-2 border ${theme === "dark"
-                                            ? "border-gray-500"
-                                            : "border-gray-400"
-                                            } text-center`}
-                                        >
-                                          {transaction.hsnCode || "-"}
-                                        </td>
-                                        <td
-                                          className={`p-2 border ${theme === "dark"
-                                            ? "border-gray-500"
-                                            : "border-gray-400"
-                                            } text-center`}
-                                        >
-                                          {transaction.batchNumber || "-"}
-                                        </td>
-                                        <td
-                                          className={`p-2 border ${theme === "dark"
-                                            ? "border-gray-500"
-                                            : "border-gray-400"
-                                            } text-center`}
-                                        >
-                                          {transaction.closingQty ??
-                                            transaction.qty ??
-                                            0}
-                                        </td>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <td
-                                          className={`p-2 border ${theme === "dark"
-                                            ? "border-gray-500"
-                                            : "border-gray-400"
-                                            } text-center`}
-                                        >
-                                          {tIdx + 1}
-                                        </td>
-                                        <td
-                                          className={`p-2 border ${theme === "dark"
-                                            ? "border-gray-500"
-                                            : "border-gray-400"
-                                            } text-center pl-8`}
-                                        >
-                                          {transaction.itemName}
-                                        </td>
-                                        <td
-                                          className={`p-2 border ${theme === "dark"
-                                            ? "border-gray-500"
-                                            : "border-gray-400"
-                                            } text-center`}
-                                        >
-                                          {transaction.hsnCode || "-"}
-                                        </td>
-                                        <td
-                                          className={`p-2 border ${theme === "dark"
-                                            ? "border-gray-500"
-                                            : "border-gray-400"
-                                            } text-center`}
-                                        >
-                                          {transaction.batchNumber || "-"}
-                                        </td>
-                                        <td
-                                          className={`p-2 border ${theme === "dark"
-                                            ? "border-gray-500"
-                                            : "border-gray-400"
-                                            } text-center whitespace-nowrap`}
-                                        >
-                                          {Math.abs(
-                                            Number(transaction.qty) || 0
-                                          )}
-                                        </td>
-                                        <td
-                                          className={`p-2 border ${theme === "dark"
-                                            ? "border-gray-500"
-                                            : "border-gray-400"
-                                            } text-right font-mono`}
-                                        >
-                                          {formatCurrency(Number(transaction.rate || 0))}
-                                        </td>
-                                        <td
-                                          className={`p-2 border ${theme === "dark"
-                                            ? "border-gray-500"
-                                            : "border-gray-400"
-                                            } text-right font-mono`}
-                                        >
-                                          {formatCurrency((Number(transaction.qty) || 0) * (Number(transaction.rate) || 0))}
-                                        </td>
-                                        <td
-                                          className={`p-2 border ${theme === "dark"
-                                            ? "border-gray-500"
-                                            : "border-gray-400"
-                                            } text-center`}
-                                        >
-                                          {formatDate(transaction.date)}
-                                        </td>
-                                      </>
-                                    )}
-                                  </tr>
-                                )
-                              )}
-                          </React.Fragment>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </>
+              </div>
           )}
       </div>
     </div>
