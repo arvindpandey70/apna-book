@@ -20,6 +20,7 @@ import type {
   SalesType,
 } from "../../../types";
 import { Save, Plus, Trash2, ArrowLeft, Printer, Settings, ChevronDown, X, Search } from "lucide-react";
+import { RubicSalesButton, RubicSalesItemGrid } from "./RubicSalesQuickSelect";
 
 import Swal from "sweetalert2";
 import EWayBillGeneration from "./EWayBillGeneration";
@@ -142,6 +143,7 @@ const SalesVoucher: React.FC = () => {
     index: number | null;
   }>({ isOpen: false, index: null });
   const [itemSearchTerm, setItemSearchTerm] = useState("");
+  const [isRubicSalesMode, setIsRubicSalesMode] = useState<boolean>(false);
 
   // Robust detection for party ledgers — backend may return different field names
 
@@ -1661,6 +1663,258 @@ const SalesVoucher: React.FC = () => {
     profitConfig.customerType,
   ]);
 
+  const populateItemEntry = useCallback(
+    (entry: any, itemId: string | number) => {
+      const value = String(itemId);
+      const details = getItemDetails(value);
+      const gst = details.gstRate || 0;
+
+      const companyState = safeCompanyInfo?.state || "";
+      const partyState = selectedPartyState || "";
+      const statesMatch = Boolean(
+        !companyState ||
+          !partyState ||
+          companyState.toLowerCase().trim() === partyState.toLowerCase().trim()
+      );
+
+      const extractGstPercent = (ledgerId: any) => {
+        if (!ledgerId) return 0;
+        const ledger = safeLedgers.find(
+          (l) => String(l.id) === String(ledgerId)
+        );
+        if (!ledger?.name) return 0;
+        const match = ledger.name.match(/(\d+(\.\d+)?)/);
+        return match ? Number(match[1]) : 0;
+      };
+
+      let extractedCgst = extractGstPercent(details.cgstLedgerId);
+      let extractedSgst = extractGstPercent(details.sgstLedgerId);
+      let extractedIgst = extractGstPercent(
+        details.gstLedgerId || details.igstLedgerId
+      );
+
+      if (details.gstRate > 0) {
+        if (extractedCgst === 0) extractedCgst = details.gstRate / 2;
+        if (extractedSgst === 0) extractedSgst = details.gstRate / 2;
+        if (extractedIgst === 0) extractedIgst = details.gstRate;
+      }
+
+      let cgstRate = 0;
+      let sgstRate = 0;
+      let igstRate = 0;
+
+      if (statesMatch) {
+        cgstRate = extractedCgst;
+        sgstRate = extractedSgst;
+        igstRate = 0;
+      } else {
+        cgstRate = 0;
+        sgstRate = 0;
+        igstRate = extractedIgst;
+      }
+
+      let itemMrp = Number(details.mrp || 0);
+      let initialRate = Number(details.rate || 0);
+      if (initialRate === 0 && itemMrp > 0) {
+        initialRate = itemMrp;
+      }
+      let defaultQty = 0;
+
+      if (details.batches?.length) {
+        const defaultBatch = details.batches.find((b: any) => !b.batchName);
+        if (defaultBatch) {
+          const bRate = Number(
+            defaultBatch.openingRate ||
+              defaultBatch.batchRate ||
+              defaultBatch.rate ||
+              defaultBatch.sellingPrice ||
+              defaultBatch.sellingRate ||
+              defaultBatch.standardSaleRate ||
+              0
+          );
+          if (bRate > 0) initialRate = bRate;
+
+          if (defaultBatch.mrp || defaultBatch.MRP) {
+            itemMrp = Number(defaultBatch.mrp || defaultBatch.MRP);
+            if (initialRate === 0) initialRate = itemMrp;
+          }
+          if (defaultBatch.batchQuantity) {
+            defaultQty = Number(defaultBatch.batchQuantity);
+          }
+        }
+      }
+
+      const newRate = applyProfit(initialRate, itemMrp);
+
+      let totalGst = 0;
+      if (statesMatch) {
+        totalGst = Number(extractedCgst || 0) + Number(extractedSgst || 0);
+      } else {
+        totalGst = Number(extractedIgst || 0);
+      }
+      totalGst = Number(totalGst);
+
+      const salesLedger = getSalesLedgerByGst(totalGst, statesMatch);
+
+      if (!salesLedger && totalGst > 0) {
+        Swal.fire({
+          icon: "warning",
+          title: "Sales Ledger Missing",
+          text: `Sales ${totalGst}% ${
+            statesMatch ? "Intra" : "Inter"
+          } Ledger not found. Please create it first.`,
+        });
+      }
+
+      const updated = {
+        ...entry,
+        itemId: value,
+        hsnCode: details.hsnCode || "",
+        unitId: details.unitId || "",
+        unitLabel: details.unitLabel || "",
+        batches: details.batches || [],
+        batchNumber: "",
+        rate: newRate,
+        quantity: defaultQty,
+        gstRate: gst,
+        cgstRate: cgstRate,
+        sgstRate: sgstRate,
+        igstRate: igstRate,
+        gstLedgerId: details.gstLedgerId || "",
+        cgstLedgerId: details.cgstLedgerId || "",
+        sgstLedgerId: details.sgstLedgerId || "",
+        igstLedgerId: details.igstLedgerId || "",
+        godownId:
+          details.godown_id?.toString() ||
+          (godownList.length === 1 ? String(godownList[0].id) : ""),
+        salesLedgerId: salesLedger
+          ? String(salesLedger.id)
+          : entry?.salesLedgerId || "",
+        tracking_id: "",
+        trackingOptions: [],
+        sub_attributes: {},
+      };
+
+      updated.amount = recalcAmount(updated);
+      return updated;
+    },
+    [
+      safeCompanyInfo?.state,
+      selectedPartyState,
+      safeLedgers,
+      applyProfit,
+      godownList,
+      getSalesLedgerByGst,
+      getItemDetails,
+      recalcAmount,
+    ]
+  );
+
+  const handleRubicItemSelect = useCallback(
+    (item: StockItem) => {
+      const itemIdStr = String(item.id);
+      setFormData((prev) => {
+        const entries = [...prev.entries];
+        const existingIndex = entries.findIndex(
+          (e) => String(e.itemId) === itemIdStr
+        );
+
+        if (existingIndex !== -1) {
+          // 🟢 TOGGLE UNSELECT: Remove item if already selected
+          entries.splice(existingIndex, 1);
+
+          // Keep at least one default blank entry if all entries removed
+          if (entries.length === 0) {
+            entries.push({
+              id: `e1`,
+              itemId: "",
+              ledgerId: "",
+              quantity: 0,
+              rate: 0,
+              amount: 0,
+              type: "debit",
+              cgstRate: 0,
+              sgstRate: 0,
+              igstRate: 0,
+              godownId: godownList.length === 1 ? String(godownList[0].id) : "",
+              salesLedgerId: "",
+              discount: 0,
+              discountLedgerId: "",
+              hsnCode: "",
+            });
+          }
+
+          return { ...prev, entries };
+        }
+
+        const emptyIndex = entries.findIndex(
+          (e) => !e.itemId || e.itemId === ""
+        );
+        let targetIndex = emptyIndex;
+        let baseEntry: any;
+
+        if (targetIndex !== -1) {
+          baseEntry = entries[targetIndex];
+        } else {
+          targetIndex = entries.length;
+          baseEntry = {
+            id: `e${entries.length + 1}`,
+            itemId: "",
+            ledgerId: "",
+            quantity: 0,
+            rate: 0,
+            amount: 0,
+            type: "debit",
+            cgstRate: 0,
+            sgstRate: 0,
+            igstRate: 0,
+            godownId:
+              godownList.length === 1 ? String(godownList[0].id) : "",
+            salesLedgerId: "",
+            discount: 0,
+            discountLedgerId: "",
+            hsnCode: "",
+          };
+        }
+
+        let populated = populateItemEntry(baseEntry, itemIdStr);
+        if (Number(populated.quantity || 0) <= 0) {
+          populated.quantity = 1;
+          populated.amount = recalcAmount(populated);
+        }
+
+        if (emptyIndex !== -1) {
+          entries[emptyIndex] = populated;
+        } else {
+          entries.push(populated);
+        }
+
+        return { ...prev, entries };
+      });
+
+      fetch(`${import.meta.env.VITE_API_URL}/api/stock-items/${item.id}`)
+        .then((res) => res.json())
+        .then((data) => {
+          const trackingRows =
+            data?.data?.attributeTrackingRows || data?.attributeTrackingRows;
+          if (trackingRows) {
+            setFormData((prev) => {
+              const cur = [...prev.entries];
+              const idx = cur.findIndex((e) => String(e.itemId) === itemIdStr);
+              if (idx !== -1) {
+                cur[idx] = { ...cur[idx], trackingOptions: trackingRows };
+              }
+              return { ...prev, entries: cur };
+            });
+          }
+        })
+        .catch((err) =>
+          console.error("Error fetching tracking options:", err)
+        );
+    },
+    [populateItemEntry, recalcAmount, godownList]
+  );
+
   const handleEntryChange = async (
     index: number,
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
@@ -1672,123 +1926,14 @@ const SalesVoucher: React.FC = () => {
     if (formData.mode === "item-invoice") {
       // 1️⃣ ITEM SELECT
       if (name === "itemId") {
-        const details = getItemDetails(value);
-        const gst = details.gstRate || 0;
+        const updatedEntry = populateItemEntry(entry, value);
+        updatedEntries[index] = updatedEntry;
 
-        // Compare company state with party state
-        const companyState = safeCompanyInfo?.state || "";
-        const partyState = selectedPartyState || "";
-        const statesMatch = Boolean(
-          (!companyState || !partyState || companyState.toLowerCase().trim() === partyState.toLowerCase().trim())
-        );
-
-        // ✅ Extract GST % from ledger names (do this once)
-        const extractGstPercent = (ledgerId: any) => {
-          if (!ledgerId) return 0;
-          const ledger = safeLedgers.find(
-            (l) => String(l.id) === String(ledgerId)
-          );
-          if (!ledger?.name) return 0;
-          const match = ledger.name.match(/(\d+(\.\d+)?)/);
-          return match ? Number(match[1]) : 0;
-        };
-
-        // Extract rates once
-        let extractedCgst = extractGstPercent(details.cgstLedgerId);
-        let extractedSgst = extractGstPercent(details.sgstLedgerId);
-        let extractedIgst = extractGstPercent(
-          details.gstLedgerId || details.igstLedgerId
-        );
-
-        // Fallback to item's gstRate if extracting from ledger fails or ledgers are missing
-        if (details.gstRate > 0) {
-          if (extractedCgst === 0) extractedCgst = details.gstRate / 2;
-          if (extractedSgst === 0) extractedSgst = details.gstRate / 2;
-          if (extractedIgst === 0) extractedIgst = details.gstRate;
-        }
-
-        // Set GST rates based on state matching
-        let cgstRate = 0;
-        let sgstRate = 0;
-        let igstRate = 0;
-
-        if (statesMatch) {
-          // Same state: CGST + SGST
-          cgstRate = extractedCgst;
-          sgstRate = extractedSgst;
-          igstRate = 0;
-        } else {
-          // Different state: IGST
-          cgstRate = 0;
-          sgstRate = 0;
-          igstRate = extractedIgst;
-        }
-
-        // 🟢 original/base rate nikalo
-        let itemMrp = Number(details.mrp || 0);
-        let initialRate = Number(details.rate || 0);
-        if (initialRate === 0 && itemMrp > 0) {
-          initialRate = itemMrp;
-        }
-        let defaultQty = 0;
-
-        // 🔍 Check for Default Batch (null batchName)
-        if (details.batches?.length) {
-          const defaultBatch = details.batches.find((b: any) => !b.batchName);
-          if (defaultBatch) {
-            // Found a batch with null name -> Auto fill details
-            const bRate = Number(
-              defaultBatch.openingRate ||
-                defaultBatch.batchRate ||
-                defaultBatch.rate ||
-                defaultBatch.sellingPrice ||
-                defaultBatch.sellingRate ||
-                defaultBatch.standardSaleRate ||
-                0
-            );
-            if (bRate > 0) initialRate = bRate;
-
-            if (defaultBatch.mrp || defaultBatch.MRP) {
-              itemMrp = Number(defaultBatch.mrp || defaultBatch.MRP);
-              if (initialRate === 0) initialRate = itemMrp;
-            }
-            if (defaultBatch.batchQuantity) {
-              defaultQty = Number(defaultBatch.batchQuantity);
-            }
-          }
-        }
-
-        const newRate = applyProfit(initialRate, itemMrp);
-
-        updatedEntries[index] = {
-          ...entry,
-          itemId: value,
-          hsnCode: details.hsnCode || "",
-          unitId: details.unitId || "",
-          unitLabel: details.unitLabel || "",
-          batches: details.batches || [],
-          batchNumber: "",
-          rate: newRate,
-          quantity: defaultQty, // ✅ Auto-fill Quantity from default batch
-          gstRate: gst,
-          cgstRate: cgstRate,
-          sgstRate: sgstRate,
-          igstRate: igstRate,
-          gstLedgerId: details.gstLedgerId || "",
-          cgstLedgerId: details.cgstLedgerId || "",
-          sgstLedgerId: details.sgstLedgerId || "",
-          igstLedgerId: details.igstLedgerId || "",
-          godownId: details.godown_id?.toString() || "",
-          tracking_id: "",
-          trackingOptions: [],
-          sub_attributes: {}
-        };
-
-        // Async fetch tracking options
         fetch(`${import.meta.env.VITE_API_URL}/api/stock-items/${value}`)
-          .then(res => res.json())
-          .then(data => {
-            const trackingRows = data?.data?.attributeTrackingRows || data?.attributeTrackingRows;
+          .then((res) => res.json())
+          .then((data) => {
+            const trackingRows =
+              data?.data?.attributeTrackingRows || data?.attributeTrackingRows;
             if (trackingRows) {
               setFormData((prev) => {
                 const cur = [...prev.entries];
@@ -1799,37 +1944,10 @@ const SalesVoucher: React.FC = () => {
               });
             }
           })
-          .catch(err => console.error("Error fetching tracking options:", err));
+          .catch((err) =>
+            console.error("Error fetching tracking options:", err)
+          );
 
-        // ================= AUTO SALES LEDGER (DYNAMIC) =================
-
-        // Total GST calculate
-        let totalGst = 0;
-
-        if (statesMatch) {
-          totalGst = Number(extractedCgst || 0) + Number(extractedSgst || 0);
-        } else {
-          totalGst = Number(extractedIgst || 0);
-        }
-
-        totalGst = Number(totalGst);
-
-        // Find Sales Ledger
-        const salesLedger = getSalesLedgerByGst(totalGst, statesMatch); // Pass statesMatch (isIntra)
-
-        if (salesLedger) {
-          updatedEntries[index].salesLedgerId = String(salesLedger.id);
-        } else if (totalGst > 0) {
-          Swal.fire({
-            icon: "warning",
-            title: "Sales Ledger Missing",
-            text: `Sales ${totalGst}% ${
-              statesMatch ? "Intra" : "Inter"
-            } Ledger not found. Please create it first.`,
-          });
-        }
-
-        updatedEntries[index].amount = recalcAmount(updatedEntries[index]);
         setFormData((p) => ({ ...p, entries: updatedEntries }));
         return;
       }
@@ -3032,12 +3150,12 @@ const SalesVoucher: React.FC = () => {
     <React.Fragment>
       <div className="pt-[56px] px-2 md:px-4 w-full max-w-full min-w-0">
         <div className="flex flex-wrap items-center mb-6 justify-between gap-4">
-          {/* LEFT SIDE - Back Button + Page Title */}
-          <div className="flex items-center">
+          {/* LEFT SIDE - Back Button + Page Title + Rubic Sales Button */}
+          <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={() => navigate(new URLSearchParams(window.location.search).get("returnUrl") || "/app/vouchers")}
-              className="mr-4 p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"
+              className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"
             >
               <ArrowLeft size={20} />
             </button>
@@ -3045,6 +3163,12 @@ const SalesVoucher: React.FC = () => {
             <h1 className="text-2xl font-bold">
               {isQuotation ? "📋 Sales Quotation" : "📝 Sales Voucher"}
             </h1>
+
+            <RubicSalesButton
+              isActive={isRubicSalesMode}
+              onToggle={() => setIsRubicSalesMode((prev) => !prev)}
+              theme={theme}
+            />
           </div>
 
           {/* RIGHT SIDE - Sales Type + ⚙ SETTINGS ICON */}
@@ -3109,7 +3233,9 @@ const SalesVoucher: React.FC = () => {
           <form onSubmit={handleSubmit}>
             {/* Header Form Fields - Properly Organized in 4-Column Grid */}
             <div
-              className={`p-5 mb-8 rounded-xl border ${
+              className={`${
+                isRubicSalesMode ? "hidden" : "p-5 mb-8 rounded-xl border"
+              } ${
                 theme === "dark"
                   ? "bg-gray-800/50 border-gray-700"
                   : "bg-gray-50/50 border-gray-200"
@@ -3576,6 +3702,21 @@ const SalesVoucher: React.FC = () => {
               </div>
             </div>
 
+            {/* Rubic Sales Item Card Grid */}
+            {isRubicSalesMode && (
+              <RubicSalesItemGrid
+                stockItems={stockItems}
+                getItemDetails={getItemDetails}
+                entries={formData.entries}
+                onSelectItem={handleRubicItemSelect}
+                onExitRubicMode={() => setIsRubicSalesMode(false)}
+                selectedPartyName={
+                  partyLedgers.find((l) => String(l.id) === String(formData.partyId))?.name
+                }
+                theme={theme}
+              />
+            )}
+
             <div
               className={`p-4 mb-6 rounded ${
                 theme === "dark" ? "bg-gray-700" : "bg-gray-50"
@@ -3649,9 +3790,9 @@ const SalesVoucher: React.FC = () => {
                   {formData.mode === "item-invoice" ? "Item Row" : "Ledger Row"}
                 </button>
               </div>
-              <div className="overflow-x-auto w-full max-w-full min-w-0 rounded-lg [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+              <div className="w-full max-w-full min-w-0">
                 {formData.mode === "item-invoice" ? (
-                  <table className="w-full mb-4">
+                  <table className="w-full text-xs">
                     <thead>
                       <tr
                         className={`${
@@ -3660,36 +3801,36 @@ const SalesVoucher: React.FC = () => {
                             : "border-b border-gray-300"
                         }`}
                       >
-                        <th className="px-4 py-2 text-left whitespace-nowrap">
+                        <th className="px-1.5 py-1.5 text-left text-[11px] whitespace-nowrap">
                           S.No
                         </th>
-                        <th className="px-4 py-2 text-left whitespace-nowrap">
+                        <th className="px-1.5 py-1.5 text-left text-[11px] whitespace-nowrap">
                           Item
                         </th>
-                        <th className="px-4 py-2 text-left whitespace-nowrap">
+                        <th className="px-1.5 py-1.5 text-left text-[11px] whitespace-nowrap">
                           HSN/SAC
                         </th>
                         {hasAnyAttribute && (
-                          <th className="px-4 py-2 text-left whitespace-nowrap">
+                          <th className="px-1.5 py-1.5 text-left text-[11px] whitespace-nowrap">
                             Attribute
                           </th>
                         )}
                         {columnSettings.showBatch && hasAnyBatch && (
-                          <th className="whitespace-nowrap">Batch</th>
+                          <th className="px-1.5 py-1.5 text-left text-[11px] whitespace-nowrap">Batch</th>
                         )}
 
-                        <th className="px-4 py-2 text-right whitespace-nowrap">
+                        <th className="px-1.5 py-1.5 text-right text-[11px] whitespace-nowrap">
                           Quantity
                         </th>
-                        <th className="px-4 py-2 text-left whitespace-nowrap">
+                        <th className="px-1.5 py-1.5 text-left text-[11px] whitespace-nowrap">
                           Unit
                         </th>
-                        <th className="px-4 py-2 text-right whitespace-nowrap">
+                        <th className="px-1.5 py-1.5 text-right text-[11px] whitespace-nowrap">
                           Rate
                         </th>
                         {profitConfig.customerType === "retailer" &&
                           profitConfig.method === "on_mrp" && (
-                            <th className="px-4 py-2 text-right whitespace-nowrap">
+                            <th className="px-1.5 py-1.5 text-right text-[11px] whitespace-nowrap">
                               Profit
                             </th>
                           )}
@@ -3709,10 +3850,10 @@ const SalesVoucher: React.FC = () => {
                             if (!isInterState) {
                               return (
                                 <>
-                                  <th className="px-4 py-2 text-center whitespace-nowrap">
+                                  <th className="px-1.5 py-1.5 text-center text-[11px] whitespace-nowrap">
                                     SGST%
                                   </th>
-                                  <th className="px-4 py-2 text-center whitespace-nowrap">
+                                  <th className="px-1.5 py-1.5 text-center text-[11px] whitespace-nowrap">
                                     CGST%
                                   </th>
                                 </>
@@ -3721,29 +3862,29 @@ const SalesVoucher: React.FC = () => {
 
                             // ✅ Inter-state → IGST
                             return (
-                              <th className="px-4 py-2 text-center whitespace-nowrap">
+                              <th className="px-1.5 py-1.5 text-center text-[11px] whitespace-nowrap">
                                 IGST%
                               </th>
                             );
                           })()}
 
-                        <th className="px-4 py-2 text-right whitespace-nowrap">
+                        <th className="px-1.5 py-1.5 text-right text-[11px] whitespace-nowrap">
                           Taxable
                         </th>
                         {columnSettings.showDiscount && (
-                          <th className="whitespace-nowrap">Discount</th>
+                          <th className="px-1.5 py-1.5 text-left text-[11px] whitespace-nowrap">Discount</th>
                         )}
 
                         {godownEnabled === "yes" &&
                           columnSettings.showGodown && hasAnyGodown && (
-                            <th className="px-4 py-2 text-left whitespace-nowrap">
+                            <th className="px-1.5 py-1.5 text-left text-[11px] whitespace-nowrap">
                               Godown
                             </th>
                           )}
-                        <th className="px-4 py-2 text-left whitespace-nowrap">
+                        <th className="px-1.5 py-1.5 text-left text-[11px] whitespace-nowrap">
                           Sales Ledger
                         </th>
-                        <th className="px-4 py-2 text-center whitespace-nowrap">
+                        <th className="px-1.5 py-1.5 text-center text-[11px] whitespace-nowrap">
                           Action
                         </th>
                       </tr>
@@ -3775,19 +3916,19 @@ const SalesVoucher: React.FC = () => {
                             }`}
                           >
                             {/* SR */}
-                            <td className="px-1 py-2 text-center min-w-[28px] text-xs align-top">
+                            <td className="px-1 py-1 text-center text-[11px] align-top">
                               {index + 1}
                             </td>
 
                             {/* ITEM */}
-                            <td className="px-1 py-2 min-w-[110px] align-top">
+                            <td className="px-1 py-1 align-top">
                               <div
                                 onClick={() =>
                                   setItemSelectionModal({ isOpen: true, index })
                                 }
                                 className={`${FORM_STYLES.tableSelect(
                                   theme
-                                )} text-xs min-w-[110px] cursor-pointer flex items-center min-h-[28px] overflow-hidden whitespace-nowrap`}
+                                )} text-[11px] w-full max-w-full cursor-pointer flex items-center min-h-[26px] px-1 py-0.5 overflow-hidden whitespace-nowrap truncate`}
                                 title={
                                   entry.itemId
                                     ? stockItems.find(
@@ -3811,7 +3952,7 @@ const SalesVoucher: React.FC = () => {
                             </td>
 
                             {/* HSN */}
-                            <td className="px-1 py-2 text-center min-w-[55px] text-xs align-top">
+                            <td className="px-1 py-1 text-center text-[11px] align-top">
                               <input
                                 type="text"
                                 name="hsnCode"
@@ -3819,21 +3960,21 @@ const SalesVoucher: React.FC = () => {
                                 onChange={(e) => handleEntryChange(index, e)}
                                 className={`${FORM_STYLES.tableInput(
                                   theme
-                                )} text-center text-xs`}
+                                )} text-center text-[11px] px-1 py-0.5 w-full`}
                                 placeholder="HSN"
                               />
                             </td>
 
                             {/* ATTRIBUTE */}
                             {hasAnyAttribute && (
-                              <td className="px-1 py-2 text-center min-w-[150px] text-xs align-top">
+                              <td className="px-1 py-1 text-center text-[11px] align-top">
                                 {itemDetails.tracking_type === "attribute" ? (
                                   <>
                                     <select
                                       name="tracking_id"
                                       value={entry.tracking_id || ""}
                                       onChange={(e) => handleEntryChange(index, e)}
-                                      className={`${FORM_STYLES.tableSelect(theme)} w-full text-xs font-mono`}
+                                      className={`${FORM_STYLES.tableSelect(theme)} w-full text-[11px] px-1 py-0.5 truncate`}
                                     >
                                       <option value="">Attribute</option>
                                       {(entry.trackingOptions || []).map((t: any) => {
@@ -3848,7 +3989,7 @@ const SalesVoucher: React.FC = () => {
                                     
                                     {/* DISPLAY SUB-ATTRIBUTES IN ROW */}
                                     {entry.sub_attributes && Object.keys(entry.sub_attributes).length > 0 && (
-                                      <div className="mt-1 text-left text-[10px] text-gray-500 bg-gray-50 p-1 rounded border border-gray-200">
+                                      <div className="mt-1 text-left text-[9px] text-gray-500 bg-gray-50 p-0.5 rounded border border-gray-200">
                                         {Object.entries(entry.sub_attributes).map(([subId, val]) => {
                                           const subAttr = masterAttributes.find(a => String(a.id) === String(subId));
                                           return subAttr && val ? (
@@ -3867,7 +4008,7 @@ const SalesVoucher: React.FC = () => {
 
                             {/* BATCH */}
                             {columnSettings.showBatch && hasAnyBatch && (
-                                <td className="px-1 py-2 min-w-[180px] align-top">
+                                <td className="px-1 py-1 align-top">
                                   {itemDetails.tracking_type === "batch" ? (
                                     <>
                                       <select
@@ -3878,8 +4019,7 @@ const SalesVoucher: React.FC = () => {
                                     }
                                     className={`${FORM_STYLES.tableSelect(
                                       theme
-                                    )} 
-          min-w-[180px] text-xs font-mono`}
+                                    )} w-full text-[11px] px-1 py-0.5 truncate`}
                                   >
                                     <option value="">Batch</option>
 
@@ -3890,15 +4030,9 @@ const SalesVoucher: React.FC = () => {
                                           b.batchQuantity ?? b.quantity ?? 0
                                         );
 
-                                        // left-right spacing (safe way)
-                                        const name = String(b.batchName).padEnd(
-                                          12,
-                                          " "
-                                        );
-
                                         return (
                                           <option key={i} value={b.batchName}>
-                                            {`${name} — Qty: ${qty}`}
+                                            {`${b.batchName} (Qty:${qty})`}
                                           </option>
                                         );
                                       })}
@@ -3981,24 +4115,27 @@ const SalesVoucher: React.FC = () => {
                                 if (!isInterState) {
                                   return (
                                     <>
-                                      <td className="px-1 py-2 text-center min-w-[50px] text-xs align-top pt-3">
-                                        {entry.sgstLedgerId
-                                          ? getLedgerNameById(entry.sgstLedgerId)
-                                          : `${Number(entry.sgstRate || 0)}%`}
+                                      <td
+                                        className="px-1 py-2 text-center text-xs align-top pt-3 font-medium truncate"
+                                        title={entry.sgstLedgerId ? getLedgerNameById(entry.sgstLedgerId) : undefined}
+                                      >
+                                        {`${Number(entry.sgstRate || 0)}%`}
                                       </td>
-                                      <td className="px-1 py-2 text-center min-w-[50px] text-xs align-top pt-3">
-                                        {entry.cgstLedgerId
-                                          ? getLedgerNameById(entry.cgstLedgerId)
-                                          : `${Number(entry.cgstRate || 0)}%`}
+                                      <td
+                                        className="px-1 py-2 text-center text-xs align-top pt-3 font-medium truncate"
+                                        title={entry.cgstLedgerId ? getLedgerNameById(entry.cgstLedgerId) : undefined}
+                                      >
+                                        {`${Number(entry.cgstRate || 0)}%`}
                                       </td>
                                     </>
                                   );
                                 } else {
                                   return (
-                                    <td className="px-1 py-2 text-center min-w-[50px] text-xs align-top pt-3">
-                                      {entry.igstLedgerId
-                                        ? getLedgerNameById(entry.igstLedgerId)
-                                        : `${Number(entry.igstRate || 0)}%`}
+                                    <td
+                                      className="px-1 py-2 text-center text-xs align-top pt-3 font-medium truncate"
+                                      title={entry.igstLedgerId ? getLedgerNameById(entry.igstLedgerId) : undefined}
+                                    >
+                                      {`${Number(entry.igstRate || 0)}%`}
                                     </td>
                                   );
                                 }
@@ -4011,14 +4148,14 @@ const SalesVoucher: React.FC = () => {
 
                             {/* DISCOUNT */}
                             {columnSettings.showDiscount && (
-                              <td className="px-1 py-2 min-w-[70px] align-top">
+                              <td className="px-1 py-1 align-top">
                                 <select
                                   name="discountLedgerId"
                                   value={entry.discountLedgerId || ""}
                                   onChange={(e) => handleEntryChange(index, e)}
                                   className={`${FORM_STYLES.tableSelect(
                                     theme
-                                  )} text-xs min-w-[100px]`}
+                                  )} text-[11px] w-full max-w-full truncate px-1 py-0.5`}
                                 >
                                   <option value="">Select Discount</option>
                                   {discount.map((l) => (
@@ -4033,7 +4170,7 @@ const SalesVoucher: React.FC = () => {
                             {/* GODOWN */}
                             {godownEnabled === "yes" &&
                               columnSettings.showGodown && hasAnyGodown && (
-                                <td className="px-1 py-2 min-w-[95px] align-top">
+                                <td className="px-1 py-1 align-top">
                                   {godownList.length === 1 ? (
                                     <input
                                       readOnly
@@ -4041,7 +4178,7 @@ const SalesVoucher: React.FC = () => {
                                       value={godownList[0].name}
                                       className={`${FORM_STYLES.tableInput(
                                         theme
-                                      )} min-w-[95px] text-xs`}
+                                      )} w-full text-[11px] px-1 py-0.5 truncate`}
                                     />
                                   ) : (
                                     <select
@@ -4052,7 +4189,7 @@ const SalesVoucher: React.FC = () => {
                                       }
                                       className={`${FORM_STYLES.tableSelect(
                                         theme
-                                      )} min-w-[95px] text-xs`}
+                                      )} w-full text-[11px] px-1 py-0.5 truncate`}
                                     >
                                       <option value="">Select Godown</option>
                                       {godownList.map((g) => (
@@ -4066,14 +4203,14 @@ const SalesVoucher: React.FC = () => {
                               )}
 
                             {/* SALES LEDGER */}
-                            <td className="px-1 py-2 min-w-[120px] align-top">
+                            <td className="px-1 py-1 align-top">
                               <select
                                 name="salesLedgerId"
                                 value={entry.salesLedgerId || ""}
                                 onChange={(e) => handleEntryChange(index, e)}
                                 className={`${FORM_STYLES.tableSelect(
                                   theme
-                                )} min-w-[120px] text-xs ${
+                                )} text-[11px] w-full max-w-full truncate px-1 py-0.5 ${
                                   errors[`entry.${index}.salesLedgerId`]
                                     ? "border-red-500"
                                     : ""
@@ -4091,7 +4228,7 @@ const SalesVoucher: React.FC = () => {
                                 ))}
                               </select>
                               {errors[`entry.${index}.salesLedgerId`] && (
-                                <p className="text-red-500 text-xs mt-1">
+                                <p className="text-red-500 text-[10px] mt-0.5">
                                   {errors[`entry.${index}.salesLedgerId`]}
                                 </p>
                               )}
@@ -4138,11 +4275,16 @@ const SalesVoucher: React.FC = () => {
                           !!partyState &&
                           companyState.toLowerCase().trim() !== partyState.toLowerCase().trim();
 
-                        // Calculate total columns dynamically
-                        let totalCols = 7; // S.No, Item, HSN, Quantity, Unit, Rate, Amount
+                        // Calculate total columns dynamically (Base: S.No, Item, HSN, Qty, Unit, Rate, Taxable, Sales Ledger, Action = 9)
+                        let totalCols = 9;
                         if (columnSettings.showBatch && hasAnyBatch)
                           totalCols += 1; // Batch
                         if (hasAnyAttribute) totalCols += 1; // Attribute
+                        if (
+                          profitConfig.customerType === "retailer" &&
+                          profitConfig.method === "on_mrp"
+                        )
+                          totalCols += 1; // Profit
                         if (columnSettings.showGST) {
                           if (isInterState) {
                             // Inter-state: IGST% (1 column)
@@ -4155,10 +4297,10 @@ const SalesVoucher: React.FC = () => {
                         if (columnSettings.showDiscount) totalCols += 1; // Discount
                         if (
                           godownEnabled === "yes" &&
-                          columnSettings.showGodown && hasAnyGodown
+                          columnSettings.showGodown &&
+                          hasAnyGodown
                         )
                           totalCols += 1; // Godown
-                        totalCols += 1; // Sales Ledger
                         // Action column is separate, so colspan = totalCols - 1 (excluding Action)
                         const colspan = totalCols - 1;
                         return (
