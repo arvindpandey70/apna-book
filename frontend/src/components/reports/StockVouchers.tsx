@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
+import Swal from "sweetalert2";
 import { useAppContext } from "../../context/AppContext";
 
 const StockVouchers = () => {
@@ -13,6 +14,29 @@ const StockVouchers = () => {
   const monthLabel = params.get("month");
 
   const [rows, setRows] = useState<any[]>([]);
+
+  const handleVoucherClick = (row: any) => {
+    if (!row || row.isOpening) return;
+
+    const targetVoucherId = row.voucherId || row.vchNo;
+
+    if (!targetVoucherId || String(targetVoucherId).startsWith("imported") || targetVoucherId === "Imported") {
+      Swal.fire({
+        icon: "info",
+        title: "Imported / Opening Entry",
+        text: "This entry is from opening stock or imported item data and does not have an editable voucher record.",
+      });
+      return;
+    }
+
+    const encodedId = encodeURIComponent(String(targetVoucherId));
+    const typeLower = (row.type || "").toLowerCase();
+    if (typeLower.includes("purchase")) {
+      navigate(`/app/vouchers/purchase/edit/${encodedId}`);
+    } else if (typeLower.includes("sale")) {
+      navigate(`/app/vouchers/sales/edit/${encodedId}`);
+    }
+  };
   const [loading, setLoading] = useState(false);
   const [accumulatedQty, setAccumulatedQty] = useState(0);
   const [accumulatedValue, setAccumulatedValue] = useState(0);
@@ -57,15 +81,29 @@ const StockVouchers = () => {
       owner_id,
     });
 
-    const [purchaseRes, salesRes, stockItemRes] = await Promise.all([
+    const [purchaseRes, salesRes, stockItemRes, allPvRes, allSvRes] = await Promise.all([
       fetch(`${import.meta.env.VITE_API_URL}/api/purchase-vouchers/purchase-history?${params}`),
       fetch(`${import.meta.env.VITE_API_URL}/api/sales-vouchers/sale-history?${params}`),
       fetch(`${import.meta.env.VITE_API_URL}/api/stock-items?${params}`),
+      fetch(`${import.meta.env.VITE_API_URL}/api/purchase-vouchers?${params}`),
+      fetch(`${import.meta.env.VITE_API_URL}/api/sales-vouchers?${params}`),
     ]);
 
     const purchases = (await purchaseRes.json()).data || [];
     const sales = (await salesRes.json()).data || [];
     const stockItemsData = (await stockItemRes.json()).data || [];
+
+    let allPv: any[] = [];
+    try {
+      const pvJson = await allPvRes.json();
+      allPv = pvJson.data || (Array.isArray(pvJson) ? pvJson : []);
+    } catch (e) {}
+
+    let allSv: any[] = [];
+    try {
+      const svJson = await allSvRes.json();
+      allSv = svJson.data || (Array.isArray(svJson) ? svJson : []);
+    } catch (e) {}
 
     const normalizedItemName = itemName ? itemName.toLowerCase().trim() : "";
     const itemData = stockItemsData.find((i: any) => i.name && i.name.toLowerCase().trim() === normalizedItemName);
@@ -210,8 +248,14 @@ const StockVouchers = () => {
         d >= start &&
         d <= end
       ) {
+        const matchedPv = allPv.find((v: any) => 
+          String(v.number || "").trim().toLowerCase() === String(p.voucherNumber || "").trim().toLowerCase()
+        );
+        const resolvedVoucherId = p.voucherId || p.voucher_id || (matchedPv ? matchedPv.id : p.voucherNumber);
+
         tempRows.push({
           id: p.id,
+          voucherId: resolvedVoucherId,
           date: d,
           party: p.partyName || p.ledgerName || "-",
           type: "Purchase",
@@ -233,9 +277,15 @@ const StockVouchers = () => {
         d >= start &&
         d <= end
       ) {
+        const matchedSv = allSv.find((v: any) => 
+          String(v.number || "").trim().toLowerCase() === String(s.voucherNumber || "").trim().toLowerCase()
+        );
+        const resolvedVoucherId = s.voucherId || s.voucher_id || (matchedSv ? matchedSv.id : s.voucherNumber);
+
         const qty = Math.abs(Number(s.qtyChange || 0));
         tempRows.push({
           id: s.id,
+          voucherId: resolvedVoucherId,
           date: d,
           party: s.partyName || s.ledgerName || "-",
           type: "Sales",
@@ -456,7 +506,16 @@ const StockVouchers = () => {
                 {rows.map((r, i) => (
                   <tr
                     key={i}
-                    className={r.isOpening ? `${theme === "dark" ? "bg-gray-800 text-white font-bold" : "bg-gray-100 font-bold text-black"}` : `hover:bg-yellow-100 ${theme === "dark" ? "text-white hover:bg-gray-800" : "text-black hover:bg-yellow-50 bg-white"}`}
+                    onClick={() => !r.isOpening && handleVoucherClick(r)}
+                    className={
+                      r.isOpening
+                        ? `${theme === "dark" ? "bg-gray-800 text-white font-bold" : "bg-gray-100 font-bold text-black"}`
+                        : `cursor-pointer transition-colors ${
+                            theme === "dark"
+                              ? "text-white hover:bg-gray-700"
+                              : "text-black hover:bg-yellow-50 bg-white"
+                          }`
+                    }
                   >
                     {r.isOpening ? (
                       <>
@@ -504,7 +563,21 @@ const StockVouchers = () => {
                         <td className={`border ${theme === "dark" ? "border-gray-700" : "border-gray-200"} p-1 text-center`}>{r.type}</td>
 
                         <td className={`border ${theme === "dark" ? "border-gray-700" : "border-gray-200"} p-1 text-center font-semibold`}>
-                          {r.vchNo}
+                          {r.vchNo && r.vchNo !== "Imported" ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleVoucherClick(r);
+                              }}
+                              className="cursor-pointer font-bold inline-block"
+                              title="Click to edit voucher"
+                            >
+                              {r.vchNo}
+                            </button>
+                          ) : (
+                            r.vchNo || "-"
+                          )}
                         </td>
 
                         {/* Opening */}
