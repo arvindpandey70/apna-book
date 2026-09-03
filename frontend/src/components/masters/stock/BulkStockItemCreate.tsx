@@ -331,6 +331,17 @@ const BulkStockItemCreate: React.FC = () => {
   const validItemsCount = bulkItems.filter(item => item.isValid).length;
   const totalItemsCount = bulkItems.length;
 
+  const deduplicateLedgers = (items: any[]) => {
+    const seen = new Set<string>();
+    return items.filter((l) => {
+      if (!l || l.id === undefined || l.id === null) return false;
+      const key = String(l.id);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+
   return (
     <div className="pt-[56px] px-4">
       <div className="flex items-center justify-between mb-6">
@@ -483,7 +494,7 @@ const BulkStockItemCreate: React.FC = () => {
                         className={`w-full px-2 py-1 text-[10px] uppercase font-bold border rounded focus:ring-1 focus:ring-blue-500 ${item.errors.gstLedgerId ? 'border-red-500 bg-red-50/10' : theme === 'dark' ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-300'}`}
                       >
                         <option value="">-- IGST --</option>
-                        {[...gstLedgers.gst, ...gstLedgers.igst].map(l => (
+                        {deduplicateLedgers([...gstLedgers.gst, ...gstLedgers.igst]).map(l => (
                           <option key={l.id} value={l.id}>{l.name}</option>
                         ))}
                       </select>
@@ -495,7 +506,7 @@ const BulkStockItemCreate: React.FC = () => {
                           className={`w-full px-2 py-1 text-[10px] uppercase font-bold border rounded focus:ring-1 focus:ring-blue-500 ${item.errors.cgstLedgerId ? 'border-red-500 bg-red-50/10' : theme === 'dark' ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-300'}`}
                         >
                           <option value="">-- CGST --</option>
-                          {gstLedgers.cgst.map(l => (
+                          {deduplicateLedgers(gstLedgers.cgst).map(l => (
                             <option key={l.id} value={l.id}>{l.name}</option>
                           ))}
                         </select>
@@ -506,7 +517,7 @@ const BulkStockItemCreate: React.FC = () => {
                           className={`w-full px-2 py-1 text-[10px] uppercase font-bold border rounded focus:ring-1 focus:ring-blue-500 ${item.errors.sgstLedgerId ? 'border-red-500 bg-red-50/10' : theme === 'dark' ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-300'}`}
                         >
                           <option value="">-- SGST --</option>
-                          {gstLedgers.sgst.map(l => (
+                          {deduplicateLedgers(gstLedgers.sgst).map(l => (
                             <option key={l.id} value={l.id}>{l.name}</option>
                           ))}
                         </select>

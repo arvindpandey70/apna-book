@@ -259,6 +259,7 @@ const SalesVoucher: React.FC = () => {
 
   const partyLedgers = useMemo(() => deduplicateLedgers(ledgers || []), [ledgers]);
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
+  const [stockCategories, setStockCategories] = useState<StockCategory[]>([]);
   const [unitss, setUnits] = useState<any[]>([]);
 
   // 🔹 Fetch units from backend
@@ -1326,6 +1327,16 @@ const SalesVoucher: React.FC = () => {
         } else setStockItems([]);
       })
       .catch(() => setStockItems([]));
+
+    fetch(
+      `${import.meta.env.VITE_API_URL}/api/stock-categories?${params.toString()}`
+    )
+      .then((res) => res.json())
+      .then((data) => {
+        const list = Array.isArray(data) ? data : (data.data || []);
+        setStockCategories(list);
+      })
+      .catch(() => setStockCategories([]));
   }, []);
 
   const handleChange = (
@@ -1820,30 +1831,15 @@ const SalesVoucher: React.FC = () => {
         );
 
         if (existingIndex !== -1) {
-          // 🟢 TOGGLE UNSELECT: Remove item if already selected
-          entries.splice(existingIndex, 1);
-
-          // Keep at least one default blank entry if all entries removed
-          if (entries.length === 0) {
-            entries.push({
-              id: `e1`,
-              itemId: "",
-              ledgerId: "",
-              quantity: 0,
-              rate: 0,
-              amount: 0,
-              type: "debit",
-              cgstRate: 0,
-              sgstRate: 0,
-              igstRate: 0,
-              godownId: godownList.length === 1 ? String(godownList[0].id) : "",
-              salesLedgerId: "",
-              discount: 0,
-              discountLedgerId: "",
-              hsnCode: "",
-            });
-          }
-
+          const existing = entries[existingIndex];
+          const currentQty = Number(existing.quantity || 0);
+          const newQty = currentQty + 1;
+          const updatedEntry = {
+            ...existing,
+            quantity: newQty,
+          };
+          updatedEntry.amount = recalcAmount(updatedEntry);
+          entries[existingIndex] = updatedEntry;
           return { ...prev, entries };
         }
 
@@ -3706,6 +3702,7 @@ const SalesVoucher: React.FC = () => {
             {isRubicSalesMode && (
               <RubicSalesItemGrid
                 stockItems={stockItems}
+                stockCategories={stockCategories}
                 getItemDetails={getItemDetails}
                 entries={formData.entries}
                 onSelectItem={handleRubicItemSelect}
