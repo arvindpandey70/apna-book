@@ -259,6 +259,7 @@ const SalesVoucher: React.FC = () => {
 
   const partyLedgers = useMemo(() => deduplicateLedgers(ledgers || []), [ledgers]);
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
+  const [stockCategories, setStockCategories] = useState<StockCategory[]>([]);
   const [unitss, setUnits] = useState<any[]>([]);
 
   // 🔹 Fetch units from backend
@@ -1326,6 +1327,16 @@ const SalesVoucher: React.FC = () => {
         } else setStockItems([]);
       })
       .catch(() => setStockItems([]));
+
+    fetch(
+      `${import.meta.env.VITE_API_URL}/api/stock-categories?${params.toString()}`
+    )
+      .then((res) => res.json())
+      .then((data) => {
+        const list = Array.isArray(data) ? data : (data.data || []);
+        setStockCategories(list);
+      })
+      .catch(() => setStockCategories([]));
   }, []);
 
   const handleChange = (
@@ -3706,6 +3717,7 @@ const SalesVoucher: React.FC = () => {
             {isRubicSalesMode && (
               <RubicSalesItemGrid
                 stockItems={stockItems}
+                stockCategories={stockCategories}
                 getItemDetails={getItemDetails}
                 entries={formData.entries}
                 onSelectItem={handleRubicItemSelect}
