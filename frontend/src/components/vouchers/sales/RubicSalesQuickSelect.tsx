@@ -16,6 +16,98 @@ import {
 } from "lucide-react";
 import type { StockItem, StockCategory } from "../../../types";
 
+/* =========================================================================
+   COLOR PALETTES GENERATOR FOR VIBRANT COLORFUL UI
+   ========================================================================= */
+const COLOR_PALETTES = [
+  {
+    gradient: "from-rose-500 to-amber-500",
+    lightBg: "bg-gradient-to-br from-rose-50/90 via-amber-50/40 to-white",
+    darkBg: "bg-gradient-to-br from-rose-950/40 via-gray-800 to-gray-800",
+    border: "border-rose-200 hover:border-rose-400 dark:border-rose-900/60",
+    badge: "bg-gradient-to-r from-rose-500 to-amber-500 text-white",
+    iconBg: "bg-gradient-to-br from-rose-500 to-amber-500 text-white shadow-rose-200",
+    textAccent: "text-rose-600 dark:text-rose-400",
+    itemAvatar: "bg-gradient-to-br from-rose-500 to-amber-500 text-white shadow-rose-200",
+    activePill: "bg-gradient-to-r from-rose-500 to-amber-500 text-white border-rose-500 shadow-rose-200",
+  },
+  {
+    gradient: "from-indigo-500 to-purple-600",
+    lightBg: "bg-gradient-to-br from-indigo-50/90 via-purple-50/40 to-white",
+    darkBg: "bg-gradient-to-br from-indigo-950/40 via-gray-800 to-gray-800",
+    border: "border-indigo-200 hover:border-indigo-400 dark:border-indigo-900/60",
+    badge: "bg-gradient-to-r from-indigo-500 to-purple-600 text-white",
+    iconBg: "bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-indigo-200",
+    textAccent: "text-indigo-600 dark:text-indigo-400",
+    itemAvatar: "bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-indigo-200",
+    activePill: "bg-gradient-to-r from-indigo-500 to-purple-600 text-white border-indigo-500 shadow-indigo-200",
+  },
+  {
+    gradient: "from-emerald-500 to-teal-600",
+    lightBg: "bg-gradient-to-br from-emerald-50/90 via-teal-50/40 to-white",
+    darkBg: "bg-gradient-to-br from-emerald-950/40 via-gray-800 to-gray-800",
+    border: "border-emerald-200 hover:border-emerald-400 dark:border-emerald-900/60",
+    badge: "bg-gradient-to-r from-emerald-500 to-teal-600 text-white",
+    iconBg: "bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-emerald-200",
+    textAccent: "text-emerald-600 dark:text-emerald-400",
+    itemAvatar: "bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-emerald-200",
+    activePill: "bg-gradient-to-r from-emerald-500 to-teal-600 text-white border-emerald-500 shadow-emerald-200",
+  },
+  {
+    gradient: "from-amber-500 to-orange-600",
+    lightBg: "bg-gradient-to-br from-amber-50/90 via-orange-50/40 to-white",
+    darkBg: "bg-gradient-to-br from-amber-950/40 via-gray-800 to-gray-800",
+    border: "border-amber-200 hover:border-amber-400 dark:border-amber-900/60",
+    badge: "bg-gradient-to-r from-amber-500 to-orange-600 text-white",
+    iconBg: "bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-amber-200",
+    textAccent: "text-amber-600 dark:text-amber-400",
+    itemAvatar: "bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-amber-200",
+    activePill: "bg-gradient-to-r from-amber-500 to-orange-600 text-white border-amber-500 shadow-amber-200",
+  },
+  {
+    gradient: "from-cyan-500 to-blue-600",
+    lightBg: "bg-gradient-to-br from-cyan-50/90 via-blue-50/40 to-white",
+    darkBg: "bg-gradient-to-br from-cyan-950/40 via-gray-800 to-gray-800",
+    border: "border-cyan-200 hover:border-cyan-400 dark:border-cyan-900/60",
+    badge: "bg-gradient-to-r from-cyan-500 to-blue-600 text-white",
+    iconBg: "bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-cyan-200",
+    textAccent: "text-cyan-600 dark:text-cyan-400",
+    itemAvatar: "bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-cyan-200",
+    activePill: "bg-gradient-to-r from-cyan-500 to-blue-600 text-white border-cyan-500 shadow-cyan-200",
+  },
+  {
+    gradient: "from-fuchsia-500 to-pink-600",
+    lightBg: "bg-gradient-to-br from-fuchsia-50/90 via-pink-50/40 to-white",
+    darkBg: "bg-gradient-to-br from-fuchsia-950/40 via-gray-800 to-gray-800",
+    border: "border-fuchsia-200 hover:border-fuchsia-400 dark:border-fuchsia-900/60",
+    badge: "bg-gradient-to-r from-fuchsia-500 to-pink-600 text-white",
+    iconBg: "bg-gradient-to-br from-fuchsia-500 to-pink-600 text-white shadow-fuchsia-200",
+    textAccent: "text-fuchsia-600 dark:text-fuchsia-400",
+    itemAvatar: "bg-gradient-to-br from-fuchsia-500 to-pink-600 text-white shadow-fuchsia-200",
+    activePill: "bg-gradient-to-r from-fuchsia-500 to-pink-600 text-white border-fuchsia-500 shadow-fuchsia-200",
+  },
+  {
+    gradient: "from-violet-500 to-purple-600",
+    lightBg: "bg-gradient-to-br from-violet-50/90 via-purple-50/40 to-white",
+    darkBg: "bg-gradient-to-br from-violet-950/40 via-gray-800 to-gray-800",
+    border: "border-violet-200 hover:border-violet-400 dark:border-violet-900/60",
+    badge: "bg-gradient-to-r from-violet-500 to-purple-600 text-white",
+    iconBg: "bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-violet-200",
+    textAccent: "text-violet-600 dark:text-violet-400",
+    itemAvatar: "bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-violet-200",
+    activePill: "bg-gradient-to-r from-violet-500 to-purple-600 text-white border-violet-500 shadow-violet-200",
+  },
+];
+
+const getColorPalette = (key: string) => {
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) {
+    hash = key.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % COLOR_PALETTES.length;
+  return COLOR_PALETTES[index];
+};
+
 export interface RubicSalesButtonProps {
   isActive: boolean;
   onToggle: () => void;
@@ -33,14 +125,14 @@ export const RubicSalesButton: React.FC<RubicSalesButtonProps> = ({
       onClick={onToggle}
       className={`px-3.5 py-1.5 rounded-lg font-bold text-xs sm:text-sm transition-all duration-200 flex items-center gap-1.5 shadow-md hover:shadow-lg active:scale-95 border ${
         isActive
-          ? "bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 text-white border-purple-300 ring-2 ring-purple-400/50 shadow-purple-500/30"
+          ? "bg-gradient-to-r from-purple-600 via-pink-600 to-rose-600 text-white border-purple-300 ring-2 ring-purple-400/50 shadow-purple-500/30"
           : theme === "dark"
           ? "bg-gradient-to-r from-purple-900/90 via-indigo-900/90 to-pink-900/90 text-purple-100 border-purple-700/60 hover:border-purple-400"
           : "bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 text-white border-transparent hover:brightness-110 shadow-purple-200"
       }`}
       title={isActive ? "Deactivate Rubic Sales Mode" : "Activate Rubic Quick Item Selection"}
     >
-      <Sparkles className={`w-4 h-4 ${isActive ? "animate-bounce" : ""}`} />
+      <Sparkles className={`w-4 h-4 ${isActive ? "animate-bounce text-yellow-300" : ""}`} />
       <span className="tracking-wide">Rubic Sales</span>
       {isActive ? (
         <span className="ml-1 text-[10px] bg-white/30 backdrop-blur-sm text-white px-1.5 py-0.2 rounded font-extrabold border border-white/40 uppercase">
@@ -56,7 +148,7 @@ export const RubicSalesButton: React.FC<RubicSalesButtonProps> = ({
 };
 
 /* =========================================================================
-   CATEGORY CARD COMPONENT (Stock Category Master Display)
+   CATEGORY CARD COMPONENT (Vibrant Colorful Display)
    ========================================================================= */
 export interface RubicSalesCategoryCardProps {
   id: string;
@@ -82,44 +174,44 @@ export const RubicSalesCategoryCard: React.FC<RubicSalesCategoryCardProps> = ({
   isAllCard = false,
 }) => {
   const isDark = theme === "dark";
+  const palette = useMemo(() => getColorPalette(name || id), [name, id]);
 
   return (
     <div
       onClick={onClick}
-      className={`group relative p-3.5 rounded-2xl cursor-pointer border transition-all duration-200 flex flex-col justify-between shadow-xs hover:shadow-md min-h-[105px] ${
+      className={`group relative p-4 rounded-2xl cursor-pointer border transition-all duration-200 flex flex-col justify-between shadow-sm hover:shadow-xl hover:-translate-y-1 min-h-[115px] ${
         selectedVoucherCount > 0
           ? isDark
-            ? "bg-purple-950/40 border-purple-500/80 ring-1 ring-purple-500/40"
-            : "bg-purple-50/80 border-purple-300 ring-1 ring-purple-300/60"
+            ? "bg-purple-950/60 border-purple-400 ring-2 ring-purple-500/50 shadow-purple-900/40"
+            : "bg-gradient-to-br from-purple-100 via-pink-50 to-white border-purple-400 ring-2 ring-purple-400/50 shadow-purple-200/80"
           : isDark
-          ? "bg-gray-800/90 border-gray-700/80 hover:border-purple-500/60 hover:bg-gray-800"
-          : "bg-white border-gray-200 hover:border-purple-300 hover:bg-purple-50/30"
+          ? `${palette.darkBg} ${palette.border}`
+          : `${palette.lightBg} ${palette.border}`
       }`}
     >
       {/* Selected Items Badge */}
       {selectedVoucherCount > 0 && (
-        <div className="absolute top-2 right-2 bg-emerald-600 text-white text-[9px] font-extrabold px-1.5 py-0.5 rounded-full shadow-md flex items-center gap-0.5 z-10">
-          <Check className="w-2.5 h-2.5 stroke-[3]" />
+        <div className="absolute top-2.5 right-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-[9.5px] font-black px-2 py-0.5 rounded-full shadow-md flex items-center gap-1 z-10">
+          <Check className="w-3 h-3 stroke-[3]" />
           <span>{selectedVoucherCount} Selected</span>
         </div>
       )}
 
-      <div className="flex items-start gap-2.5 mb-2">
+      <div className="flex items-start gap-3 mb-2">
+        {/* Dynamic Vibrant Icon Container */}
         <div
-          className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-xs transition-transform group-hover:scale-105 mt-0.5 ${
+          className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-md transition-transform group-hover:scale-110 mt-0.5 ${
             isAllCard
-              ? "bg-gradient-to-br from-indigo-500 to-purple-600 text-white"
-              : isDark
-              ? "bg-purple-950/80 text-purple-300 border border-purple-800/60"
-              : "bg-gradient-to-br from-purple-100 to-indigo-100 text-purple-700 border border-purple-200/80"
+              ? "bg-gradient-to-br from-purple-600 via-indigo-600 to-pink-600 text-white shadow-purple-300"
+              : palette.iconBg
           }`}
         >
-          {isAllCard ? <LayoutGrid className="w-4.5 h-4.5" /> : <Folder className="w-4.5 h-4.5" />}
+          {isAllCard ? <LayoutGrid className="w-5 h-5" /> : <Folder className="w-5 h-5" />}
         </div>
         <div className="min-w-0 flex-1">
           {/* Category Name */}
           <h3
-            className={`font-extrabold text-xs sm:text-sm leading-snug truncate transition-colors ${
+            className={`font-black text-xs sm:text-sm leading-snug truncate transition-colors ${
               isDark
                 ? "text-gray-100 group-hover:text-purple-300"
                 : "text-gray-900 group-hover:text-purple-700"
@@ -131,28 +223,29 @@ export const RubicSalesCategoryCard: React.FC<RubicSalesCategoryCardProps> = ({
 
           {/* Parent Category & Description Info */}
           {parent && (
-            <p className="text-[10px] text-purple-600 dark:text-purple-400 font-semibold truncate mt-0.5">
+            <p className={`text-[10.5px] font-bold truncate mt-0.5 ${palette.textAccent}`}>
               Parent: {parent}
             </p>
           )}
 
           {description && !parent && (
-            <p className="text-[10px] text-gray-500 dark:text-gray-400 font-normal truncate mt-0.5">
+            <p className="text-[10px] text-gray-500 dark:text-gray-400 font-medium truncate mt-0.5">
               {description}
             </p>
           )}
 
-          <p className="text-[10px] text-gray-500 dark:text-gray-400 font-medium mt-1">
-            {itemCount} {itemCount === 1 ? "item" : "items"} available
+          <p className="text-[10.5px] text-gray-600 dark:text-gray-300 font-extrabold mt-1.5 flex items-center gap-1">
+            <span className={`w-2 h-2 rounded-full ${palette.iconBg}`}></span>
+            <span>{itemCount} {itemCount === 1 ? "item" : "items"} available</span>
           </p>
         </div>
       </div>
 
-      <div className="flex items-center justify-between text-[10px] pt-2 border-t border-gray-100 dark:border-gray-700/60">
-        <span className="text-purple-600 dark:text-purple-400 font-semibold group-hover:underline flex items-center gap-0.5">
-          View Category &rarr;
+      <div className="flex items-center justify-between text-[10.5px] pt-2 border-t border-gray-200/80 dark:border-gray-700/60 mt-1">
+        <span className={`font-bold group-hover:underline flex items-center gap-1 ${palette.textAccent}`}>
+          Explore Category &rarr;
         </span>
-        <span className="text-gray-400 dark:text-gray-500 font-mono text-[9px]">
+        <span className="text-gray-400 dark:text-gray-500 font-mono text-[9.5px]">
           Stock Category
         </span>
       </div>
@@ -161,7 +254,7 @@ export const RubicSalesCategoryCard: React.FC<RubicSalesCategoryCardProps> = ({
 };
 
 /* =========================================================================
-   ITEM CARD COMPONENT
+   ITEM CARD COMPONENT (Vibrant Colorful Tile)
    ========================================================================= */
 export interface RubicSalesItemCardProps {
   item: StockItem;
@@ -195,6 +288,7 @@ export const RubicSalesItemCard: React.FC<RubicSalesItemCardProps> = ({
   };
 
   const isDark = theme === "dark";
+  const palette = useMemo(() => getColorPalette(item.name || String(item.id)), [item.name, item.id]);
   const displayRate = itemDetails.rate > 0 ? itemDetails.rate : itemDetails.mrp;
   const firstLetter = (item.name || "").trim().charAt(0).toUpperCase() || "?";
   const imageUrl =
@@ -213,44 +307,40 @@ export const RubicSalesItemCard: React.FC<RubicSalesItemCardProps> = ({
   return (
     <div
       onClick={handleClick}
-      className={`group relative p-2 rounded-xl cursor-pointer border transition-all duration-150 flex flex-col items-center text-center justify-between shadow-xs hover:shadow-md min-h-[110px] ${
-        clicked ? "scale-95" : "hover:-translate-y-0.5"
+      className={`group relative p-2.5 rounded-2xl cursor-pointer border transition-all duration-150 flex flex-col items-center text-center justify-between shadow-xs hover:shadow-lg min-h-[115px] ${
+        clicked ? "scale-90" : "hover:-translate-y-1"
       } ${
         addedQty > 0
           ? isDark
-            ? "bg-purple-950/40 border-purple-500/80 ring-1 ring-purple-500/50"
-            : "bg-purple-50/90 border-purple-400 ring-1 ring-purple-300"
+            ? "bg-purple-950/60 border-purple-400 ring-2 ring-purple-500/50 shadow-purple-950/50"
+            : "bg-gradient-to-br from-purple-100 via-pink-50 to-white border-purple-400 ring-2 ring-purple-400/60 shadow-purple-200"
           : isDark
           ? "bg-gray-800/90 border-gray-700/80 hover:border-purple-500/60 hover:bg-gray-800"
-          : "bg-white border-gray-200 hover:border-purple-400 hover:bg-purple-50/30"
+          : `${palette.lightBg} ${palette.border}`
       }`}
     >
       {/* Added Badge */}
       {addedQty > 0 && (
-        <div className="absolute top-1 right-1 bg-purple-600 text-white text-[9px] font-extrabold px-1.5 py-0.5 rounded-full shadow-md flex items-center gap-0.5 z-10">
+        <div className="absolute top-1.5 right-1.5 bg-gradient-to-r from-purple-600 via-pink-600 to-rose-600 text-white text-[9.5px] font-black px-1.5 py-0.5 rounded-full shadow-md flex items-center gap-0.5 z-10">
           <Check className="w-2.5 h-2.5 stroke-[3]" />
           <span>{addedQty}</span>
         </div>
       )}
 
-      {/* Top: Image or First Letter Avatar */}
-      <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center overflow-hidden my-1 shrink-0 transition-transform group-hover:scale-105">
+      {/* Top: Image or Colorful Avatar */}
+      <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center overflow-hidden my-1 shrink-0 transition-transform group-hover:scale-110 shadow-xs">
         {imageUrl ? (
           <img
             src={imageUrl}
             alt={item.name}
-            className="w-full h-full object-cover rounded-lg"
+            className="w-full h-full object-cover rounded-xl"
             onError={(e) => {
               (e.target as HTMLElement).style.display = "none";
             }}
           />
         ) : (
           <div
-            className={`w-full h-full rounded-lg flex items-center justify-center font-black text-xs sm:text-sm border shadow-xs ${
-              isDark
-                ? "bg-purple-950/60 text-purple-300 border-purple-800/50"
-                : "bg-gradient-to-br from-purple-100 to-indigo-100 text-purple-700 border-purple-200/80"
-            }`}
+            className={`w-full h-full rounded-xl flex items-center justify-center font-black text-sm border shadow-xs ${palette.itemAvatar}`}
           >
             {firstLetter}
           </div>
@@ -260,7 +350,7 @@ export const RubicSalesItemCard: React.FC<RubicSalesItemCardProps> = ({
       {/* Middle: Item Name */}
       <div className="w-full px-0.5 mb-1">
         <h3
-          className={`font-bold text-[11px] leading-tight truncate transition-colors ${
+          className={`font-black text-[11.5px] leading-tight truncate transition-colors ${
             isDark
               ? "text-gray-100 group-hover:text-purple-300"
               : "text-gray-900 group-hover:text-purple-700"
@@ -271,13 +361,13 @@ export const RubicSalesItemCard: React.FC<RubicSalesItemCardProps> = ({
         </h3>
       </div>
 
-      {/* Bottom: Qty & Rate details */}
-      <div className="w-full pt-1 border-t border-gray-100 dark:border-gray-700/60 flex items-center justify-between text-[10px] gap-1 px-0.5">
+      {/* Bottom: Qty & Colorful Rate Pill */}
+      <div className="w-full pt-1.5 border-t border-gray-200/80 dark:border-gray-700/60 flex items-center justify-between text-[10px] gap-1 px-0.5">
         <span className="text-gray-500 dark:text-gray-400 font-medium truncate">
-          Qty:<strong className="text-gray-800 dark:text-gray-200 ml-0.5">{addedQty > 0 ? addedQty : availableQty}</strong>
+          Qty:<strong className="text-gray-900 dark:text-gray-100 ml-0.5 font-bold">{addedQty > 0 ? addedQty : availableQty}</strong>
         </span>
-        <span className={`font-extrabold truncate ${isDark ? "text-emerald-400" : "text-emerald-600"}`}>
-          Rate:₹{displayRate ? Number(displayRate).toFixed(0) : "0"}
+        <span className="bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-black px-1.5 py-0.3 rounded-md shadow-2xs text-[9.5px]">
+          ₹{displayRate ? Number(displayRate).toFixed(0) : "0"}
         </span>
       </div>
     </div>
@@ -435,7 +525,6 @@ export const RubicSalesItemGrid: React.FC<RubicSalesItemGridProps> = ({
       } else if (catIdStr || rawCatName) {
         const fallbackId = catIdStr || `cat_${rawCatName}`;
 
-        // Find if catIdStr matches any category name in effectiveCategories
         const matchedMasterCat = effectiveCategories.find(
           (c) => String(c.id) === catIdStr || c.name.toLowerCase() === (rawCatName || "").toLowerCase()
         );
@@ -508,28 +597,25 @@ export const RubicSalesItemGrid: React.FC<RubicSalesItemGridProps> = ({
 
   return (
     <div
-      className={`p-4 md:p-5 mb-6 rounded-2xl border ${
+      className={`p-4 md:p-5 mb-6 rounded-3xl border transition-all duration-300 ${
         isDark
-          ? "bg-gray-800/90 border-purple-900/50 shadow-lg shadow-purple-950/20"
-          : "bg-gradient-to-br from-purple-50/50 via-white to-indigo-50/30 border-purple-200/80 shadow-md shadow-purple-100"
+          ? "bg-gradient-to-br from-gray-900 via-gray-850 to-purple-950/40 border-purple-900/60 shadow-2xl shadow-purple-950/40"
+          : "bg-gradient-to-br from-purple-100/60 via-pink-50/40 to-indigo-100/50 border-purple-300 shadow-xl shadow-purple-200/60"
       }`}
     >
-      {/* Header Banner */}
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-gray-200 dark:border-gray-700/80">
-        <div className="flex items-center gap-2.5">
-          <div className="p-2 rounded-xl bg-purple-600 text-white shadow-md">
-            <Sparkles className="w-5 h-5" />
+      {/* Colorful Header Banner */}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-purple-200/80 dark:border-purple-900/60">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-2xl bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 text-white shadow-lg shadow-purple-500/30">
+            <Sparkles className="w-5 h-5 animate-pulse text-yellow-200" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="font-extrabold text-base md:text-lg tracking-tight">
+              <h2 className="font-black text-base md:text-lg tracking-tight bg-gradient-to-r from-purple-700 via-indigo-700 to-pink-700 dark:from-purple-300 dark:via-pink-300 dark:to-indigo-300 bg-clip-text text-transparent">
                 Rubic Quick Sales Selection
               </h2>
-              <span className="text-[10px] bg-purple-600 text-white px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
-                Category Wise
-              </span>
             </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
+            <p className="text-xs text-gray-600 dark:text-gray-300 font-medium">
               {selectedCategoryId === null
                 ? "Select a Stock Category below to view & add items to your voucher."
                 : `Showing items in category: ${activeCategoryName}`}
@@ -541,13 +627,13 @@ export const RubicSalesItemGrid: React.FC<RubicSalesItemGridProps> = ({
         <div className="flex items-center gap-2">
           {selectedPartyName && (
             <div
-              className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border ${
+              className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold border ${
                 isDark
-                  ? "bg-gray-700 border-gray-600 text-purple-300"
-                  : "bg-purple-50 border-purple-200 text-purple-800"
+                  ? "bg-purple-950/60 border-purple-800 text-purple-300"
+                  : "bg-white/80 border-purple-300 text-purple-800 shadow-sm"
               }`}
             >
-              <ShoppingBag className="w-3.5 h-3.5 text-purple-500" />
+              <ShoppingBag className="w-3.5 h-3.5 text-purple-600" />
               <span>Party: {selectedPartyName}</span>
             </div>
           )}
@@ -555,14 +641,14 @@ export const RubicSalesItemGrid: React.FC<RubicSalesItemGridProps> = ({
           <button
             type="button"
             onClick={onExitRubicMode}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-150 flex items-center gap-1 border ${
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all duration-150 flex items-center gap-1.5 border shadow-sm active:scale-95 ${
               isDark
-                ? "bg-gray-700 hover:bg-gray-600 text-gray-200 border-gray-600"
-                : "bg-white hover:bg-gray-100 text-gray-700 border-gray-300 shadow-sm"
+                ? "bg-gray-800 hover:bg-gray-700 text-gray-200 border-gray-600"
+                : "bg-white hover:bg-purple-50 text-purple-800 border-purple-300 shadow-purple-100"
             }`}
             title="Return to standard header form"
           >
-            <ArrowRightLeft className="w-3.5 h-3.5" />
+            <ArrowRightLeft className="w-3.5 h-3.5 text-purple-600" />
             <span>Standard Form</span>
           </button>
         </div>
@@ -573,14 +659,14 @@ export const RubicSalesItemGrid: React.FC<RubicSalesItemGridProps> = ({
          =================================================================== */}
       {selectedCategoryId === null ? (
         <div>
-          <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-3 px-1">
-            <span className="font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
-              <Folder className="w-4 h-4 text-purple-600" />
+          <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-300 mb-3 px-1">
+            <span className="font-extrabold text-gray-800 dark:text-gray-200 flex items-center gap-2">
+              <Folder className="w-4.5 h-4.5 text-purple-600" />
               Stock Categories ({categoryGroups.length} Categories Available)
             </span>
             {totalVoucherSelectedCount > 0 && (
-              <span className="font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                <Check className="w-3.5 h-3.5" />
+              <span className="font-black text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/80 px-2.5 py-1 rounded-full border border-emerald-300 flex items-center gap-1">
+                <Check className="w-3.5 h-3.5 stroke-[3]" />
                 {totalVoucherSelectedCount} item(s) selected in voucher
               </span>
             )}
@@ -591,17 +677,17 @@ export const RubicSalesItemGrid: React.FC<RubicSalesItemGridProps> = ({
               {Array.from({ length: 6 }).map((_, i) => (
                 <div
                   key={i}
-                  className={`p-4 rounded-2xl border animate-pulse h-24 ${
-                    isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"
+                  className={`p-4 rounded-2xl border animate-pulse h-28 ${
+                    isDark ? "bg-gray-800 border-gray-700" : "bg-white border-purple-200"
                   }`}
                 />
               ))}
             </div>
           ) : categoryGroups.length === 0 ? (
             /* Empty State */
-            <div className="text-center py-8 px-4 border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-2xl">
-              <Package className="w-8 h-8 mx-auto mb-2 text-gray-400 opacity-60" />
-              <p className="font-semibold text-xs text-gray-700 dark:text-gray-300">
+            <div className="text-center py-8 px-4 border-2 border-dashed border-purple-300 dark:border-purple-800 rounded-2xl">
+              <Package className="w-8 h-8 mx-auto mb-2 text-purple-400 opacity-60" />
+              <p className="font-bold text-xs text-gray-700 dark:text-gray-300">
                 No Stock Categories found
               </p>
               <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
@@ -609,10 +695,8 @@ export const RubicSalesItemGrid: React.FC<RubicSalesItemGridProps> = ({
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 max-h-[450px] overflow-y-auto pt-1 pb-1 px-1">
-
-
-              {/* Stock Category Master Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 max-h-[460px] overflow-y-auto pt-1 pb-1 px-1">
+              {/* Vibrant Stock Category Cards */}
               {categoryGroups.map((cat) => (
                 <RubicSalesCategoryCard
                   key={cat.id}
@@ -639,82 +723,74 @@ export const RubicSalesItemGrid: React.FC<RubicSalesItemGridProps> = ({
             <button
               type="button"
               onClick={() => setSelectedCategoryId(null)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border shadow-2xs ${
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 border shadow-md active:scale-95 ${
                 isDark
-                  ? "bg-purple-950/60 text-purple-300 border-purple-800 hover:bg-purple-900/80"
-                  : "bg-purple-100/80 text-purple-800 border-purple-300 hover:bg-purple-200/80"
+                  ? "bg-purple-950/80 text-purple-300 border-purple-700 hover:bg-purple-900"
+                  : "bg-white text-purple-800 border-purple-300 hover:bg-purple-50 shadow-purple-100"
               }`}
             >
-              <ArrowLeft className="w-3.5 h-3.5" />
+              <ArrowLeft className="w-3.5 h-3.5 text-purple-600" />
               <span>&larr; Back to Categories</span>
             </button>
 
-            <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+            <div className="text-xs font-bold text-gray-700 dark:text-gray-300 flex items-center gap-2">
               <span>Selected Category:</span>
-              <span className="text-purple-600 dark:text-purple-400 font-extrabold">
+              <span className="text-purple-700 dark:text-purple-300 font-black text-sm">
                 {activeCategoryName}
               </span>
-              <span className="text-[10px] bg-gray-200 dark:bg-gray-700 px-1.5 py-0.2 rounded-full font-bold">
+              <span className="text-[10.5px] bg-purple-600 text-white px-2 py-0.5 rounded-full font-black">
                 Showing {activeItemsToDisplay.length} items
               </span>
             </div>
           </div>
 
           {/* Quick Category Switching Pills */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-2 mb-3 scrollbar-none">
-            <button
-              type="button"
-              onClick={() => setSelectedCategoryId("all")}
-              className={`px-2.5 py-1 rounded-full text-[11px] font-bold whitespace-nowrap transition-all border ${
-                selectedCategoryId === "all"
-                  ? "bg-purple-600 text-white border-purple-600 shadow-xs"
-                  : isDark
-                  ? "bg-gray-800 text-gray-300 border-gray-700 hover:border-purple-500"
-                  : "bg-white text-gray-700 border-gray-300 hover:border-purple-400"
-              }`}
-            >
-              All ({stockItems.length})
-            </button>
-
-            {categoryGroups.map((cat) => (
-              <button
-                key={cat.id}
-                type="button"
-                onClick={() => setSelectedCategoryId(cat.id)}
-                className={`px-2.5 py-1 rounded-full text-[11px] font-bold whitespace-nowrap transition-all border flex items-center gap-1 ${
-                  selectedCategoryId === cat.id
-                    ? "bg-purple-600 text-white border-purple-600 shadow-xs"
-                    : isDark
-                    ? "bg-gray-800 text-gray-300 border-gray-700 hover:border-purple-500"
-                    : "bg-white text-gray-700 border-gray-300 hover:border-purple-400"
-                }`}
-              >
-                <span>{cat.name}</span>
-                <span className="text-[9px] opacity-80">({cat.items.length})</span>
-                {cat.selectedCount > 0 && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                )}
-              </button>
-            ))}
+          <div className="flex items-center gap-2 overflow-x-auto pb-2.5 mb-3 scrollbar-none">
+            {categoryGroups.map((cat) => {
+              const palette = getColorPalette(cat.name || cat.id);
+              const isSelected = selectedCategoryId === cat.id;
+              return (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => setSelectedCategoryId(cat.id)}
+                  className={`px-3 py-1.2 rounded-full text-[11px] font-black whitespace-nowrap transition-all border flex items-center gap-1.5 shadow-xs ${
+                    isSelected
+                      ? palette.activePill
+                      : isDark
+                      ? "bg-gray-800 text-gray-300 border-gray-700 hover:border-purple-500"
+                      : "bg-white text-gray-800 border-purple-200 hover:border-purple-400 hover:bg-purple-50/50"
+                  }`}
+                >
+                  <span>{cat.name}</span>
+                  <span className="text-[9.5px] opacity-90 px-1 py-0.2 rounded-full bg-black/10 dark:bg-white/10">
+                    {cat.items.length}
+                  </span>
+                  {cat.selectedCount > 0 && (
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                  )}
+                </button>
+              );
+            })}
           </div>
 
           {/* Items Grid */}
           {activeItemsToDisplay.length === 0 ? (
-            <div className="text-center py-8 px-4 border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-2xl">
-              <Package className="w-8 h-8 mx-auto mb-2 text-gray-400 opacity-60" />
-              <p className="font-semibold text-xs text-gray-700 dark:text-gray-300">
+            <div className="text-center py-8 px-4 border-2 border-dashed border-purple-300 dark:border-purple-800 rounded-2xl">
+              <Package className="w-8 h-8 mx-auto mb-2 text-purple-400 opacity-60" />
+              <p className="font-extrabold text-xs text-gray-800 dark:text-gray-200">
                 No items available in this category
               </p>
               <button
                 type="button"
                 onClick={() => setSelectedCategoryId(null)}
-                className="mt-2.5 px-3 py-1 rounded-lg text-xs font-semibold bg-purple-600 text-white hover:bg-purple-700 transition-colors"
+                className="mt-2.5 px-3.5 py-1.5 rounded-xl text-xs font-black bg-gradient-to-r from-purple-600 to-indigo-600 text-white hover:brightness-110 shadow-md transition-colors"
               >
                 Back to Categories
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-9 2xl:grid-cols-10 gap-2 max-h-[400px] overflow-y-auto pt-1 pb-1 px-1">
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-9 2xl:grid-cols-10 gap-2.5 max-h-[420px] overflow-y-auto pt-1 pb-1 px-1">
               {activeItemsToDisplay.map((item) => {
                 const details = getItemDetails(String(item.id));
                 const addedQty = addedQtyMap.get(String(item.id)) || 0;
