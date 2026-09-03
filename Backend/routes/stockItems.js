@@ -1045,10 +1045,10 @@ router.get("/ledger", async (req, res) => {
       });
     }
 
-    // ✅ Case-insensitive search (upper/lower dono chalega)
+    // ✅ Case-insensitive search with owner_id DESC so owner-specific ledgers take priority
     const [rows] = await db.query(
       `
-      SELECT id, name
+      SELECT id, name, owner_id
       FROM ledgers
       WHERE company_id = ?
         AND (
@@ -1062,9 +1062,25 @@ router.get("/ledger", async (req, res) => {
           OR LOWER(name) LIKE '%sgst%'
           OR LOWER(name) LIKE '%igst%'
         )
+      ORDER BY owner_id DESC, id ASC
       `,
       [company_id, owner_type, owner_id]
     );
+
+    // Deduplicate rows by ID first, and also by normalized name (preferring owner-specific)
+    const uniqueMap = new Map();
+    const nameMap = new Map();
+
+    for (const row of rows) {
+      if (uniqueMap.has(row.id)) continue;
+      const normName = row.name.trim().toLowerCase();
+      if (nameMap.has(normName)) continue;
+
+      uniqueMap.set(row.id, { id: row.id, name: row.name });
+      nameMap.set(normName, true);
+    }
+
+    const uniqueRows = Array.from(uniqueMap.values());
 
     const result = {
       gst: [],
@@ -1073,7 +1089,7 @@ router.get("/ledger", async (req, res) => {
       igst: [],
     };
 
-    rows.forEach((ledger) => {
+    uniqueRows.forEach((ledger) => {
       const lname = ledger.name.toLowerCase(); // ✅ sab lowercase
 
       if (lname.includes("igst")) {

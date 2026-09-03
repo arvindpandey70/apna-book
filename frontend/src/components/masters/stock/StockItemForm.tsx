@@ -233,23 +233,31 @@ const StockItemForm = () => {
 
 
 
-  const gstOptions = [
+  const deduplicateOptions = (ledgers: any[]) => {
+    const seen = new Set<string>();
+    const options: { value: string; label: string }[] = [];
+    for (const l of ledgers) {
+      if (!l || l.id === undefined || l.id === null) continue;
+      const key = String(l.id);
+      if (!seen.has(key)) {
+        seen.add(key);
+        options.push({
+          value: key,
+          label: l.name,
+        });
+      }
+    }
+    return options;
+  };
+
+  const gstOptions = deduplicateOptions([
     ...gstLedgers.gst,
     ...gstLedgers.igst,
-  ].map((l) => ({
-    value: l.id.toString(),
-    label: l.name,
-  }));
+  ]);
 
-  const cgstOptions = gstLedgers.cgst.map((l) => ({
-    value: l.id.toString(),
-    label: l.name,
-  }));
+  const cgstOptions = deduplicateOptions(gstLedgers.cgst);
 
-  const sgstOptions = gstLedgers.sgst.map((l) => ({
-    value: l.id.toString(),
-    label: l.name,
-  }));
+  const sgstOptions = deduplicateOptions(gstLedgers.sgst);
 
 
 
