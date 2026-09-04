@@ -27,7 +27,7 @@ router.get("/", async (req, res) => {
         await connection.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
       }
     };
-    await ensureColumn("stock_items", "image", "VARCHAR(255) NULL");
+    await ensureColumn("stock_items", "image", "TEXT NULL");
     await ensureColumn("stock_items", "gstLedgerId", "INT NULL");
     await ensureColumn("stock_items", "cgstLedgerId", "INT NULL");
     await ensureColumn("stock_items", "sgstLedgerId", "INT NULL");
@@ -430,7 +430,7 @@ router.post("/", upload.single("image"), async (req, res) => {
     await ensureColumn("stock_items", "attributeId", "INT NULL");
     await ensureColumn("stock_items", "tracking_type", "VARCHAR(50) NULL");
     await ensureColumn("stock_items", "godown_id", "INT NULL");
-    await ensureColumn("stock_items", "image", "VARCHAR(255) NULL");
+    await ensureColumn("stock_items", "image", "TEXT NULL");
 
 
 
@@ -588,7 +588,7 @@ router.post("/", upload.single("image"), async (req, res) => {
     /* ===============================
        🖼️ IMAGE UPLOAD (CLOUDINARY)
        =============================== */
-    let imageUrl = null;
+    let imageUrl = req.body.image || null;
     if (req.file) {
       try {
         const result = await new Promise((resolve, reject) => {
