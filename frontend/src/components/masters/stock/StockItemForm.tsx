@@ -11,6 +11,7 @@ import Swal from "sweetalert2";
 import Barcode from "react-barcode";
 import { nanoid } from "nanoid";
 import { useParams } from "react-router-dom";
+import ProductImageSuggestion from "./ProductImageSuggestion";
 
 const generateEAN13 = () => {
   let code = "890"; // India prefix
@@ -1183,6 +1184,25 @@ const StockItemForm = () => {
                   </label>
                   <p className="text-xs text-gray-500 mt-2">Max size: 5MB (PNG, JPG, JPEG)</p>
                 </div>
+              </div>
+
+              <div className="mt-4">
+                <ProductImageSuggestion
+                  itemName={formData.name}
+                  isEditMode={!!id}
+                  currentImage={preview || formData.image}
+                  onSelectImage={(imageUrl) => {
+                    setPreview(imageUrl);
+                    setImageFile(null);
+                    setFormData((prev) => ({ ...prev, image: imageUrl }));
+                  }}
+                  onRemoveImage={() => {
+                    setPreview("");
+                    setImageFile(null);
+                    setFormData((prev) => ({ ...prev, image: "" }));
+                  }}
+                  theme={theme}
+                />
               </div>
             </div>
 
