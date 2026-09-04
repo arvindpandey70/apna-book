@@ -181,9 +181,11 @@ const LedgerList: React.FC = () => {
 
   const filteredLedgers = Array.isArray(userLedgers)
     ? userLedgers.filter((ledger) => {
-      const matchesSearch = ledger.name
-        ?.toLowerCase()
-        .includes(searchTerm.toLowerCase());
+      const searchLower = searchTerm.toLowerCase().trim();
+      const matchesSearch =
+        !searchLower ||
+        ledger.name?.toLowerCase().includes(searchLower) ||
+        ledger.gstNumber?.toLowerCase().includes(searchLower);
       const matchesCategory =
         categoryFilter === "all" ||
         (categoryFilter === "b2b" &&
@@ -590,7 +592,7 @@ const LedgerList: React.FC = () => {
                 <Search size={18} className="mr-2 opacity-70" />
                 <input
                   type="text"
-                  placeholder="Search ledgers..."
+                  placeholder="Search by name or GST number..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className={`w-full bg-transparent border-none outline-none ${theme === "dark"
