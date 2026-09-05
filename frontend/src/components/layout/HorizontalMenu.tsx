@@ -99,13 +99,15 @@ const HorizontalMenu: React.FC<HorizontalMenuProps> = ({ sidebarOpen }) => {
 
   return (
     <div
-      className={`print:hidden fixed top-14 z-30 h-10 overflow-x-auto whitespace-nowrap transition-all duration-300 ${sidebarOpen ? 'left-60 block' : 'hidden md:block md:left-16'
-        } right-0 border-b scrollbar-thin scrollbar-thumb-rounded ${theme === 'dark'
-          ? 'bg-gray-900 text-gray-200 border-gray-700 scrollbar-thumb-gray-700'
-          : 'bg-blue-800 text-white border-blue-700 scrollbar-thumb-blue-700'
-        }`}
+      className={`print:hidden fixed top-14 z-30 h-10 overflow-x-auto whitespace-nowrap transition-all duration-300 ${
+        sidebarOpen ? 'left-60 block' : 'hidden md:block md:left-16'
+      } right-0 border-b no-scrollbar ${
+        theme === 'dark'
+          ? 'bg-slate-900/95 text-slate-200 border-slate-800 backdrop-blur-md'
+          : 'bg-indigo-950 text-indigo-100 border-indigo-900 shadow-2xs'
+      }`}
     >
-      <div className="flex items-center h-full px-2 space-x-2 min-w-max">
+      <div className="flex items-center h-full px-3 space-x-1.5 min-w-max">
         {menuItems
           .filter((item) => {
             if (user?.userType === "ca" || user?.userType === "new_ca") {
@@ -126,6 +128,8 @@ const HorizontalMenu: React.FC<HorizontalMenuProps> = ({ sidebarOpen }) => {
           }
 
           const disabled = (!hasCompany && !allowedWhenNoCompany.includes(item.path)) || !hasPermission;
+          const active = isActive(item.path);
+
           return (
             <button
               key={index}
@@ -138,12 +142,13 @@ const HorizontalMenu: React.FC<HorizontalMenuProps> = ({ sidebarOpen }) => {
                     ? 'Create a company first to access this'
                     : undefined
               }
-              className={`px-3 py-1 rounded text-sm transition-colors flex-shrink-0 ${isActive(item.path)
-                ? theme === 'dark'
-                  ? 'bg-gray-700'
-                  : 'bg-blue-700'
-                : 'hover:bg-blue-700 dark:hover:bg-gray-700'
-                } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all flex-shrink-0 cursor-pointer ${
+                active
+                  ? 'bg-indigo-600 text-white shadow-2xs'
+                  : theme === 'dark'
+                    ? 'hover:bg-slate-800 text-slate-300 hover:text-white'
+                    : 'hover:bg-indigo-900/90 text-indigo-200 hover:text-white'
+              } ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
             >
               {item.title}
             </button>

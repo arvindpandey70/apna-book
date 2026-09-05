@@ -42,93 +42,106 @@ const Header: React.FC<HeaderProps> = ({ toggleSidebar }) => {
 
   return (
     <header
-      className={`print:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between p-2 border-b h-14 ${
-        theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-blue-900 border-blue-800'
+      className={`print:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-3 md:px-5 border-b h-14 transition-colors duration-200 ${
+        theme === 'dark'
+          ? 'bg-slate-900/95 border-slate-800 text-slate-100 backdrop-blur-md'
+          : 'bg-indigo-950 border-indigo-900 text-white shadow-xs'
       }`}
     >
-      <div className="flex items-center flex-1 overflow-hidden pr-2">
+      <div className="flex items-center flex-1 overflow-hidden pr-3 gap-3">
         <button
           title="Toggle Sidebar"
           onClick={toggleSidebar}
-          className="p-1 mr-2 rounded-md text-white hover:bg-blue-800 dark:hover:bg-gray-700 flex-shrink-0"
+          className={`p-2 rounded-xl transition-colors flex-shrink-0 cursor-pointer ${
+            theme === 'dark'
+              ? 'hover:bg-slate-800 text-slate-300'
+              : 'hover:bg-indigo-900 text-indigo-100'
+          }`}
         >
-          <Menu size={20} />
+          <Menu size={19} />
         </button>
-       <div className="text-white font-bold flex-1 overflow-x-auto no-scrollbar whitespace-nowrap">
-  {companyData ? (
-    <span className="inline-flex items-center gap-3">
-      <span className="mr-1">{companyData.name}</span>
-      {user && (
-        <span className="inline-flex items-center gap-3">
-          <span className="opacity-60">|</span>
-          {localStorage.getItem('userType') === 'employee' ? (
-             <>
-               <span className="px-3 py-1 bg-blue-500 text-white text-sm font-bold rounded shadow-sm border border-blue-400">
-                 Trader Name: {companyData.TraderName || user.firstName || user.name}
-               </span>
-               {companyData.AccountantName && (
-                 <span className="px-3 py-1 bg-yellow-500 text-yellow-900 text-sm font-bold rounded shadow-sm border border-yellow-400">
-                   Accountant Name: {companyData.AccountantName}
-                 </span>
-               )}
-               {companyData.NewCAName && (
-                 <span className="px-3 py-1 bg-green-500 text-white text-sm font-bold rounded shadow-sm border border-green-400">
-                   CA Name: {companyData.NewCAName}
-                 </span>
-               )}
-             </>
-          ) : localStorage.getItem('userType') === 'ca' ? (
-             <span className="px-3 py-1 bg-yellow-500 text-yellow-900 text-sm font-bold rounded shadow-sm border border-yellow-400">
-               Accountant Name: {user.firstName || user.name}
-             </span>
-          ) : localStorage.getItem('userType') === 'new_ca' ? (
-             <span className="px-3 py-1 bg-green-500 text-white text-sm font-bold rounded shadow-sm border border-green-400">
-               CA Name: {user.firstName || user.name}
-             </span>
+
+        <div className="font-semibold flex-1 overflow-x-auto no-scrollbar whitespace-nowrap flex items-center gap-3">
+          {companyData ? (
+            <div className="inline-flex items-center gap-2.5 text-sm">
+              <span className="font-bold text-white tracking-wide truncate max-w-[200px] sm:max-w-[280px]">
+                {companyData.name}
+              </span>
+
+              {user && (
+                <div className="inline-flex items-center gap-2 text-xs">
+                  <span className="opacity-30">|</span>
+                  {localStorage.getItem('userType') === 'employee' ? (
+                    <>
+                      <span className="px-2.5 py-0.5 bg-indigo-600/90 text-white font-medium rounded-lg shadow-2xs border border-indigo-500/40">
+                        Trader: {companyData.TraderName || user.firstName || user.name}
+                      </span>
+                      {companyData.AccountantName && (
+                        <span className="px-2.5 py-0.5 bg-amber-500/20 text-amber-300 font-medium rounded-lg border border-amber-500/30">
+                          Accountant: {companyData.AccountantName}
+                        </span>
+                      )}
+                      {companyData.NewCAName && (
+                        <span className="px-2.5 py-0.5 bg-emerald-500/20 text-emerald-300 font-medium rounded-lg border border-emerald-500/30">
+                          CA: {companyData.NewCAName}
+                        </span>
+                      )}
+                    </>
+                  ) : localStorage.getItem('userType') === 'ca' ? (
+                    <span className="px-2.5 py-0.5 bg-amber-500/20 text-amber-300 font-medium rounded-lg border border-amber-500/30">
+                      Accountant: {user.firstName || user.name}
+                    </span>
+                  ) : localStorage.getItem('userType') === 'new_ca' ? (
+                    <span className="px-2.5 py-0.5 bg-emerald-500/20 text-emerald-300 font-medium rounded-lg border border-emerald-500/30">
+                      CA: {user.firstName || user.name}
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-0.5 bg-slate-700 text-slate-200 font-medium rounded-lg border border-slate-600">
+                      User: {user.firstName || user.name}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
           ) : (
-             <span className="px-3 py-1 bg-gray-500 text-white text-sm font-bold rounded shadow-sm border border-gray-400">
-               User: {user.firstName || user.name}
-             </span>
+            <span className="text-xs opacity-75">No company assigned</span>
           )}
-        </span>
-      )}
-    </span>
-  ) : "No company assigned"}
 
-<div className="text-xs text-blue-200 dark:text-gray-400">
-  {companyData
-    ? companyData.fdAccountType &&
-      companyData.fdAccountType.toLowerCase() === "self"
-      ? "Self Maintained"
-      : "Accountant"
-    : ""}
-</div>
-
-</div>
-
+          {companyData?.fdAccountType && (
+            <span className="text-[11px] px-2 py-0.5 rounded-md bg-white/10 text-indigo-200 font-medium">
+              {companyData.fdAccountType.toLowerCase() === 'self' ? 'Self Maintained' : 'Accountant'}
+            </span>
+          )}
+        </div>
       </div>
 
-      <div className="flex items-center space-x-2 flex-shrink-0">
-        <button
-          onClick={toggleTheme}
-          className="p-1 rounded-md text-white hover:bg-blue-800 dark:hover:bg-gray-700"
-          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-        >
-          {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-        </button>
-        <span className="text-white text-xs hidden md:inline-block">
+      <div className="flex items-center space-x-2 md:space-x-3 flex-shrink-0">
+        <span className="text-[11px] opacity-75 hidden xl:inline-block font-mono bg-white/10 px-2 py-1 rounded-md">
           F1: Help | F2: Period | Alt+F1: Company
         </span>
+
+        <button
+          onClick={toggleTheme}
+          className={`p-2 rounded-xl transition-all cursor-pointer flex items-center justify-center ${
+            theme === 'dark'
+              ? 'bg-slate-800 text-amber-400 hover:bg-slate-700 border border-slate-700'
+              : 'bg-indigo-900/80 text-amber-300 hover:bg-indigo-900 border border-indigo-800'
+          }`}
+          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
+        </button>
+
         {localStorage.getItem('userType') === 'new_ca' ? (
-          <span className="ml-4 px-3 py-1 bg-green-500 text-white text-sm font-bold rounded shadow-sm border border-green-400">
+          <span className="px-2.5 py-1 bg-emerald-500 text-white text-xs font-bold rounded-lg shadow-2xs border border-emerald-400">
             CA
           </span>
         ) : localStorage.getItem('userType') === 'employee' ? (
-          <span className="ml-4 px-3 py-1 bg-blue-500 text-white text-sm font-bold rounded shadow-sm border border-blue-400">
+          <span className="px-2.5 py-1 bg-indigo-500 text-white text-xs font-bold rounded-lg shadow-2xs border border-indigo-400">
             Trader
           </span>
         ) : (
-          <span className="ml-4 px-3 py-1 bg-yellow-500 text-yellow-900 text-sm font-bold rounded shadow-sm">
+          <span className="px-2.5 py-1 bg-amber-500 text-slate-950 text-xs font-bold rounded-lg shadow-2xs border border-amber-400">
             Accountant
           </span>
         )}

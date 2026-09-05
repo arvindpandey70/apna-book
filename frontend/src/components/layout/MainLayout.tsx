@@ -163,27 +163,27 @@ const MainLayout: React.FC = () => {
 
 
   return (
-    <div className={`min-h-screen flex flex-col ${theme === 'dark' ? 'bg-gray-900 text-gray-200' : 'bg-gray-100 text-gray-900'}`}>
+    <div className={`min-h-screen flex flex-col ${theme === 'dark' ? 'bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       <Header toggleSidebar={() => setSidebarOpen(prev => !prev)} />
       {/* <HorizontalMenu /> */}
       <HorizontalMenu sidebarOpen={sidebarOpen} />
       {/* Subscription modal shown when user attempts to access pages after expiry */}
       {showSubscriptionModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black opacity-40" onClick={() => setShowSubscriptionModal(false)} />
-          <div className="relative bg-white rounded-lg shadow-lg max-w-md w-full p-6 z-10">
-            <h3 className="text-lg font-semibold mb-2">Subscription Required</h3>
-            <p className="text-sm text-gray-700 mb-4">Your free trial or subscription has expired. Please renew to continue accessing all features.</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs" onClick={() => setShowSubscriptionModal(false)} />
+          <div className={`relative rounded-2xl shadow-xl max-w-md w-full p-6 z-10 border ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-900'}`}>
+            <h3 className="text-lg font-bold mb-2">Subscription Required</h3>
+            <p className={`text-sm mb-5 ${theme === 'dark' ? 'text-slate-300' : 'text-slate-600'}`}>Your free trial or subscription has expired. Please renew to continue accessing all features.</p>
             <div className="flex gap-3 justify-end">
               <button
                 onClick={() => setShowSubscriptionModal(false)}
-                className="px-4 py-2 rounded-md border"
+                className={`px-4 py-2 text-xs font-semibold rounded-xl border transition-colors ${theme === 'dark' ? 'border-slate-600 text-slate-300 hover:bg-slate-700' : 'border-slate-300 text-slate-700 hover:bg-slate-100'}`}
               >
                 Close
               </button>
               <button
                 onClick={() => { setShowSubscriptionModal(false); navigate('/app/pricing'); }}
-                className="px-4 py-2 rounded-md bg-blue-600 text-white"
+                className="px-4 py-2 text-xs font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors shadow-sm"
               >
                 Renew Now
               </button>
@@ -193,8 +193,8 @@ const MainLayout: React.FC = () => {
       )}
       <div className="flex flex-1 min-w-0 max-w-full">
         <Sidebar isOpen={sidebarOpen} />
-        <main className={`flex-1 min-w-0 max-w-full overflow-x-hidden transition-all duration-300 print:ml-0 print:pt-0 ${sidebarOpen ? 'ml-60' : 'ml-0 md:ml-16'} pt-12`}>
-          <div className="p-4 print:p-0 h-full min-w-0 max-w-full">
+        <main className={`flex-1 min-w-0 max-w-full overflow-x-hidden transition-all duration-300 print:ml-0 print:pt-0 ${sidebarOpen ? 'ml-60' : 'ml-0 md:ml-16'} pt-16 md:pt-24`}>
+          <div className="p-4 sm:p-6 pt-2 sm:pt-4 print:p-0 h-full min-w-0 max-w-full">
             <ErrorBoundary>
               <Outlet />
             </ErrorBoundary>

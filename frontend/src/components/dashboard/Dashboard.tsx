@@ -11,13 +11,26 @@ import {
   Lock as LucideLock,
   Building,
   Calendar,
+  Lock,
+  ShieldCheck,
+  TrendingUp,
+  CreditCard,
+  Mail,
+  Phone,
+  MapPin,
+  CheckCircle2,
+  FileText,
+  Building2,
+  Sparkles,
+  ArrowUpRight,
+  UserCheck,
+  Plus
 } from "lucide-react";
-import AddCaEmployeeForm from "./caemployee"; // adjust path as needed
-import AssignCompaniesModal from "./AssignCompaniesModal"; // Adjust path accordingly
+import AddCaEmployeeForm from "./caemployee";
+import AssignCompaniesModal from "./AssignCompaniesModal";
 import PermissionsModal from "./PermissionsModal";
 import DashboardCaEmployee from "./DashboardCaEmployee";
 import { useAuth } from "../../home/context/AuthContext";
-import { Lock, ShieldCheck } from "lucide-react";
 import { useFinancialYear, getAvailableFinYears, filterByFinancialYear } from "../../hooks/useFinancialYear";
 
 const Dashboard: React.FC = () => {
@@ -41,16 +54,14 @@ const Dashboard: React.FC = () => {
     const storedCompanyId = localStorage.getItem("company_id");
     return storedCompanyId || "";
   });
-  const [caEmployees, setCaEmployees] = useState<any[]>([]); // Optional to reload list after create
+  const [caEmployees, setCaEmployees] = useState<any[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const caId = localStorage.getItem("user_id") || localStorage.getItem("employee_id");
   const suppl: string | null = localStorage.getItem("supplier"); // employee | ca | ca_employee
   const userType = localStorage.getItem("userType");
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [showPermissionsModal, setShowPermissionsModal] = useState(false);
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(
-    null
-  );
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null);
   const [selectedEmployeeName, setSelectedEmployeeName] = useState<string>("");
 
   const { selectedFinYear, setSelectedFinYear } = useFinancialYear();
@@ -94,7 +105,6 @@ const Dashboard: React.FC = () => {
   };
   const [companies, setCompanies] = useState<Company[]>([]);
 
-  // Initialize selectedCompany from localStorage first
   const [selectedCompany, setSelectedCompany] = useState(() => {
     const storedCompanyId = localStorage.getItem("company_id");
     return storedCompanyId || "";
@@ -131,7 +141,6 @@ const Dashboard: React.FC = () => {
   const [showModal, setShowModal] = useState(false);
 
   const handleCompanyUnlock = async (id: string) => {
-    // Switch to that company in context immediately
     if (suppl === "employee") {
       await switchCompany(id);
       setSelectedCompany(id);
@@ -145,30 +154,6 @@ const Dashboard: React.FC = () => {
   };
 
   const employeeId = localStorage.getItem("employee_id");
-
-  // Removed this useEffect - it was causing infinite loop
-  // CompanyContext now handles syncing automatically
-  // useEffect(() => {
-  //   // Only update if companyInfo exists and selectedCompany is empty or different
-  //   if (companyInfo?.id) {
-  //     const companyIdStr = companyInfo.id.toString();
-  //     const storedCompanyId = localStorage.getItem("company_id");
-  //     
-  //     // If localStorage has a company_id, use it; otherwise use companyInfo.id
-  //     if (storedCompanyId && storedCompanyId !== companyIdStr) {
-  //       // If stored company is different, update selectedCompany but don't change localStorage
-  //       setSelectedCompany(storedCompanyId);
-  //     } else if (!storedCompanyId) {
-  //       // If no stored company, use companyInfo.id and save it
-  //       setSelectedCompany(companyIdStr);
-  //       localStorage.setItem("company_id", companyIdStr);
-  //     } else {
-  //       // If they match, just ensure state is in sync
-  //       setSelectedCompany(companyIdStr);
-  //     }
-  //   }
-  // }, [companyInfo]);
-
 
   const [realStats, setRealStats] = useState<any>({
     salesMonthly: 0,
@@ -189,7 +174,6 @@ const Dashboard: React.FC = () => {
             ? localStorage.getItem("employee_id")
             : localStorage.getItem("user_id");
 
-        // For CA employees, we want to see the owner's data
         let fetchOwnerType = ownerType;
         let fetchOwnerId = ownerId;
 
@@ -216,7 +200,6 @@ const Dashboard: React.FC = () => {
         });
 
         const data = await res.json();
-        // console.log("this is data", data.companyInfo);
         if (data.success) {
           setCompanyInfoState((prev: any) => {
             if (isSameCompany(prev, data.companyInfo)) {
@@ -250,7 +233,6 @@ const Dashboard: React.FC = () => {
     } else {
       setLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [employeeId, selectedFinYear]);
 
   useEffect(() => {
@@ -258,8 +240,6 @@ const Dashboard: React.FC = () => {
     const caEmployeeId = localStorage.getItem("user_id");
 
     if (!employeeId && userType !== "ca_employee" && userType !== "new_ca") return;
-
-
 
     if (userType === "ca_employee" && caEmployeeId) {
       fetch(
@@ -279,8 +259,7 @@ const Dashboard: React.FC = () => {
     }
 
     fetch(
-      `${import.meta.env.VITE_API_URL
-      }/api/companies-by-employee?employee_id=${employeeId}`
+      `${import.meta.env.VITE_API_URL}/api/companies-by-employee?employee_id=${employeeId}`
     )
       .then((res) => res.json())
       .then((data) => {
@@ -307,18 +286,16 @@ const Dashboard: React.FC = () => {
   const handleCreateCompany = () => {
     navigate("/app/company");
   };
+
   useEffect(() => {
     if (!caId) return;
     fetch(
-      `${import.meta.env.VITE_API_URL
-      }/api/ca-employees-with-companies?ca_id=${caId}`
+      `${import.meta.env.VITE_API_URL}/api/ca-employees-with-companies?ca_id=${caId}`
     )
       .then((res) => res.json())
       .then((data) => setCaEmployees(data.employees || []))
       .catch(console.error);
-  }, [caId, showAddForm]); // Also refetch list when the add modal closes
-
-  // Auto-unlock logic removed - Direct access enabled
+  }, [caId, showAddForm]);
 
   const openAssignModal = (employeeId: number, employeeName: string) => {
     setSelectedEmployeeId(employeeId);
@@ -336,45 +313,42 @@ const Dashboard: React.FC = () => {
     if (!companyInfo) return;
 
     const stored = localStorage.getItem("companyInfo");
-
     if (stored) {
       const parsed = JSON.parse(stored);
-
       if (parsed?.id === companyInfo.id) return;
     }
 
     localStorage.setItem("companyInfo", JSON.stringify(companyInfo));
     setCompanyInfo(companyInfo);
-
   }, [companyInfo]);
 
-
-  // Fetch function to reload employees after assignment
   const fetchEmployees = () => {
     fetch(
-      `${import.meta.env.VITE_API_URL
-      }/api/ca-employees-with-companies?ca_id=${caId}`
+      `${import.meta.env.VITE_API_URL}/api/ca-employees-with-companies?ca_id=${caId}`
     )
       .then((res) => res.json())
       .then((data) => setCaEmployees(data.employees || []))
       .catch(console.error);
   };
 
-
   const filteredVouchers = filterByFinancialYear(vouchers, "date", selectedFinYear);
 
-  const stats = [
+  const kpiStats = [
     {
       title: "Ledger Accounts",
-      value: ledgers.length,
-      icon: <Book size={24} />,
-      color: theme === "dark" ? "bg-gray-800" : "bg-blue-50",
+      value: ledgers.length.toString(),
+      subtext: "Configured ledgers",
+      icon: <Book className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />,
+      bg: "bg-indigo-50 dark:bg-indigo-950/40 border-indigo-100 dark:border-indigo-900/50",
+      accent: "text-indigo-600 dark:text-indigo-400"
     },
     {
       title: "Total Vouchers",
-      value: filteredVouchers.length,
-      icon: <ShoppingBag size={24} />,
-      color: theme === "dark" ? "bg-gray-800" : "bg-green-50",
+      value: filteredVouchers.length.toString(),
+      subtext: selectedFinYear ? `FY ${selectedFinYear}` : "All entries",
+      icon: <ShoppingBag className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />,
+      bg: "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-100 dark:border-emerald-900/50",
+      accent: "text-emerald-600 dark:text-emerald-400"
     },
     {
       title: "Cash Balance",
@@ -383,8 +357,10 @@ const Dashboard: React.FC = () => {
         (ledgers
           .find((l) => l.name === "Cash")
           ?.openingBalance?.toLocaleString() || "0"),
-      icon: <DollarSign size={24} />,
-      color: theme === "dark" ? "bg-gray-800" : "bg-amber-50",
+      subtext: "Liquid cash account",
+      icon: <DollarSign className="w-5 h-5 text-amber-600 dark:text-amber-400" />,
+      bg: "bg-amber-50 dark:bg-amber-950/40 border-amber-100 dark:border-amber-900/50",
+      accent: "text-amber-600 dark:text-amber-400"
     },
     {
       title: "Bank Balance",
@@ -393,14 +369,15 @@ const Dashboard: React.FC = () => {
         (ledgers
           .find((l) => l.name === "Bank Account")
           ?.openingBalance?.toLocaleString() || "0"),
-      icon: <Activity size={24} />,
-      color: theme === "dark" ? "bg-gray-800" : "bg-purple-50",
+      subtext: "Primary bank account",
+      icon: <Activity className="w-5 h-5 text-purple-600 dark:text-purple-400" />,
+      bg: "bg-purple-50 dark:bg-purple-950/40 border-purple-100 dark:border-purple-900/50",
+      accent: "text-purple-600 dark:text-purple-400"
     },
   ];
 
   const companyCount = companies.length;
   const canCreateCompany = companyCount < userLimit && (userType === "employee" || userType === "new_ca");
-  // Note: For 'ca_employee', userType is 'ca_employee', so canCreateCompany will be false.
 
   const handleAddEmployee = () => {
     if (!newEmployee.name || !newEmployee.adhar || !newEmployee.phone) return;
@@ -411,74 +388,554 @@ const Dashboard: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="pt-[56px] px-4">
-        <p className="text-gray-500">Loading dashboard...</p>
+      <div className="pt-8 px-4 flex flex-col items-center justify-center min-h-[60vh]">
+        <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Loading dashboard context...</p>
       </div>
     );
   }
 
-  // Verification logic removed - Direct access enabled
-
-  // Company gate logic removed - Direct access enabled
+  const isDark = theme === "dark";
 
   return (
-    <>
+    <div className="space-y-6 pb-8 max-w-7xl mx-auto mt-2 sm:mt-3">
       {suppl === "employee" || suppl === "ca_employee" ? (
-        <div className="pt-[40px] px-4 ">
-          {/* <h1 className="text-2xl font-bold mb-6">Dashboard</h1> */}
-
-          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-4">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-800 tracking-tight mb-1">
-                My Companies
-              </h1>
-              <div className="text-sm text-gray-500">
-                {companyCount} of {userLimit} allowed
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => navigate('/app/vouchers/sales/create')}
-                className="px-4 py-2 bg-indigo-50 text-indigo-700 rounded-lg font-medium hover:bg-indigo-100 transition-colors shadow-sm border border-indigo-100"
-              >
-                Sales
-              </button>
-              <button
-                onClick={() => navigate('/app/vouchers/purchase/create')}
-                className="px-4 py-2 bg-purple-50 text-purple-700 rounded-lg font-medium hover:bg-purple-100 transition-colors shadow-sm border border-purple-100"
-              >
-                Purchase
-              </button>
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-center gap-4">
-              {userType !== "company_user" && (
-                canCreateCompany ? (
-                  <button
-                    onClick={handleCreateCompany}
-                    className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-6 py-2 rounded-lg shadow-md hover:scale-105 transition-transform font-medium"
-                  >
-                    <PlusCircle className="w-5 h-5" />
-                    Create Company
-                  </button>
-                ) : (
-                  <span className="bg-red-100 text-red-700 px-4 py-2 rounded-full font-semibold text-sm">
-                    Company Limit Reached ({companyCount}/{userLimit})
+        <>
+          {/* Header & Quick Navigation Bar */}
+          <div className={`p-6 rounded-2xl border shadow-xs transition-colors ${
+            isDark ? "bg-slate-800/90 border-slate-700/80 text-slate-100" : "bg-white border-slate-200/80 text-slate-900"
+          }`}>
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+              
+              {/* Title & Active Company Info */}
+              <div className="space-y-1">
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60">
+                    Dashboard
                   </span>
-                )
-              )}
+                  {companyInfo && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60">
+                      <CheckCircle2 size={12} />
+                      Active: <strong className="font-semibold">{companyInfo.name}</strong>
+                    </span>
+                  )}
+                  <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                    ({companyCount} of {userLimit} companies allowed)
+                  </span>
+                </div>
+                
+                <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+                  Overview & Financial Insights
+                </h1>
+              </div>
 
-              {(userType === "employee" || userType === "new_ca") && allCompanies.length > 1 && (
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-bold text-gray-400 invisible sm:visible">Active:</span>
+              {/* Controls & Quick Actions */}
+              <div className="flex flex-wrap items-center gap-3">
+                {/* Financial Year Selector */}
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-semibold text-slate-500 dark:text-slate-400">FY:</label>
+                  <select
+                    value={selectedFinYear}
+                    onChange={(e) => setSelectedFinYear(e.target.value)}
+                    className={`text-xs font-semibold px-3 py-2 rounded-xl border outline-none transition-all cursor-pointer ${
+                      isDark 
+                        ? "bg-slate-700 border-slate-600 text-slate-100 focus:border-indigo-500" 
+                        : "bg-slate-50 border-slate-300 text-slate-800 focus:border-indigo-500"
+                    }`}
+                  >
+                    <option value="">All Years</option>
+                    {availableFinYears.map((fy) => (
+                      <option key={fy} value={fy}>{fy}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Company Switcher if multiple companies exist */}
+                {(userType === "employee" || userType === "new_ca") && allCompanies.length > 1 && (
                   <select
                     value={activeCompanyId || selectedCompany}
                     onChange={(e) => handleCompanyUnlock(e.target.value)}
-                    className="border-2 border-indigo-100 rounded-xl px-4 py-2 w-full sm:w-[220px] bg-white text-gray-700 outline-none focus:border-indigo-500 transition-all font-bold cursor-pointer"
+                    className={`text-xs font-semibold px-3 py-2 rounded-xl border outline-none transition-all cursor-pointer max-w-[200px] truncate ${
+                      isDark 
+                        ? "bg-slate-700 border-slate-600 text-slate-100 focus:border-indigo-500" 
+                        : "bg-slate-50 border-slate-300 text-slate-800 focus:border-indigo-500"
+                    }`}
                   >
-                    <option value="" disabled>Select Company</option>
+                    <option value="" disabled>Switch Company</option>
                     {allCompanies.map((c) => (
+                      <option key={c.id} value={c.id.toString()}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                {/* Quick Actions Bar */}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => navigate('/app/vouchers/sales/create')}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition-all shadow-2xs inline-flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Plus size={14} />
+                    Sales
+                  </button>
+                  <button
+                    onClick={() => navigate('/app/vouchers/purchase/create')}
+                    className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold transition-all shadow-2xs inline-flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Plus size={14} />
+                    Purchase
+                  </button>
+                  {userType !== "company_user" && canCreateCompany && (
+                    <button
+                      onClick={handleCreateCompany}
+                      className="px-3.5 py-2 bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 dark:hover:bg-white text-white dark:text-slate-900 rounded-xl text-xs font-semibold transition-all shadow-2xs inline-flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <PlusCircle size={14} />
+                      Create Company
+                    </button>
+                  )}
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          {/* Subscription Banner */}
+          {user?.trialDaysRemaining !== undefined && (() => {
+            const isActive = user.trialDaysRemaining >= 0 && !user.isExpired;
+            const isFreeTrial = user.isTrial;
+
+            return (
+              <div className={`p-4 sm:p-5 rounded-2xl border shadow-xs transition-colors flex flex-col md:flex-row items-start md:items-center justify-between gap-4 ${
+                isActive
+                  ? isDark ? 'border-emerald-800/80 bg-emerald-950/30 text-emerald-200' : 'border-emerald-200 bg-emerald-50/80 text-emerald-900'
+                  : isDark ? 'border-rose-800/80 bg-rose-950/30 text-rose-200' : 'border-rose-200 bg-rose-50/80 text-rose-900'
+              }`}>
+                <div className="flex items-start gap-3.5">
+                  <div className={`p-2.5 rounded-xl ${
+                    isActive
+                      ? isDark ? 'bg-emerald-900/60 text-emerald-300' : 'bg-emerald-100 text-emerald-700'
+                      : isDark ? 'bg-rose-900/60 text-rose-300' : 'bg-rose-100 text-rose-700'
+                  }`}>
+                    <Calendar size={18} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-sm">
+                        {isActive
+                          ? (isFreeTrial ? 'Free Trial — Active' : 'Subscription — Active')
+                          : (isFreeTrial ? 'Free Trial — Ended' : 'Subscription — Ended')}
+                      </span>
+                      <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${
+                        isActive
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-rose-600 text-white'
+                      }`}>
+                        {isActive ? `${user.trialDaysRemaining} days remaining` : 'Action required'}
+                      </span>
+                    </div>
+                    <p className="text-xs opacity-90 mt-0.5">
+                      {isActive
+                        ? `Your ${isFreeTrial ? 'free trial' : 'subscription'} is active. Enjoy full access to all features.`
+                        : `Your ${isFreeTrial ? 'trial period' : 'subscription'} has ended. Please renew to continue seamless access.`}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => navigate('/app/pricing')}
+                  className="self-stretch md:self-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl shadow-2xs transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  View Plans / Renew
+                </button>
+              </div>
+            );
+          })()}
+
+          {/* KPI Stat Cards (4 Columns Grid) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
+            {kpiStats.map((stat, idx) => (
+              <div
+                key={idx}
+                className={`p-5 rounded-2xl border shadow-xs transition-all hover:border-slate-300 dark:hover:border-slate-600 ${
+                  isDark ? "bg-slate-800/90 border-slate-700/80" : "bg-white border-slate-200/80"
+                }`}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                    {stat.title}
+                  </span>
+                  <div className={`p-2 rounded-xl border ${stat.bg}`}>
+                    {stat.icon}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <div className="text-2xl font-black tracking-tight">
+                    {stat.value}
+                  </div>
+                  <div className="text-[11px] font-medium text-slate-400 dark:text-slate-500">
+                    {stat.subtext}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Financial Overview (Sales, Purchase, Input Tax, Output Tax) */}
+          {checkPermission('reports') && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold tracking-tight">
+                  Financial Overview
+                </h2>
+                <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                  {selectedFinYear ? `FY ${selectedFinYear}` : "All Time"}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
+                {/* Sales Report */}
+                <div className={`p-5 rounded-2xl border shadow-xs transition-all border-l-4 border-l-emerald-500 ${
+                  isDark ? "bg-slate-800/90 border-slate-700/80" : "bg-white border-slate-200/80"
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                      Sales Report
+                    </span>
+                    <span className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
+                      <TrendingUp size={15} />
+                    </span>
+                  </div>
+                  <div className="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 tracking-tight">
+                    ₹ {Number(realStats.salesMonthly || 0).toLocaleString()}
+                  </div>
+                  <div className="text-[11px] text-slate-400 dark:text-slate-500 font-medium mt-1">
+                    Total sales revenue
+                  </div>
+                </div>
+
+                {/* Purchase Report */}
+                <div className={`p-5 rounded-2xl border shadow-xs transition-all border-l-4 border-l-indigo-500 ${
+                  isDark ? "bg-slate-800/90 border-slate-700/80" : "bg-white border-slate-200/80"
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                      Purchase Report
+                    </span>
+                    <span className="p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
+                      <ShoppingBag size={15} />
+                    </span>
+                  </div>
+                  <div className="text-2xl font-extrabold text-indigo-600 dark:text-indigo-400 tracking-tight">
+                    ₹ {Number(realStats.purchaseMonthly || 0).toLocaleString()}
+                  </div>
+                  <div className="text-[11px] text-slate-400 dark:text-slate-500 font-medium mt-1">
+                    Total purchase expenses
+                  </div>
+                </div>
+
+                {/* Input Tax */}
+                {checkPermission('gst') && (
+                  <div className={`p-5 rounded-2xl border shadow-xs transition-all border-l-4 border-l-purple-500 ${
+                    isDark ? "bg-slate-800/90 border-slate-700/80" : "bg-white border-slate-200/80"
+                  }`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                        Input Tax
+                      </span>
+                      <span className="p-1.5 rounded-lg bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400">
+                        <CreditCard size={15} />
+                      </span>
+                    </div>
+                    <div className="text-2xl font-extrabold text-purple-600 dark:text-purple-400 tracking-tight">
+                      ₹ {Number(realStats.inputTaxMonthly || 0).toLocaleString()}
+                    </div>
+                    <div className="text-[11px] text-slate-400 dark:text-slate-500 font-medium mt-1">
+                      ITC credit tax balance
+                    </div>
+                  </div>
+                )}
+
+                {/* Output Tax */}
+                {checkPermission('gst') && (
+                  <div className={`p-5 rounded-2xl border shadow-xs transition-all border-l-4 border-l-amber-500 ${
+                    isDark ? "bg-slate-800/90 border-slate-700/80" : "bg-white border-slate-200/80"
+                  }`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                        Output Tax
+                      </span>
+                      <span className="p-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
+                        <FileText size={15} />
+                      </span>
+                    </div>
+                    <div className="text-2xl font-extrabold text-amber-600 dark:text-amber-400 tracking-tight">
+                      ₹ {Number(realStats.outputTaxMonthly || 0).toLocaleString()}
+                    </div>
+                    <div className="text-[11px] text-slate-400 dark:text-slate-500 font-medium mt-1">
+                      Tax liability on sales
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Main Grid: Active Company Details Card & My Companies List */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            {/* Active Company Overview (Spans 2 Cols) */}
+            {companyInfo ? (
+              <div className={`lg:col-span-2 p-6 rounded-2xl border shadow-xs transition-colors ${
+                isDark ? "bg-slate-800/90 border-slate-700/80" : "bg-white border-slate-200/80"
+              }`}>
+                <div className="flex items-center justify-between pb-4 mb-5 border-b border-slate-200 dark:border-slate-700/80">
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 rounded-xl bg-indigo-600 text-white shadow-2xs">
+                      <Building2 size={22} />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold tracking-tight">
+                        {companyInfo.name}
+                      </h3>
+                      <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                        Active Company Profile
+                      </span>
+                    </div>
+                  </div>
+
+                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                    Active
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                  <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/60 dark:border-slate-700/60 space-y-1">
+                    <span className="text-slate-400 dark:text-slate-500 font-medium block">Financial Year</span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200 text-sm">
+                      {selectedFinYear ? `FY ${selectedFinYear}` : "All Years"}
+                    </span>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/60 dark:border-slate-700/60 space-y-1">
+                    <span className="text-slate-400 dark:text-slate-500 font-medium block">Books Beginning From</span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200 text-sm">
+                      {companyInfo.books_beginning_year || companyInfo.booksBeginningYear || "—"}
+                    </span>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/60 dark:border-slate-700/60 space-y-1">
+                    <span className="text-slate-400 dark:text-slate-500 font-medium block">GSTIN</span>
+                    <span className="font-semibold font-mono text-slate-800 dark:text-slate-200 text-sm">
+                      {companyInfo.gst_number || companyInfo.gstNumber || companyInfo.gstin || "—"}
+                    </span>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/60 dark:border-slate-700/60 space-y-1">
+                    <span className="text-slate-400 dark:text-slate-500 font-medium block">PAN Number</span>
+                    <span className="font-semibold font-mono text-slate-800 dark:text-slate-200 text-sm">
+                      {companyInfo.pan_number || companyInfo.panNumber || "—"}
+                    </span>
+                  </div>
+
+                  <div className="sm:col-span-2 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/60 dark:border-slate-700/60 space-y-1">
+                    <span className="text-slate-400 dark:text-slate-500 font-medium flex items-center gap-1.5">
+                      <MapPin size={13} /> Address
+                    </span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200 text-sm block">
+                      {companyInfo.address ? `${companyInfo.address}, ${companyInfo.state || ''} - ${companyInfo.pin || companyInfo.pin_code || companyInfo.pincode || ''}` : "—"}
+                    </span>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/60 dark:border-slate-700/60 space-y-1">
+                    <span className="text-slate-400 dark:text-slate-500 font-medium flex items-center gap-1.5">
+                      <Mail size={13} /> Email
+                    </span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200 text-sm truncate block">
+                      {companyInfo.email || "—"}
+                    </span>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/60 dark:border-slate-700/60 space-y-1">
+                    <span className="text-slate-400 dark:text-slate-500 font-medium flex items-center gap-1.5">
+                      <Phone size={13} /> Phone
+                    </span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200 text-sm block">
+                      {companyInfo.phone_number || companyInfo.phoneNumber || companyInfo.phone || "—"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className={`lg:col-span-2 p-8 rounded-2xl border shadow-xs text-center flex flex-col items-center justify-center ${
+                isDark ? "bg-slate-800/90 border-slate-700/80" : "bg-white border-slate-200/80"
+              }`}>
+                <Building2 size={40} className="text-slate-400 mb-3" />
+                <h3 className="text-base font-bold mb-1">No Active Company Selected</h3>
+                <p className="text-xs text-slate-500 max-w-sm mb-4">Create a new company or select an existing company from your account to start managing your books.</p>
+                {canCreateCompany && (
+                  <button
+                    onClick={handleCreateCompany}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+                  >
+                    Create Company
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Side Card: Subscription Summary & Capacity */}
+            <div className={`p-6 rounded-2xl border shadow-xs transition-colors space-y-5 ${
+              isDark ? "bg-slate-800/90 border-slate-700/80" : "bg-white border-slate-200/80"
+            }`}>
+              <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-700/80">
+                <h3 className="text-base font-bold tracking-tight">
+                  Subscription & Plan
+                </h3>
+                <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+                  SaaS Status
+                </span>
+              </div>
+
+              <div className="space-y-4">
+                <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/60 dark:border-slate-700/60">
+                  <div className="text-xs text-slate-500 dark:text-slate-400 font-medium mb-1">Account Plan</div>
+                  <div className="text-lg font-extrabold text-indigo-600 dark:text-indigo-400">
+                    {user?.isTrial ? "Trial License" : "Active Subscription"}
+                  </div>
+                  <div className="text-xs font-semibold text-slate-700 dark:text-slate-300 mt-2 flex items-center justify-between">
+                    <span>Days Remaining:</span>
+                    <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                      {user?.trialDaysRemaining ?? 207} days
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/60 dark:border-slate-700/60">
+                  <div className="text-xs text-slate-500 dark:text-slate-400 font-medium mb-1">Company Limit</div>
+                  <div className="text-sm font-bold">
+                    {companyCount} of {userLimit} Created
+                  </div>
+                  <div className="w-full bg-slate-200 dark:bg-slate-700 h-2 rounded-full mt-2 overflow-hidden">
+                    <div
+                      className="bg-indigo-600 h-full rounded-full transition-all duration-300"
+                      style={{ width: `${Math.min(100, (companyCount / (userLimit || 1)) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => navigate('/app/pricing')}
+                  className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl shadow-2xs transition-colors cursor-pointer text-center"
+                >
+                  View Plans / Renew
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* My Companies Cards Grid */}
+          <div className="space-y-4">
+            <h2 className="text-lg font-bold tracking-tight">
+              My Companies
+            </h2>
+
+            {companyCount === 0 ? (
+              <div className={`p-8 rounded-2xl border shadow-xs text-center ${
+                isDark ? "bg-slate-800/90 border-slate-700/80" : "bg-white border-slate-200/80"
+              }`}>
+                <p className="text-sm text-slate-500 mb-4">No companies found under this account.</p>
+                {canCreateCompany && (
+                  <button
+                    onClick={handleCreateCompany}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-semibold"
+                  >
+                    Create Company
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                {companies
+                  .filter(c => {
+                    if (userType === 'company_user' || userType === 'ca_employee') {
+                      const restrictedId = localStorage.getItem("company_id");
+                      return String(c.id) === String(restrictedId);
+                    }
+                    return true;
+                  })
+                  .map((c) => {
+                    const isSelected = c.id.toString() === selectedCompany;
+                    return (
+                      <div
+                        key={c.id}
+                        onClick={() => handleCompanyUnlock(c.id.toString())}
+                        className={`p-5 rounded-2xl border transition-all cursor-pointer shadow-2xs ${
+                          isSelected
+                            ? "bg-indigo-50/60 dark:bg-indigo-950/40 border-indigo-500 ring-2 ring-indigo-500/20"
+                            : isDark
+                              ? "bg-slate-800/90 border-slate-700/80 hover:border-slate-600"
+                              : "bg-white border-slate-200/80 hover:border-slate-300"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="font-bold text-base truncate pr-2">
+                            {c.name}
+                          </h3>
+                          {isSelected && (
+                            <span className="px-2 py-0.5 bg-indigo-600 text-white text-[10px] font-bold rounded-full uppercase tracking-wider">
+                              Active
+                            </span>
+                          )}
+                        </div>
+
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-3 truncate">
+                          {c.address || "No address specified"}
+                        </p>
+
+                        <div className="space-y-1 text-xs font-mono opacity-80 pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
+                          <div>GST: {c.gst_number || c.gstNumber || "—"}</div>
+                          <div>PAN: {c.pan_number || c.panNumber || "—"}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+        </>
+      ) : suppl === "ca" ? (
+        <div className="space-y-6">
+          {/* CA Header */}
+          <div className={`p-6 rounded-2xl border shadow-xs transition-colors ${
+            isDark ? "bg-slate-800/90 border-slate-700/80" : "bg-white border-slate-200/80"
+          }`}>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <h1 className="text-2xl font-extrabold tracking-tight">CA Portal Dashboard</h1>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Manage assigned companies, staff accountants, and access permissions.</p>
+              </div>
+
+              {caAllCompanies.length > 0 && (
+                <div className="w-full sm:w-auto">
+                  <select
+                    value={selectedCaCompany}
+                    onChange={(e) => {
+                      const companyId = e.target.value;
+                      if (!companyId) return;
+                      localStorage.setItem("company_id", companyId);
+                      setSelectedCaCompany(companyId);
+                      window.location.reload();
+                    }}
+                    className={`text-xs font-semibold px-3 py-2 rounded-xl border outline-none cursor-pointer w-full sm:w-[220px] ${
+                      isDark 
+                        ? "bg-slate-700 border-slate-600 text-slate-100" 
+                        : "bg-slate-50 border-slate-300 text-slate-800"
+                    }`}
+                  >
+                    <option value="">Select Company</option>
+                    {caAllCompanies.map((c) => (
                       <option key={c.id} value={c.id.toString()}>
                         {c.name}
                       </option>
@@ -489,492 +946,132 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
 
-          {/* Trial / subscription banner */}
-          {user?.trialDaysRemaining !== undefined && (() => {
-            const isActive = user.trialDaysRemaining >= 0 && !user.isExpired;
-            const isFreeTrial = user.isTrial;
+          {/* Company Details Table */}
+          <div className={`p-6 rounded-2xl border shadow-xs overflow-hidden ${
+            isDark ? "bg-slate-800/90 border-slate-700/80" : "bg-white border-slate-200/80"
+          }`}>
+            <h2 className="text-base font-bold mb-4">Assigned Companies</h2>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className={`border-b ${isDark ? "border-slate-700 text-slate-400" : "border-slate-200 text-slate-500"}`}>
+                    <th className="p-3 font-semibold">Company Name</th>
+                    <th className="p-3 font-semibold">PAN Number</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-700/60">
+                  {caAllCompanies.map((company) => (
+                    <tr key={company.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/30">
+                      <td className="p-3 font-semibold">{company.name}</td>
+                      <td className="p-3 font-mono">{company.pan_number || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
-            return (
-              <div className={`mb-6 rounded-2xl border px-4 py-3 text-sm shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-3 ${isActive ? 'border-green-300 bg-green-50 text-green-900' : 'border-red-300 bg-red-50 text-red-800'}`}>
-                <div className="flex items-start gap-3">
-                  <div className={`mt-0.5 h-8 w-8 rounded-full flex items-center justify-center ${isActive ? 'bg-green-100' : 'bg-red-100'}`}>
-                    <Calendar className={`h-4 w-4 ${isActive ? 'text-green-700' : 'text-red-700'}`} />
-                  </div>
-                  <div>
-                    <div className={`font-semibold ${isActive ? 'text-green-800' : 'text-red-800'}`}>
-                      {isActive
-                        ? (isFreeTrial ? 'Free Trial — Active' : 'Subscription — Active')
-                        : (isFreeTrial ? 'Free Trial — Ended' : 'Subscription — Ended')}
-                    </div>
-                    {isActive ? (
-                      <div>
-                        Your {isFreeTrial ? 'free trial' : 'subscription'} is active —
-                        <span className="font-bold"> {user.trialDaysRemaining} days</span> remaining. {isFreeTrial ? 'After the trial ends, a subscription is required to continue using the service.' : ''}
-                      </div>
-                    ) : (
-                      <div>
-                        Your {isFreeTrial ? 'trial period' : 'subscription'} has ended. To continue using the service, please renew your subscription.
-                      </div>
-                    )}
-                  </div>
-                </div>
+          {/* Working Employees Table */}
+          {userType !== "new_ca" && (
+            <div className={`p-6 rounded-2xl border shadow-xs overflow-hidden ${
+              isDark ? "bg-slate-800/90 border-slate-700/80" : "bg-white border-slate-200/80"
+            }`}>
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-base font-bold">Staff Accountants</h2>
                 <button
-                  onClick={() => navigate('/app/pricing')}
-                  className="self-stretch md:self-auto rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow hover:bg-blue-700"
+                  onClick={() => setShowAddForm(true)}
+                  className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition-colors cursor-pointer"
                 >
-                  View Plans / Renew
+                  + Add Employee
                 </button>
               </div>
-            );
-          })()}
 
-          {/* Company Cards */}
-          {companyCount === 0 ? (
-            <div className="bg-white rounded-xl shadow p-8 text-center mb-8">
-              <h2 className="text-lg font-semibold mb-2">
-                No company created yet
-              </h2>
-              <p className="mb-4 text-gray-600">
-                Use the button above to create your first company.
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
-              {companies
-                .filter(c => {
-                  if (userType === 'company_user' || userType === 'ca_employee') {
-                    const restrictedId = localStorage.getItem("company_id");
-                    return String(c.id) === String(restrictedId);
-                  }
-                  return true;
-                })
-                .map((c) => {
-                  const isSelected = c.id.toString() === selectedCompany;
-                  return (
-                    <div
-                      key={c.id}
-                      className={`rounded-2xl p-6 hover:shadow-xl transition-all border-2 ${isSelected
-                        ? "bg-gradient-to-b from-indigo-100 to-purple-100 shadow-lg border-indigo-500 ring-2 ring-indigo-300 ring-offset-2"
-                        : "bg-gradient-to-b from-purple-50 to-blue-50 shadow-md border-indigo-100"
-                        }`}
+              {showAddForm && (
+                <div className="fixed inset-0 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs z-50 p-4">
+                  <div className={`rounded-3xl shadow-2xl w-full max-w-2xl relative overflow-hidden border p-2 ${
+                    isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"
+                  }`}>
+                    <button
+                      onClick={() => setShowAddForm(false)}
+                      className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 p-2 rounded-full z-10 cursor-pointer"
                     >
-                      <div className="flex items-center justify-between mb-1">
-                        <h3 className={`text-lg font-bold ${isSelected ? "text-indigo-800" : "text-gray-800"
-                          }`}>
-                          {c.name}
-                        </h3>
-                        <div className="flex items-center gap-2">
-                          <LucideLock className="w-4 h-4 text-green-500" />
-                          {isSelected && (
-                            <span className="bg-indigo-600 text-white text-[10px] px-2 py-1 rounded-full font-bold uppercase tracking-wider">
-                              Active Session
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className={`text-sm mb-3 ${isSelected ? "text-gray-600" : "text-gray-500"
-                        }`}>
-                        {c.address || "—"}
-                      </div>
-
-                      <div className="flex flex-col gap-1 text-xs">
-                        <span className={isSelected ? "text-gray-700" : "opacity-70"}>
-                          GST: {c.gst_number || c.gstNumber || "—"}
-                        </span>
-
-                        <span className={isSelected ? "text-gray-700" : "opacity-70"}>
-                          PAN: {c.pan_number || c.panNumber || "—"}
-                        </span>
-                      </div>
+                      ✕
+                    </button>
+                    <div className="max-h-[85vh] overflow-y-auto no-scrollbar">
+                      <AddCaEmployeeForm
+                        caId={caId || ""}
+                        onSuccess={() => setShowAddForm(false)}
+                      />
                     </div>
-                  );
-                })}
-            </div>
-          )}
-
-          {/* ✅ If no company, show welcome */}
-          {!companyInfo ? (
-            <div
-              className={`p-1 rounded-lg mb-6 ${theme === "dark" ? "bg-gray-800" : "bg-white shadow"
-                }`}
-            >
-              {/* <h2 className="text-xl font-semibold mb-4">
-                Welcome to Apna Book 
-              </h2>
-              <p className="mb-4">
-                No company is currently open. Use the button below to create
-                your first company.
-              </p> */}
-              {/* <button
-                onClick={handleCreateCompany}
-                className={`px-4 py-2 rounded-md cursor-pointer ${
-                  theme === "dark"
-                    ? "bg-blue-600 hover:bg-blue-700"
-                    : "bg-blue-600 hover:bg-blue-700 text-white"
-                }`}
-              >
-                Create Company
-              </button> */}
-            </div>
-          ) : (
-            <>
-
-
-              {/* Company Info */}
-              <div
-                className={`p-6 rounded-lg mb-6 ${theme === "dark" ? "bg-gray-800" : "bg-white shadow"
-                  }`}
-              >
-                <h2 className="text-xl font-semibold mb-2">
-                  {companyInfo.name}
-                </h2>
-
-                <p className="text-sm opacity-75 mb-1 flex items-center">
-                  <span className="mr-2">Financial Year:</span>
-                  <select
-                    value={selectedFinYear}
-                    onChange={(e) => setSelectedFinYear(e.target.value)}
-                    className="border border-gray-300 rounded px-2 py-0.5 text-xs bg-white text-gray-800 outline-none w-auto"
-                  >
-                    <option value="">All Years</option>
-                    {availableFinYears.map((fy) => (
-                      <option key={fy} value={fy}>{fy}</option>
-                    ))}
-                  </select>
-                </p>
-
-                <p className="text-sm opacity-75 mb-1">
-                  Books Beginning From: {companyInfo.books_beginning_year || companyInfo.booksBeginningYear}
-                </p>
-
-                <p className="text-sm opacity-75 mb-1">
-                  GST Number: {companyInfo.gst_number || companyInfo.gstNumber || companyInfo.gstin}
-                </p>
-
-                <p className="text-sm opacity-75 mb-1">
-                  PAN Number: {companyInfo.pan_number || companyInfo.panNumber}
-                </p>
-
-                <p className="text-sm opacity-75 mb-1">
-                  Address: {companyInfo.address}, {companyInfo.state} -{" "}
-                  {companyInfo.pin || companyInfo.pin_code || companyInfo.pincode}
-                </p>
-
-                <p className="text-sm opacity-75 mb-1">
-                  Email: {companyInfo.email}
-                </p>
-
-                <p className="text-sm opacity-75">
-                  Phone: {companyInfo.phone_number || companyInfo.phoneNumber || companyInfo.phone}
-                </p>
-              </div>
-
-              {/* Stats */}
-              {checkPermission('reports') && (
-                <>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-                    {stats.map((stat, index) => (
-                      <div
-                        key={index}
-                        className={`p-6 rounded-lg ${stat.color} ${theme === "dark" ? "" : "shadow"
-                          }`}
-                      >
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <p className="text-sm opacity-75 mb-1">{stat.title}</p>
-                            <p className="text-2xl font-semibold">{stat.value}</p>
-                          </div>
-                          <div
-                            className={`p-2 rounded-full ${theme === "dark" ? "bg-gray-700" : "bg-white"
-                              }`}
-                          >
-                            {stat.icon}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  {/* Extra Reports Section */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-                    {/* Sales Report */}
-                    <div className="p-6 rounded-xl bg-gradient-to-r from-green-50 to-green-100 shadow hover:shadow-lg transition">
-                      <h3 className="text-lg font-semibold text-gray-800 mb-2">
-                        Sales Report
-                      </h3>
-                      <p className="text-2xl font-bold text-green-700">
-                        ₹ {Number(realStats.salesMonthly || 0).toLocaleString()}
-                      </p>
-                      <p className="text-sm text-gray-500">
-                        {selectedFinYear ? `FY ${selectedFinYear}` : "All Time"}
-                      </p>
-                    </div>
-
-                    {/* Purchase Report */}
-                    <div className="p-6 rounded-xl bg-gradient-to-r from-blue-50 to-blue-100 shadow hover:shadow-lg transition">
-                      <h3 className="text-lg font-semibold text-gray-800 mb-2">
-                        Purchase Report
-                      </h3>
-                      <p className="text-2xl font-bold text-blue-700">
-                        ₹ {Number(realStats.purchaseMonthly || 0).toLocaleString()}
-                      </p>
-                      <p className="text-sm text-gray-500">
-                        {selectedFinYear ? `FY ${selectedFinYear}` : "All Time"}
-                      </p>
-                    </div>
-
-                    {/* Input Tax */}
-                    {checkPermission('gst') && (
-                      <div className="p-6 rounded-xl bg-gradient-to-r from-purple-50 to-purple-100 shadow hover:shadow-lg transition">
-                        <h3 className="text-lg font-semibold text-gray-800 mb-2">
-                          Input Tax
-                        </h3>
-                        <p className="text-2xl font-bold text-purple-700">
-                          ₹ {Number(realStats.inputTaxMonthly || 0).toLocaleString()}
-                        </p>
-                        <p className="text-sm text-gray-500">
-                          {selectedFinYear ? `FY ${selectedFinYear}` : "All Time"}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Output Tax */}
-                    {checkPermission('gst') && (
-                      <div className="p-6 rounded-xl bg-gradient-to-r from-orange-50 to-orange-100 shadow hover:shadow-lg transition">
-                        <h3 className="text-lg font-semibold text-gray-800 mb-2">
-                          Output Tax
-                        </h3>
-                        <p className="text-2xl font-bold text-orange-700">
-                          ₹ {Number(realStats.outputTaxMonthly || 0).toLocaleString()}
-                        </p>
-                        <p className="text-sm text-gray-500">
-                          {selectedFinYear ? `FY ${selectedFinYear}` : "All Time"}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-            </>
-          )}
-        </div>
-      ) : suppl === "ca" ? (
-        <div className="pt-[56px] px-4 space-y-8">
-          {caAllCompanies.length > 0 && (
-            <div className="mb-6">
-              <label className="block mb-2 font-medium text-gray-700">
-                Switch Company
-              </label>
-              <select
-                value={selectedCaCompany}
-                onChange={(e) => {
-                  const companyId = e.target.value;
-                  if (!companyId) return;
-
-                  localStorage.setItem("company_id", companyId);
-                  setSelectedCaCompany(companyId);
-                  window.location.reload();
-                }}
-                className="border rounded px-3 py-2 w-full max-w-xs bg-white focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer transition-all font-bold"
-              >
-                <option value="">Select Company</option>
-                {caAllCompanies.map((c) => (
-                  <option key={c.id} value={c.id.toString()}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {/* Company Details Table */}
-          <div className="bg-white shadow rounded-2xl p-6 overflow-x-auto">
-            <h2 className="text-lg font-semibold mb-4">Company Details</h2>
-            <table className="w-full border-collapse border border-gray-200">
-              <thead className="bg-gray-100">
-                <tr>
-                  <th className="border p-2">Company Name</th>
-                  <th className="border p-2">Pan</th>
-                </tr>
-              </thead>
-              <tbody>
-                {caAllCompanies.map((company) => (
-                  <tr key={company.id}>
-                    <td className="border p-2">{company.name}</td>
-                    <td className="border p-2">{company.pan_number}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Employees Table - hidden for new_ca */}
-          {userType !== "new_ca" && (
-            <div className="bg-white shadow rounded-2xl p-6 overflow-x-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Working Employees</h2>
-              <button
-                onClick={() => setShowAddForm(true)}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
-              >
-                + Add Employee
-              </button>
-            </div>
-            {showAddForm && (
-              <div className="fixed inset-0 flex items-center justify-center bg-gray-900/40 backdrop-blur-sm z-50 p-4 transition-all duration-300">
-                <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl relative animate-in zoom-in-95 duration-200 overflow-hidden border border-white/20">
-                  <button
-                    onClick={() => setShowAddForm(false)}
-                    className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 hover:bg-gray-100 p-2 rounded-full transition-all z-10"
-                  >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                  <div className="max-h-[90vh] overflow-y-auto no-scrollbar">
-                    <AddCaEmployeeForm
-                      caId={caId || ""}
-                      onSuccess={() => setShowAddForm(false)}
-                    />
                   </div>
                 </div>
+              )}
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className={`border-b ${isDark ? "border-slate-700 text-slate-400" : "border-slate-200 text-slate-500"}`}>
+                      <th className="p-3 font-semibold">Employee</th>
+                      <th className="p-3 font-semibold">Email</th>
+                      <th className="p-3 font-semibold">Company</th>
+                      <th className="p-3 font-semibold">Adhaar</th>
+                      <th className="p-3 font-semibold">Phone</th>
+                      <th className="p-3 font-semibold text-center">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-700/60">
+                    {caEmployees.map((emp, idx) => (
+                      <tr key={emp.employee_id || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/30">
+                        <td className="p-3 font-semibold">{emp.name}</td>
+                        <td className="p-3 text-slate-500 dark:text-slate-400">{emp.email}</td>
+                        <td className="p-3">{emp.company_names || "—"}</td>
+                        <td className="p-3 font-mono">{emp.adhar}</td>
+                        <td className="p-3 font-mono">{emp.phone}</td>
+                        <td className="p-3 text-center space-x-2">
+                          <button
+                            className="text-indigo-600 dark:text-indigo-400 font-semibold hover:underline cursor-pointer"
+                            onClick={() => openAssignModal(emp.employee_id, emp.name)}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="text-emerald-600 dark:text-emerald-400 font-semibold hover:underline inline-flex items-center gap-1 cursor-pointer"
+                            onClick={() => openPermissionsModal(emp.employee_id, emp.name)}
+                          >
+                            <ShieldCheck size={13} /> Access
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            )}
-            <table className="w-full border-collapse border border-gray-200">
-              <thead className="bg-gray-100">
-                <tr>
-                  <th className="border p-2">Employee Name</th>
-                  <th className="border p-2">Email</th>
-                  <th className="border p-2">Password</th>
-                  <th className="border p-2">Company Name</th>
-                  <th className="border p-2">Adhar Number</th>
-                  <th className="border p-2">Phone Number</th>
-                  <th className="border p-2">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {caEmployees.map((emp, idx) => (
-                  <tr key={emp.employee_id || idx} className="text-center">
-                    <td className="border p-2">{emp.name}</td>
-                    <td className="border p-2">{emp.email}</td>
-                    <td className="border p-2">{emp.password || "*****"}</td>
-                    <td className="border p-2">{emp.company_names || "—"}</td>
-                    <td className="border p-2">{emp.adhar}</td>
-                    <td className="border p-2">{emp.phone}</td>
-                    <td className="border p-2 flex gap-2 justify-center cursor-pointer">
-                      <button
-                        className="text-blue-600 hover:underline flex items-center gap-1"
-                        onClick={() =>
-                          openAssignModal(emp.employee_id, emp.name)
-                        }
-                      >
-                        Edit
-                      </button>
-
-
-                      <button
-                        className="text-green-600 hover:underline flex items-center gap-1"
-                        onClick={() =>
-                          openPermissionsModal(emp.employee_id, emp.name)
-                        }
-                      >
-                        <ShieldCheck size={14} />
-                        Access
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+            </div>
           )}
         </div>
       ) : null}
-      {
-        showAssignModal && selectedEmployeeId !== null && (
-          <AssignCompaniesModal
-            caId={caId || ""}
-            employeeId={selectedEmployeeId}
-            employeeName={selectedEmployeeName}
-            onClose={closeAssignModal}
-            onAssigned={() => {
-              fetchEmployees();
-            }}
-          />
-        )
-      }
 
-      {
-        showPermissionsModal && selectedEmployeeId !== null && (
-          <PermissionsModal
-            employeeId={selectedEmployeeId}
-            employeeName={selectedEmployeeName}
-            onClose={closePermissionsModal}
-          />
-        )
-      }
+      {/* Modals */}
+      {showAssignModal && selectedEmployeeId !== null && (
+        <AssignCompaniesModal
+          caId={caId || ""}
+          employeeId={selectedEmployeeId}
+          employeeName={selectedEmployeeName}
+          onClose={closeAssignModal}
+          onAssigned={() => {
+            fetchEmployees();
+          }}
+        />
+      )}
 
-      {/* Modal for Adding Employee */}
-      {
-        showModal && (
-          <div className="fixed inset-0 flex items-center justify-center bg-gray-900/40 backdrop-blur-sm z-50 p-4 transition-all duration-300">
-            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md relative animate-in zoom-in-95 duration-200 overflow-hidden border border-white/20 p-8">
-              <div className="text-center mb-8">
-                <h3 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-                  Add New Employee
-                </h3>
-                <p className="text-sm text-gray-500 mt-1">Fill in the details to add a new employee</p>
-              </div>
-
-              <div className="space-y-4">
-                <input
-                  type="text"
-                  placeholder="Employee Name"
-                  value={newEmployee.name}
-                  onChange={(e) =>
-                    setNewEmployee({ ...newEmployee, name: e.target.value })
-                  }
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400 text-gray-800 font-medium"
-                />
-                <input
-                  type="text"
-                  placeholder="Aadhaar Number"
-                  value={newEmployee.adhar}
-                  onChange={(e) =>
-                    setNewEmployee({ ...newEmployee, adhar: e.target.value })
-                  }
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400 text-gray-800 font-medium"
-                />
-                <input
-                  type="text"
-                  placeholder="Phone Number"
-                  value={newEmployee.phone}
-                  onChange={(e) =>
-                    setNewEmployee({ ...newEmployee, phone: e.target.value })
-                  }
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400 text-gray-800 font-medium"
-                />
-              </div>
-
-              <div className="flex flex-col sm:flex-row gap-3 mt-8">
-                <button
-                  onClick={() => setShowModal(false)}
-                  className="flex-1 px-4 py-3 rounded-xl border border-gray-200 font-semibold text-gray-600 hover:bg-gray-50 transition-all active:scale-95"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleAddEmployee}
-                  className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold py-3 rounded-xl shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all"
-                >
-                  Add Employee
-                </button>
-              </div>
-            </div>
-          </div>
-        )
-      }
-    </>
+      {showPermissionsModal && selectedEmployeeId !== null && (
+        <PermissionsModal
+          employeeId={selectedEmployeeId}
+          employeeName={selectedEmployeeName}
+          onClose={closePermissionsModal}
+        />
+      )}
+    </div>
   );
 };
 
