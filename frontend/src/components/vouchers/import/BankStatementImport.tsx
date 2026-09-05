@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
   Upload,
   FileText,
@@ -42,6 +42,61 @@ interface ImportedRow {
   duplicateVoucherNo?: string;
   skipImport?: boolean;
 }
+
+const isBankLedger = (ledger: any, groupsList: any[] = []): boolean => {
+  if (!ledger) return false;
+
+  const groupName = String(
+    ledger.groupName || ledger.group_name || ledger.group || ""
+  )
+    .toLowerCase()
+    .trim();
+  const groupType = String(
+    ledger.groupType || ledger.group_type || ""
+  )
+    .toLowerCase()
+    .trim();
+  const groupId = String(ledger.groupId || ledger.group_id || "");
+
+  // Direct group name matches
+  if (
+    groupName === "bank accounts" ||
+    groupName === "bank account" ||
+    groupName === "bank od a/c" ||
+    groupName === "bank od account" ||
+    groupName.includes("bank account")
+  ) {
+    return true;
+  }
+
+  // Direct group type matches
+  if (groupType === "bank") {
+    return true;
+  }
+
+  // Known system group IDs (-113 for Bank Accounts, 11 for Bank Accounts in defaultData, -114 for Bank OD A/c)
+  if (groupId === "-113" || groupId === "11" || groupId === "-114") {
+    return true;
+  }
+
+  // Check against ledgerGroups list if available
+  if (groupsList && groupsList.length > 0) {
+    const groupObj = groupsList.find((g) => String(g.id) === groupId);
+    if (groupObj) {
+      const gName = String(groupObj.name || "").toLowerCase().trim();
+      const gType = String(groupObj.type || "").toLowerCase().trim();
+      if (
+        gName.includes("bank account") ||
+        gName === "bank accounts" ||
+        gType === "bank"
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+};
 
 const isBankLedgerMatch = (ledgerName: string, bankName: string): boolean => {
   if (!ledgerName || !bankName) return false;
@@ -88,6 +143,7 @@ const BankStatementImport: React.FC = () => {
   const aiFileInputRef = useRef<HTMLInputElement>(null);
 
   const [ledgers, setLedgers] = useState<any[]>([]);
+  const [ledgerGroups, setLedgerGroups] = useState<any[]>([]);
   const [excelBankName, setExcelBankName] = useState<string>("");
   const [excelBankMatch, setExcelBankMatch] = useState<boolean>(false);
   const [excelBankId, setExcelBankId] = useState<string | number | null>(null);
@@ -123,8 +179,31 @@ const BankStatementImport: React.FC = () => {
 
   useEffect(() => {
     fetchLedgers();
+    fetchLedgerGroups();
     fetchDaybookVouchers();
   }, [companyId, ownerType, ownerId]);
+
+  const bankAccountLedgers = useMemo(() => {
+    return ledgers.filter((l) => isBankLedger(l, ledgerGroups));
+  }, [ledgers, ledgerGroups]);
+
+  const fetchLedgerGroups = async () => {
+    try {
+      const response = await axios.get(
+        `${import.meta.env.VITE_API_URL}/api/ledger-groups`,
+        {
+          params: {
+            company_id: companyId,
+            owner_type: ownerType,
+            owner_id: ownerId,
+          },
+        }
+      );
+      setLedgerGroups((response.data as any[]) || []);
+    } catch (error) {
+      console.error("Error fetching ledger groups:", error);
+    }
+  };
 
   const fetchLedgers = async () => {
     try {
@@ -138,7 +217,7 @@ const BankStatementImport: React.FC = () => {
           },
         }
       );
-      setLedgers(response.data as any[]);
+      setLedgers((response.data as any[]) || []);
     } catch (error) {
       console.error("Error fetching ledgers:", error);
     }
@@ -458,11 +537,58 @@ const BankStatementImport: React.FC = () => {
     });
   };
 
+  const handleBankLedgerChange = (selectedId: string) => {
+    if (!selectedId) {
+      setExcelBankId(null);
+      setExcelBankMatch(false);
+      return;
+    }
+
+    const selectedLedger = ledgers.find(
+      (l) => String(l.id) === String(selectedId)
+    );
+    if (selectedLedger) {
+      setExcelBankId(selectedLedger.id);
+      setExcelBankMatch(true);
+
+      // Re-evaluate importedRows to clear bank missing error if a valid bank ledger is selected
+      setImportedRows((prevRows) =>
+        prevRows.map((row) => {
+          let newError = row.errorMessage || "";
+          newError = newError.replace(/Bank '[^']+' not found\.?/g, "").trim();
+
+          let newStatus = row.status;
+          if (!row.particularsMatch) {
+            newStatus = "error";
+            if (!newError.includes("Ledger")) {
+              newError =
+                `Ledger '${row.Particulars}' not found.` +
+                (newError ? " " + newError : "");
+            }
+          } else if (!newError) {
+            newStatus = "pending";
+          }
+
+          return {
+            ...row,
+            status: newStatus,
+            errorMessage: newError || undefined,
+          };
+        })
+      );
+    } else {
+      setExcelBankId(null);
+      setExcelBankMatch(false);
+    }
+  };
+
   const mapAndSequenceRows = async (rawRows: any[], extractedBank: string) => {
     setExcelBankName(extractedBank);
-    const matchedBankLedger = ledgers.find((l) =>
-      isBankLedgerMatch(l.name, extractedBank)
-    );
+    const bankList = bankAccountLedgers.length > 0 ? bankAccountLedgers : ledgers;
+    const matchedBankLedger =
+      bankList.find((l) => isBankLedgerMatch(l.name, extractedBank)) ||
+      ledgers.find((l) => isBankLedgerMatch(l.name, extractedBank));
+
     setExcelBankMatch(!!matchedBankLedger);
     setExcelBankId(matchedBankLedger ? matchedBankLedger.id : null);
 
@@ -1530,10 +1656,15 @@ const BankStatementImport: React.FC = () => {
           : particularsName;
       }
 
-      const bankLedgerName = excelBankName;
-      const matchedBankLedger = ledgers.find((l) =>
-        isBankLedgerMatch(l.name, bankLedgerName)
+      const selectedBankLedger = ledgers.find(
+        (l) => String(l.id) === String(excelBankId)
       );
+      const bankLedgerName = selectedBankLedger
+        ? selectedBankLedger.name
+        : excelBankName;
+      const matchedBankLedger =
+        selectedBankLedger ||
+        ledgers.find((l) => isBankLedgerMatch(l.name, bankLedgerName));
 
       let newStatus: "pending" | "error" = "pending";
       let newError = "";
@@ -1558,9 +1689,24 @@ const BankStatementImport: React.FC = () => {
 
   const saveImportedVouchers = async () => {
     setIsProcessing(true);
-    const bankLedgerName =
-      ledgers.find((l) => isBankLedgerMatch(l.name, excelBankName))?.name ||
-      excelBankName;
+    const selectedBankLedger = ledgers.find(
+      (l) => String(l.id) === String(excelBankId)
+    );
+
+    if (!selectedBankLedger && !excelBankMatch) {
+      Swal.fire({
+        icon: "warning",
+        title: "Bank Ledger Required",
+        text: "Please select a valid Bank Account ledger from the dropdown before importing.",
+      });
+      setIsProcessing(false);
+      return;
+    }
+
+    const bankLedgerName = selectedBankLedger
+      ? selectedBankLedger.name
+      : ledgers.find((l) => isBankLedgerMatch(l.name, excelBankName))?.name ||
+        excelBankName;
 
     // Exclude duplicate rows if skipDuplicates is toggled
     const pendingRows = importedRows.filter(
@@ -2031,53 +2177,52 @@ const BankStatementImport: React.FC = () => {
                 Review extracted data and resolve missing ledgers before
                 importing. Hover on rows to Edit/Delete.
               </p>
-              {excelBankName && (
-                <div
-                  className={`mt-3 px-4 py-3 rounded-xl border-2 flex items-center space-x-3 ${
-                    excelBankMatch
-                      ? "bg-green-50 border-green-300"
-                      : "bg-red-50 border-red-300"
-                  }`}
-                >
-                  <div
-                    className={`p-2 rounded-full ${
-                      excelBankMatch ? "bg-green-100" : "bg-red-100"
-                    }`}
-                  >
-                    {excelBankMatch ? (
-                      <CheckCircle className="h-6 w-6 text-green-600" />
-                    ) : (
-                      <AlertTriangle className="h-6 w-6 text-red-600" />
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">
-                      Bank Ledger Extracted
-                    </p>
-                    <p
-                      className={`text-lg font-bold ${
-                        excelBankMatch ? "text-green-800" : "text-red-700"
+              <div className="mt-4 p-4 rounded-xl border border-gray-200 bg-white shadow-sm max-w-md">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600 mb-1.5">
+                  Bank Ledger {excelBankName ? `(Extracted: ${excelBankName})` : ""}
+                </label>
+                {bankAccountLedgers.length > 0 ? (
+                  <div className="relative">
+                    <select
+                      value={excelBankId ? String(excelBankId) : ""}
+                      onChange={(e) => handleBankLedgerChange(e.target.value)}
+                      className={`w-full px-3 py-2 text-sm font-medium border rounded-lg shadow-sm focus:outline-none focus:ring-2 transition-colors ${
+                        excelBankMatch
+                          ? "border-green-300 text-green-900 bg-green-50/50 focus:ring-green-500"
+                          : "border-amber-300 text-amber-900 bg-amber-50/50 focus:ring-amber-500"
                       }`}
                     >
-                      {excelBankName}
-                      {excelBankId && (
-                        <span className="text-sm font-normal ml-2 opacity-70">
-                          (ID: {excelBankId})
-                        </span>
-                      )}
-                    </p>
-                    <p
-                      className={`text-xs mt-0.5 ${
-                        excelBankMatch ? "text-green-600" : "text-red-600"
-                      }`}
-                    >
-                      {excelBankMatch
-                        ? "✓ Matched in your ledgers"
-                        : "✗ Not found in ledgers (edit row to assign alternative)"}
-                    </p>
+                      <option value="">-- Select Bank Account Ledger --</option>
+                      {bankAccountLedgers.map((ledger) => (
+                        <option key={ledger.id} value={ledger.id}>
+                          {ledger.name} {ledger.id ? `(ID: ${ledger.id})` : ""}
+                        </option>
+                      ))}
+                    </select>
                   </div>
+                ) : (
+                  <div className="p-2.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 font-medium">
+                    ⚠️ No Bank Account ledgers found. Please create a Bank Account ledger to proceed.
+                  </div>
+                )}
+                <div className="mt-2 flex items-center space-x-1.5 text-xs">
+                  {excelBankMatch ? (
+                    <>
+                      <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
+                      <span className="text-green-700 font-medium">✓ Matched in your ledgers</span>
+                    </>
+                  ) : (
+                    <>
+                      <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0" />
+                      <span className="text-amber-700 font-medium">
+                        {bankAccountLedgers.length > 0
+                          ? "Please select a Bank Account ledger from the dropdown"
+                          : "No Bank Account ledgers available"}
+                      </span>
+                    </>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
             <div className="flex flex-col space-y-3">
               {isProcessing && saveProgress.total > 0 && (
