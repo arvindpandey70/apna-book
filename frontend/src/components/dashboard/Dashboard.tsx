@@ -393,7 +393,7 @@ const Dashboard: React.FC = () => {
       topBorder: "border-t-4 border-t-amber-500",
       meterGradient: "bg-gradient-to-r from-amber-500 to-orange-500",
       meterPercent: cashVal > 0 ? 80 : 15,
-      link: "/app/reports/daybook",
+      link: "/app/reports/day-book",
       linkText: "Cash Book"
     },
     {
@@ -407,7 +407,7 @@ const Dashboard: React.FC = () => {
       topBorder: "border-t-4 border-t-purple-500",
       meterGradient: "bg-gradient-to-r from-purple-500 to-indigo-500",
       meterPercent: bankVal > 0 ? 85 : 15,
-      link: "/app/reports/daybook",
+      link: "/app/reports/day-book",
       linkText: "Bank Book"
     },
   ];
@@ -639,62 +639,7 @@ const Dashboard: React.FC = () => {
               </div>
             );
           })()}
-
-          {/* KPI Stat Cards (4 Columns Visual Metric Grid) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-            {kpiStats.map((stat, idx) => (
-              <div
-                key={idx}
-                onClick={() => stat.link && navigate(stat.link)}
-                className={`p-5 rounded-2xl border ${stat.topBorder} shadow-xs hover:shadow-md transition-all duration-200 cursor-pointer group flex flex-col justify-between space-y-4 ${
-                  isDark ? "bg-slate-800/90 border-slate-700/80 hover:border-slate-600" : "bg-white border-slate-200/80 hover:border-slate-300"
-                }`}
-              >
-                <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors flex items-center gap-1.5">
-                      {stat.title}
-                    </span>
-                    <div className={`p-2.5 rounded-xl border ${stat.bg} shadow-2xs group-hover:scale-110 transition-transform`}>
-                      {stat.icon}
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <div className="text-2xl sm:text-3xl font-black tracking-tight flex items-baseline justify-between gap-2">
-                      <span className="truncate">{stat.value}</span>
-                    </div>
-                    <div className="flex items-center justify-between pt-1">
-                      <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500 truncate">
-                        {stat.subtext}
-                      </span>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${stat.badgeBg}`}>
-                        {stat.badgeText}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Visual Metric Gauge Bar */}
-                <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60">
-                  <div className="flex items-center justify-between text-[11px] mb-1.5">
-                    <span className="text-slate-400 dark:text-slate-500 font-medium">Metric Gauge</span>
-                    <span className="font-semibold text-indigo-600 dark:text-indigo-400 flex items-center gap-0.5 group-hover:underline">
-                      {stat.linkText} <ArrowUpRight size={12} className="group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
-                    </span>
-                  </div>
-
-                  <div className="w-full bg-slate-100 dark:bg-slate-700/80 h-2 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all duration-500 ${stat.meterGradient}`}
-                      style={{ width: `${stat.meterPercent}%` }}
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Financial Performance Line Graph & Overview Cards */}
+                 {/* Financial Performance Line Graph & Overview Cards */}
           {checkPermission('reports') && (
             <div className="space-y-5">
               <div className="flex items-center justify-between">
@@ -822,7 +767,7 @@ const Dashboard: React.FC = () => {
                       </div>
                     </div>
                     <button
-                      onClick={() => navigate('/app/reports/sales')}
+                      onClick={() => navigate('/app/reports/sales-report')}
                       className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
                     >
                       View Report <ArrowUpRight size={13} />
@@ -875,7 +820,7 @@ const Dashboard: React.FC = () => {
                       </div>
                     </div>
                     <button
-                      onClick={() => navigate('/app/reports/purchase')}
+                      onClick={() => navigate('/app/reports/purchase-report')}
                       className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
                     >
                       View Report <ArrowUpRight size={13} />
@@ -1025,6 +970,60 @@ const Dashboard: React.FC = () => {
               </div>
             </div>
           )}
+
+          {/* KPI Stat Cards (4 Columns Visual Metric Grid: Ledger, Vouchers, Cash, Bank) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
+            {kpiStats.map((stat, idx) => (
+              <div
+                key={idx}
+                onClick={() => stat.link && navigate(stat.link)}
+                className={`p-5 rounded-2xl border ${stat.topBorder} shadow-xs hover:shadow-md transition-all duration-200 cursor-pointer group flex flex-col justify-between space-y-4 ${
+                  isDark ? "bg-slate-800/90 border-slate-700/80 hover:border-slate-600" : "bg-white border-slate-200/80 hover:border-slate-300"
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors flex items-center gap-1.5">
+                      {stat.title}
+                    </span>
+                    <div className={`p-2.5 rounded-xl border ${stat.bg} shadow-2xs group-hover:scale-110 transition-transform`}>
+                      {stat.icon}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-2xl sm:text-3xl font-black tracking-tight flex items-baseline justify-between gap-2">
+                      <span className="truncate">{stat.value}</span>
+                    </div>
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500 truncate">
+                        {stat.subtext}
+                      </span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${stat.badgeBg}`}>
+                        {stat.badgeText}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Visual Metric Gauge Bar */}
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60">
+                  <div className="flex items-center justify-between text-[11px] mb-1.5">
+                    <span className="text-slate-400 dark:text-slate-500 font-medium">Metric Gauge</span>
+                    <span className="font-semibold text-indigo-600 dark:text-indigo-400 flex items-center gap-0.5 group-hover:underline">
+                      {stat.linkText} <ArrowUpRight size={12} className="group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                    </span>
+                  </div>
+
+                  <div className="w-full bg-slate-100 dark:bg-slate-700/80 h-2 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${stat.meterGradient}`}
+                      style={{ width: `${stat.meterPercent}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
 
           {/* Main Grid: Active Company Details Card & My Companies List */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

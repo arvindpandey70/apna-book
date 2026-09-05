@@ -146,3 +146,10 @@ html.dark, html.dark body {
     border-bottom: 1px dotted #ccc;
   }
 }
+
+/* Reset legacy page top padding inside MainLayout since MainLayout already handles fixed header & sub-navbar clearance */
+main .pt-\[56px\],
+main .pt-20,
+main .pt-16 {
+  padding-top: 0 !important;
+}
