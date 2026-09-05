@@ -37,6 +37,17 @@ const ReportsIndex: React.FC = () => {
       ]
     },
     {
+      title: 'Voucher Report',
+      items: [
+        { icon: <FileText size={20} />, name: 'Payment', path: '/app/reports/voucher/payment' },
+        { icon: <FileText size={20} />, name: 'Receipt', path: '/app/reports/voucher/receipt' },
+        { icon: <FileText size={20} />, name: 'Contra', path: '/app/reports/voucher/contra' },
+        { icon: <FileText size={20} />, name: 'Journal', path: '/app/reports/voucher/journal' },
+        { icon: <FileText size={20} />, name: 'Sales', path: '/app/reports/voucher/sales' },
+        { icon: <FileText size={20} />, name: 'Purchase', path: '/app/reports/voucher/purchase' }
+      ]
+    },
+    {
       title: 'Inventory Reports',
       items: [
         { icon: <BookOpen size={20} />, name: 'Stock Summary', path: '/app/reports/stock-summary' },

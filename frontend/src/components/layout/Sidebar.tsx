@@ -50,15 +50,16 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen }) => {
 
   return (
     <div
-      className={`print:hidden ${isOpen ? "translate-x-0 w-60" : "-translate-x-full md:translate-x-0 md:w-16"
-        } transition-all duration-300 ease-in-out h-full ${theme === "dark"
-          ? "bg-gray-900 text-gray-200"
-          : "bg-blue-800 text-white"
-        } border-r ${theme === "dark" ? "border-gray-700" : "border-blue-700"
-        } fixed top-12 left-0 z-40`}
+      className={`print:hidden ${
+        isOpen ? "translate-x-0 w-60" : "-translate-x-full md:translate-x-0 md:w-16"
+      } transition-all duration-300 ease-in-out h-[calc(100vh-3.5rem)] ${
+        theme === "dark"
+          ? "bg-slate-900 text-slate-200 border-slate-800"
+          : "bg-indigo-950 text-slate-100 border-indigo-900"
+      } border-r fixed top-14 left-0 z-40 flex flex-col justify-between overflow-hidden`}
     >
-      <nav className="p-2 pb-16">
-        <ul className="space-y-1">
+      <nav className="p-2 overflow-y-auto flex-1 no-scrollbar">
+        <ul className="space-y-1.5">
           {menuItems
             .filter((item) => {
               if (user?.userType === "ca" || user?.userType === "new_ca") {
@@ -73,7 +74,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen }) => {
               return true;
             })
             .map((item, index) => {
-            // Check if user has permission for this item
             let hasPermission = true;
             if (item.permissionId) {
               if (Array.isArray(item.permissionId)) {
@@ -85,6 +85,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen }) => {
 
             const disabled =
               (!hasCompany && !allowedWhenNoCompany.includes(item.path)) || !hasPermission;
+            const active = isActive(item.path);
 
             return (
               <li key={index}>
@@ -93,25 +94,29 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen }) => {
                   disabled={disabled}
                   title={
                     !hasPermission
-                      ? "You don't have permission to access this module"
+                      ? `${item.title} (No Permission)`
                       : !hasCompany && !allowedWhenNoCompany.includes(item.path)
-                        ? "Create a company first to access this"
-                        : undefined
+                        ? `${item.title} (Create company first)`
+                        : item.title
                   }
-                  className={`w-full flex items-center p-2 rounded-md ${isActive(item.path)
-                    ? theme === "dark"
-                      ? "bg-gray-700"
-                      : "bg-blue-700"
-                    : "hover:bg-opacity-20 hover:bg-blue-700 dark:hover:bg-gray-700"
-                    } transition-colors ${disabled ? "opacity-50 cursor-not-allowed" : ""
-                    }`}
+                  className={`w-full flex items-center ${
+                    isOpen ? "px-3 justify-start" : "px-0 justify-center"
+                  } py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
+                    active
+                      ? theme === "dark"
+                        ? "bg-indigo-600/90 text-white shadow-sm font-semibold"
+                        : "bg-indigo-600 text-white shadow-sm font-semibold"
+                      : theme === "dark"
+                        ? "hover:bg-slate-800 text-slate-300 hover:text-white"
+                        : "hover:bg-indigo-900/80 text-indigo-200 hover:text-white"
+                  } ${disabled ? "opacity-40 cursor-not-allowed" : ""}`}
                 >
-                  <span className="flex-shrink-0">{item.icon}</span>
+                  <span className="flex-shrink-0 flex items-center justify-center">{item.icon}</span>
                   {isOpen && (
-                    <div className="ml-3 flex flex-grow justify-between items-center">
-                      <span className="flex items-center gap-2">
+                    <div className="ml-3 flex flex-grow justify-between items-center truncate">
+                      <span className="flex items-center gap-2 truncate">
                         {item.title}
-                        {!hasPermission && <Lock size={12} className="text-red-400" />}
+                        {!hasPermission && <Lock size={12} className="text-rose-400 flex-shrink-0" />}
                       </span>
                     </div>
                   )}
@@ -122,14 +127,21 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen }) => {
         </ul>
       </nav>
 
-      {/* 🔥 Logout Button - Bottom Fixed */}
-      <div className="absolute  bottom-15 left-0 w-full px-2">
+      {/* Logout Button */}
+      <div className="p-2 border-t border-slate-800/40 dark:border-slate-800 flex-shrink-0 bg-inherit">
         <button
           onClick={logout}
-          className="w-full flex items-center justify-center space-x-2 cursor-pointer bg-black  text-white p-2 rounded-md transition-colors"
+          title={isOpen ? undefined : "Logout"}
+          className={`w-full flex items-center ${
+            isOpen ? "px-3 justify-center space-x-2.5" : "px-0 justify-center"
+          } cursor-pointer py-2.5 rounded-xl font-medium text-sm transition-all shadow-sm ${
+            theme === 'dark'
+              ? 'bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/50'
+              : 'bg-indigo-900 hover:bg-indigo-850 text-rose-300 border border-indigo-800'
+          }`}
         >
-          <LogOut size={18} />
-          {isOpen && <span className="text-sm font-medium">Logout</span>}
+          <LogOut size={17} className="flex-shrink-0" />
+          {isOpen && <span>Logout</span>}
         </button>
       </div>
     </div>

@@ -386,7 +386,24 @@ const AppContext = createContext<AppContextProps | undefined>(undefined);
 // Internal component that uses CompanyContext
 // This must be rendered inside CompanyProvider
 const AppProviderInner: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [theme, setTheme] = useState<ThemeMode>('light');
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    const saved = localStorage.getItem('app_theme');
+    return (saved === 'dark' || saved === 'light') ? saved : 'light';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('app_theme', theme);
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+      document.documentElement.classList.remove('light');
+      document.documentElement.style.colorScheme = 'dark';
+    } else {
+      document.documentElement.classList.remove('dark');
+      document.documentElement.classList.add('light');
+      document.documentElement.style.colorScheme = 'light';
+    }
+  }, [theme]);
+
   const { companyInfo: contextCompanyInfo } = useCompany();
   const [localCompanyInfo, setLocalCompanyInfo] = useState<CompanyInfo | null>(null);
 

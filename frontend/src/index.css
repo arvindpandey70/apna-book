@@ -1,4 +1,25 @@
 @import "tailwindcss";
+@variant dark (&:where(.dark, .dark *));
+
+:root {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+html.dark, html.dark body {
+  background-color: #0f172a;
+  color: #f8fafc;
+}
 
 /* Custom print-friendly and utility classes */
 @layer utilities {
@@ -124,4 +145,11 @@
   .border-dotted-gray {
     border-bottom: 1px dotted #ccc;
   }
+}
+
+/* Reset legacy page top padding inside MainLayout since MainLayout already handles fixed header & sub-navbar clearance */
+main .pt-\[56px\],
+main .pt-20,
+main .pt-16 {
+  padding-top: 0 !important;
 }
