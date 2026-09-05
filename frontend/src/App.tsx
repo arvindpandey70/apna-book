@@ -125,6 +125,7 @@ import B2C from "./components/reports/B2C";
 import Consolidation from "./components/reports/Consolidation";
 import LedgerCaraction from "./components/reports/LedgerCaraction";
 import AttributeSummary from "./components/reports/AttributeSummary";
+import VoucherReportComingSoon from "./components/reports/voucher/VoucherReportComingSoon";
 
 // GST Module Components
 
@@ -1165,6 +1166,54 @@ function App() {
                       <RequireSubscription>
                         <ReportsIndex />
                       </RequireSubscription>
+                    </RequireCompany>
+                  }
+                />
+                <Route
+                  path="reports/voucher/payment"
+                  element={
+                    <RequireCompany>
+                      <VoucherReportComingSoon title="Payment Voucher Report" />
+                    </RequireCompany>
+                  }
+                />
+                <Route
+                  path="reports/voucher/receipt"
+                  element={
+                    <RequireCompany>
+                      <VoucherReportComingSoon title="Receipt Voucher Report" />
+                    </RequireCompany>
+                  }
+                />
+                <Route
+                  path="reports/voucher/contra"
+                  element={
+                    <RequireCompany>
+                      <VoucherReportComingSoon title="Contra Voucher Report" />
+                    </RequireCompany>
+                  }
+                />
+                <Route
+                  path="reports/voucher/journal"
+                  element={
+                    <RequireCompany>
+                      <VoucherReportComingSoon title="Journal Voucher Report" />
+                    </RequireCompany>
+                  }
+                />
+                <Route
+                  path="reports/voucher/sales"
+                  element={
+                    <RequireCompany>
+                      <VoucherReportComingSoon title="Sales Voucher Report" />
+                    </RequireCompany>
+                  }
+                />
+                <Route
+                  path="reports/voucher/purchase"
+                  element={
+                    <RequireCompany>
+                      <VoucherReportComingSoon title="Purchase Voucher Report" />
                     </RequireCompany>
                   }
                 />
