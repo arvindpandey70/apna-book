@@ -26,6 +26,18 @@ import {
   UserCheck,
   Plus
 } from "lucide-react";
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+} from "recharts";
 import AddCaEmployeeForm from "./caemployee";
 import AssignCompaniesModal from "./AssignCompaniesModal";
 import PermissionsModal from "./PermissionsModal";
@@ -63,6 +75,7 @@ const Dashboard: React.FC = () => {
   const [showPermissionsModal, setShowPermissionsModal] = useState(false);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null);
   const [selectedEmployeeName, setSelectedEmployeeName] = useState<string>("");
+  const [chartMetric, setChartMetric] = useState<'sales_purchase' | 'tax'>('sales_purchase');
 
   const { selectedFinYear, setSelectedFinYear } = useFinancialYear();
   const availableFinYears = getAvailableFinYears(companyInfo?.booksBeginningYear || companyInfo?.books_beginning_year || 2020);
@@ -333,46 +346,69 @@ const Dashboard: React.FC = () => {
 
   const filteredVouchers = filterByFinancialYear(vouchers, "date", selectedFinYear);
 
+  const cashVal = Number(
+    ledgers.find((l) => l.name === "Cash" || l.name?.toLowerCase().includes("cash"))?.openingBalance || 0
+  );
+  const bankVal = Number(
+    ledgers.find((l) => l.name === "Bank Account" || l.name?.toLowerCase().includes("bank"))?.openingBalance || 0
+  );
+
   const kpiStats = [
     {
       title: "Ledger Accounts",
       value: ledgers.length.toString(),
-      subtext: "Configured ledgers",
+      subtext: "Configured master ledgers",
+      badgeText: "Masters",
+      badgeBg: "bg-indigo-100 text-indigo-700 dark:bg-indigo-950/80 dark:text-indigo-300 border border-indigo-200/50 dark:border-indigo-800/50",
       icon: <Book className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />,
       bg: "bg-indigo-50 dark:bg-indigo-950/40 border-indigo-100 dark:border-indigo-900/50",
-      accent: "text-indigo-600 dark:text-indigo-400"
+      topBorder: "border-t-4 border-t-indigo-500",
+      meterGradient: "bg-gradient-to-r from-indigo-500 to-indigo-600",
+      meterPercent: Math.min(100, Math.max(20, ledgers.length * 2)),
+      link: "/app/masters/ledger",
+      linkText: "View Ledgers"
     },
     {
       title: "Total Vouchers",
       value: filteredVouchers.length.toString(),
-      subtext: selectedFinYear ? `FY ${selectedFinYear}` : "All entries",
+      subtext: selectedFinYear ? `FY ${selectedFinYear} Entries` : "All recorded entries",
+      badgeText: selectedFinYear ? `FY ${selectedFinYear}` : "Entries",
+      badgeBg: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-200/50 dark:border-emerald-800/50",
       icon: <ShoppingBag className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />,
       bg: "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-100 dark:border-emerald-900/50",
-      accent: "text-emerald-600 dark:text-emerald-400"
+      topBorder: "border-t-4 border-t-emerald-500",
+      meterGradient: "bg-gradient-to-r from-emerald-500 to-teal-500",
+      meterPercent: Math.min(100, Math.max(15, filteredVouchers.length * 5)),
+      link: "/app/vouchers",
+      linkText: "View Vouchers"
     },
     {
       title: "Cash Balance",
-      value:
-        "₹ " +
-        (ledgers
-          .find((l) => l.name === "Cash")
-          ?.openingBalance?.toLocaleString() || "0"),
+      value: "₹ " + cashVal.toLocaleString(),
       subtext: "Liquid cash account",
+      badgeText: "Liquid Cash",
+      badgeBg: "bg-amber-100 text-amber-700 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-200/50 dark:border-amber-800/50",
       icon: <DollarSign className="w-5 h-5 text-amber-600 dark:text-amber-400" />,
       bg: "bg-amber-50 dark:bg-amber-950/40 border-amber-100 dark:border-amber-900/50",
-      accent: "text-amber-600 dark:text-amber-400"
+      topBorder: "border-t-4 border-t-amber-500",
+      meterGradient: "bg-gradient-to-r from-amber-500 to-orange-500",
+      meterPercent: cashVal > 0 ? 80 : 15,
+      link: "/app/reports/daybook",
+      linkText: "Cash Book"
     },
     {
       title: "Bank Balance",
-      value:
-        "₹ " +
-        (ledgers
-          .find((l) => l.name === "Bank Account")
-          ?.openingBalance?.toLocaleString() || "0"),
+      value: "₹ " + bankVal.toLocaleString(),
       subtext: "Primary bank account",
+      badgeText: "Bank Account",
+      badgeBg: "bg-purple-100 text-purple-700 dark:bg-purple-950/80 dark:text-purple-300 border border-purple-200/50 dark:border-purple-800/50",
       icon: <Activity className="w-5 h-5 text-purple-600 dark:text-purple-400" />,
       bg: "bg-purple-50 dark:bg-purple-950/40 border-purple-100 dark:border-purple-900/50",
-      accent: "text-purple-600 dark:text-purple-400"
+      topBorder: "border-t-4 border-t-purple-500",
+      meterGradient: "bg-gradient-to-r from-purple-500 to-indigo-500",
+      meterPercent: bankVal > 0 ? 85 : 15,
+      link: "/app/reports/daybook",
+      linkText: "Bank Book"
     },
   ];
 
@@ -384,6 +420,57 @@ const Dashboard: React.FC = () => {
     setEmployees((prev) => [...prev, newEmployee]);
     setNewEmployee({ name: "", adhar: "", phone: "", companyName: undefined });
     setShowModal(false);
+  };
+
+  const getMonthlyChartData = () => {
+    const monthNames = ["Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
+    const monthMap: Record<string, { sales: number; purchase: number; inputTax: number; outputTax: number }> = {};
+    monthNames.forEach(m => {
+      monthMap[m] = { sales: 0, purchase: 0, inputTax: 0, outputTax: 0 };
+    });
+
+    if (Array.isArray(filteredVouchers) && filteredVouchers.length > 0) {
+      filteredVouchers.forEach((v: any) => {
+        if (!v.date) return;
+        const vDate = new Date(v.date);
+        if (isNaN(vDate.getTime())) return;
+        
+        const mIndex = vDate.getMonth();
+        const fyMonthIndex = (mIndex + 9) % 12;
+        const mName = monthNames[fyMonthIndex];
+        
+        const vType = String(v.type || v.voucher_type || '').toLowerCase();
+        const amount = Number(v.amount || v.total_amount || 0);
+
+        if (vType.includes('sales')) {
+          monthMap[mName].sales += amount;
+        } else if (vType.includes('purchase')) {
+          monthMap[mName].purchase += amount;
+        }
+      });
+    }
+
+    const activeMonthName = "Sep";
+    if (realStats.salesMonthly && monthMap[activeMonthName].sales === 0) {
+      monthMap[activeMonthName].sales = Number(realStats.salesMonthly || 0);
+    }
+    if (realStats.purchaseMonthly && monthMap[activeMonthName].purchase === 0) {
+      monthMap[activeMonthName].purchase = Number(realStats.purchaseMonthly || 0);
+    }
+    if (realStats.inputTaxMonthly) {
+      monthMap[activeMonthName].inputTax = Number(realStats.inputTaxMonthly || 0);
+    }
+    if (realStats.outputTaxMonthly) {
+      monthMap[activeMonthName].outputTax = Number(realStats.outputTaxMonthly || 0);
+    }
+
+    return monthNames.map(name => ({
+      month: name,
+      Sales: monthMap[name].sales,
+      Purchase: monthMap[name].purchase,
+      InputTax: monthMap[name].inputTax,
+      OutputTax: monthMap[name].outputTax,
+    }));
   };
 
   if (loading) {
@@ -553,128 +640,385 @@ const Dashboard: React.FC = () => {
             );
           })()}
 
-          {/* KPI Stat Cards (4 Columns Grid) */}
+          {/* KPI Stat Cards (4 Columns Visual Metric Grid) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
             {kpiStats.map((stat, idx) => (
               <div
                 key={idx}
-                className={`p-5 rounded-2xl border shadow-xs transition-all hover:border-slate-300 dark:hover:border-slate-600 ${
-                  isDark ? "bg-slate-800/90 border-slate-700/80" : "bg-white border-slate-200/80"
+                onClick={() => stat.link && navigate(stat.link)}
+                className={`p-5 rounded-2xl border ${stat.topBorder} shadow-xs hover:shadow-md transition-all duration-200 cursor-pointer group flex flex-col justify-between space-y-4 ${
+                  isDark ? "bg-slate-800/90 border-slate-700/80 hover:border-slate-600" : "bg-white border-slate-200/80 hover:border-slate-300"
                 }`}
               >
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                    {stat.title}
-                  </span>
-                  <div className={`p-2 rounded-xl border ${stat.bg}`}>
-                    {stat.icon}
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors flex items-center gap-1.5">
+                      {stat.title}
+                    </span>
+                    <div className={`p-2.5 rounded-xl border ${stat.bg} shadow-2xs group-hover:scale-110 transition-transform`}>
+                      {stat.icon}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-2xl sm:text-3xl font-black tracking-tight flex items-baseline justify-between gap-2">
+                      <span className="truncate">{stat.value}</span>
+                    </div>
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500 truncate">
+                        {stat.subtext}
+                      </span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${stat.badgeBg}`}>
+                        {stat.badgeText}
+                      </span>
+                    </div>
                   </div>
                 </div>
-                <div className="space-y-1">
-                  <div className="text-2xl font-black tracking-tight">
-                    {stat.value}
+
+                {/* Visual Metric Gauge Bar */}
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-700/60">
+                  <div className="flex items-center justify-between text-[11px] mb-1.5">
+                    <span className="text-slate-400 dark:text-slate-500 font-medium">Metric Gauge</span>
+                    <span className="font-semibold text-indigo-600 dark:text-indigo-400 flex items-center gap-0.5 group-hover:underline">
+                      {stat.linkText} <ArrowUpRight size={12} className="group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                    </span>
                   </div>
-                  <div className="text-[11px] font-medium text-slate-400 dark:text-slate-500">
-                    {stat.subtext}
+
+                  <div className="w-full bg-slate-100 dark:bg-slate-700/80 h-2 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${stat.meterGradient}`}
+                      style={{ width: `${stat.meterPercent}%` }}
+                    />
                   </div>
                 </div>
               </div>
             ))}
           </div>
 
-          {/* Financial Overview (Sales, Purchase, Input Tax, Output Tax) */}
+          {/* Financial Performance Line Graph & Overview Cards */}
           {checkPermission('reports') && (
-            <div className="space-y-4">
+            <div className="space-y-5">
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-bold tracking-tight">
-                  Financial Overview
-                </h2>
-                <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5 text-indigo-500" />
+                  <h2 className="text-lg font-bold tracking-tight">
+                    Financial Performance & Trend Line
+                  </h2>
+                </div>
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                   {selectedFinYear ? `FY ${selectedFinYear}` : "All Time"}
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-                {/* Sales Report */}
-                <div className={`p-5 rounded-2xl border shadow-xs transition-all border-l-4 border-l-emerald-500 ${
-                  isDark ? "bg-slate-800/90 border-slate-700/80" : "bg-white border-slate-200/80"
-                }`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                      Sales Report
-                    </span>
-                    <span className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
-                      <TrendingUp size={15} />
-                    </span>
+              {/* Interactive Line / Area Chart Box */}
+              <div className={`p-6 rounded-2xl border shadow-xs transition-colors space-y-4 ${
+                isDark ? "bg-slate-800/90 border-slate-700/80 text-slate-100" : "bg-white border-slate-200/80 text-slate-900"
+              }`}>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-700/80">
+                  <div>
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <Sparkles className="w-4 h-4 text-indigo-500" />
+                      <h3 className="text-base font-extrabold tracking-tight">
+                        Cashflow & Tax Analytics Graph
+                      </h3>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Visual financial trajectory across accounting months
+                    </p>
                   </div>
-                  <div className="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 tracking-tight">
-                    ₹ {Number(realStats.salesMonthly || 0).toLocaleString()}
-                  </div>
-                  <div className="text-[11px] text-slate-400 dark:text-slate-500 font-medium mt-1">
-                    Total sales revenue
+
+                  {/* Chart Metric Selector */}
+                  <div className="flex items-center p-1 rounded-xl bg-slate-100 dark:bg-slate-900/80 border border-slate-200/60 dark:border-slate-700/60 text-xs font-semibold">
+                    <button
+                      onClick={() => setChartMetric('sales_purchase')}
+                      className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                        chartMetric === 'sales_purchase'
+                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
+                      }`}
+                    >
+                      Sales vs Purchase
+                    </button>
+                    <button
+                      onClick={() => setChartMetric('tax')}
+                      className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                        chartMetric === 'tax'
+                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
+                      }`}
+                    >
+                      Tax Breakdown
+                    </button>
                   </div>
                 </div>
 
-                {/* Purchase Report */}
-                <div className={`p-5 rounded-2xl border shadow-xs transition-all border-l-4 border-l-indigo-500 ${
+                {/* Recharts Area / Line Chart */}
+                <div className="h-72 w-full pt-2">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={getMonthlyChartData()} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.35} />
+                          <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
+                        </linearGradient>
+                        <linearGradient id="colorPurchase" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#6366f1" stopOpacity={0.35} />
+                          <stop offset="95%" stopColor="#6366f1" stopOpacity={0.0} />
+                        </linearGradient>
+                        <linearGradient id="colorInputTax" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.35} />
+                          <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0.0} />
+                        </linearGradient>
+                        <linearGradient id="colorOutputTax" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.35} />
+                          <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#334155' : '#e2e8f0'} />
+                      <XAxis dataKey="month" stroke={isDark ? '#94a3b8' : '#64748b'} fontSize={12} tickLine={false} />
+                      <YAxis stroke={isDark ? '#94a3b8' : '#64748b'} fontSize={12} tickLine={false} tickFormatter={(v) => `₹${v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v}`} />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                          borderColor: isDark ? '#334155' : '#e2e8f0',
+                          borderRadius: '12px',
+                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+                          color: isDark ? '#f8fafc' : '#0f172a',
+                          fontSize: '12px'
+                        }}
+                        formatter={(value: any) => [`₹ ${Number(value).toLocaleString()}`, '']}
+                      />
+                      <Legend wrapperStyle={{ paddingTop: '10px', fontSize: '12px' }} />
+                      {chartMetric === 'sales_purchase' ? (
+                        <>
+                          <Area type="monotone" dataKey="Sales" stroke="#10b981" strokeWidth={2.5} fillOpacity={1} fill="url(#colorSales)" />
+                          <Area type="monotone" dataKey="Purchase" stroke="#6366f1" strokeWidth={2.5} fillOpacity={1} fill="url(#colorPurchase)" />
+                        </>
+                      ) : (
+                        <>
+                          <Area type="monotone" dataKey="InputTax" name="Input Tax" stroke="#8b5cf6" strokeWidth={2.5} fillOpacity={1} fill="url(#colorInputTax)" />
+                          <Area type="monotone" dataKey="OutputTax" name="Output Tax" stroke="#f59e0b" strokeWidth={2.5} fillOpacity={1} fill="url(#colorOutputTax)" />
+                        </>
+                      )}
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* 50% - 50% Split Display Grid with Monthly Bar Charts */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                {/* Sales Report Bar Chart Card (50% Width) */}
+                <div className={`p-6 rounded-2xl border shadow-xs transition-all border-l-4 border-l-emerald-500 space-y-4 ${
                   isDark ? "bg-slate-800/90 border-slate-700/80" : "bg-white border-slate-200/80"
                 }`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                      Purchase Report
-                    </span>
-                    <span className="p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
-                      <ShoppingBag size={15} />
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <span className="p-2.5 rounded-xl bg-emerald-100 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400">
+                        <TrendingUp size={18} />
+                      </span>
+                      <div>
+                        <h4 className="text-sm font-bold tracking-tight">Sales Report</h4>
+                        <p className="text-xs text-slate-400 dark:text-slate-500">Total sales revenue</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => navigate('/app/reports/sales')}
+                      className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      View Report <ArrowUpRight size={13} />
+                    </button>
+                  </div>
+
+                  <div className="flex items-baseline justify-between pt-1">
+                    <div className="text-3xl font-black text-emerald-600 dark:text-emerald-400 tracking-tight">
+                      ₹ {Number(realStats.salesMonthly || 0).toLocaleString()}
+                    </div>
+                    <span className="text-xs text-slate-400 dark:text-slate-500 font-medium">
+                      Monthly Breakdown
                     </span>
                   </div>
-                  <div className="text-2xl font-extrabold text-indigo-600 dark:text-indigo-400 tracking-tight">
-                    ₹ {Number(realStats.purchaseMonthly || 0).toLocaleString()}
-                  </div>
-                  <div className="text-[11px] text-slate-400 dark:text-slate-500 font-medium mt-1">
-                    Total purchase expenses
+
+                  {/* Sales Monthly Bar Graph */}
+                  <div className="h-36 w-full pt-1">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={getMonthlyChartData()} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? '#334155' : '#f1f5f9'} />
+                        <XAxis dataKey="month" stroke={isDark ? '#94a3b8' : '#64748b'} fontSize={10} tickLine={false} />
+                        <YAxis stroke={isDark ? '#94a3b8' : '#64748b'} fontSize={10} tickLine={false} tickFormatter={(v) => `₹${v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v}`} />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                            borderColor: isDark ? '#334155' : '#e2e8f0',
+                            borderRadius: '8px',
+                            fontSize: '11px'
+                          }}
+                          formatter={(val: any) => [`₹ ${Number(val).toLocaleString()}`, 'Sales']}
+                        />
+                        <Bar dataKey="Sales" fill="#10b981" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
                   </div>
                 </div>
 
-                {/* Input Tax */}
+                {/* Purchase Report Bar Chart Card (50% Width) */}
+                <div className={`p-6 rounded-2xl border shadow-xs transition-all border-l-4 border-l-indigo-500 space-y-4 ${
+                  isDark ? "bg-slate-800/90 border-slate-700/80" : "bg-white border-slate-200/80"
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <span className="p-2.5 rounded-xl bg-indigo-100 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400">
+                        <ShoppingBag size={18} />
+                      </span>
+                      <div>
+                        <h4 className="text-sm font-bold tracking-tight">Purchase Report</h4>
+                        <p className="text-xs text-slate-400 dark:text-slate-500">Total purchase expenses</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => navigate('/app/reports/purchase')}
+                      className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      View Report <ArrowUpRight size={13} />
+                    </button>
+                  </div>
+
+                  <div className="flex items-baseline justify-between pt-1">
+                    <div className="text-3xl font-black text-indigo-600 dark:text-indigo-400 tracking-tight">
+                      ₹ {Number(realStats.purchaseMonthly || 0).toLocaleString()}
+                    </div>
+                    <span className="text-xs text-slate-400 dark:text-slate-500 font-medium">
+                      Monthly Breakdown
+                    </span>
+                  </div>
+
+                  {/* Purchase Monthly Bar Graph */}
+                  <div className="h-36 w-full pt-1">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={getMonthlyChartData()} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? '#334155' : '#f1f5f9'} />
+                        <XAxis dataKey="month" stroke={isDark ? '#94a3b8' : '#64748b'} fontSize={10} tickLine={false} />
+                        <YAxis stroke={isDark ? '#94a3b8' : '#64748b'} fontSize={10} tickLine={false} tickFormatter={(v) => `₹${v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v}`} />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                            borderColor: isDark ? '#334155' : '#e2e8f0',
+                            borderRadius: '8px',
+                            fontSize: '11px'
+                          }}
+                          formatter={(val: any) => [`₹ ${Number(val).toLocaleString()}`, 'Purchase']}
+                        />
+                        <Bar dataKey="Purchase" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Input Tax Bar Chart Card (50% Width) */}
                 {checkPermission('gst') && (
-                  <div className={`p-5 rounded-2xl border shadow-xs transition-all border-l-4 border-l-purple-500 ${
+                  <div className={`p-6 rounded-2xl border shadow-xs transition-all border-l-4 border-l-purple-500 space-y-4 ${
                     isDark ? "bg-slate-800/90 border-slate-700/80" : "bg-white border-slate-200/80"
                   }`}>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                        Input Tax
-                      </span>
-                      <span className="p-1.5 rounded-lg bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400">
-                        <CreditCard size={15} />
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <span className="p-2.5 rounded-xl bg-purple-100 dark:bg-purple-950/80 text-purple-600 dark:text-purple-400">
+                          <CreditCard size={18} />
+                        </span>
+                        <div>
+                          <h4 className="text-sm font-bold tracking-tight">Input Tax</h4>
+                          <p className="text-xs text-slate-400 dark:text-slate-500">ITC credit tax balance</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => navigate('/app/gst')}
+                        className="text-xs font-semibold text-purple-600 dark:text-purple-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        GST Details <ArrowUpRight size={13} />
+                      </button>
+                    </div>
+
+                    <div className="flex items-baseline justify-between pt-1">
+                      <div className="text-3xl font-black text-purple-600 dark:text-purple-400 tracking-tight">
+                        ₹ {Number(realStats.inputTaxMonthly || 0).toLocaleString()}
+                      </div>
+                      <span className="text-xs text-slate-400 dark:text-slate-500 font-medium">
+                        Monthly ITC Breakdown
                       </span>
                     </div>
-                    <div className="text-2xl font-extrabold text-purple-600 dark:text-purple-400 tracking-tight">
-                      ₹ {Number(realStats.inputTaxMonthly || 0).toLocaleString()}
-                    </div>
-                    <div className="text-[11px] text-slate-400 dark:text-slate-500 font-medium mt-1">
-                      ITC credit tax balance
+
+                    {/* Input Tax Monthly Bar Graph */}
+                    <div className="h-36 w-full pt-1">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={getMonthlyChartData()} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? '#334155' : '#f1f5f9'} />
+                          <XAxis dataKey="month" stroke={isDark ? '#94a3b8' : '#64748b'} fontSize={10} tickLine={false} />
+                          <YAxis stroke={isDark ? '#94a3b8' : '#64748b'} fontSize={10} tickLine={false} tickFormatter={(v) => `₹${v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v}`} />
+                          <Tooltip
+                            contentStyle={{
+                              backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                              borderColor: isDark ? '#334155' : '#e2e8f0',
+                              borderRadius: '8px',
+                              fontSize: '11px'
+                            }}
+                            formatter={(val: any) => [`₹ ${Number(val).toLocaleString()}`, 'Input Tax']}
+                          />
+                          <Bar dataKey="InputTax" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
                     </div>
                   </div>
                 )}
 
-                {/* Output Tax */}
+                {/* Output Tax Bar Chart Card (50% Width) */}
                 {checkPermission('gst') && (
-                  <div className={`p-5 rounded-2xl border shadow-xs transition-all border-l-4 border-l-amber-500 ${
+                  <div className={`p-6 rounded-2xl border shadow-xs transition-all border-l-4 border-l-amber-500 space-y-4 ${
                     isDark ? "bg-slate-800/90 border-slate-700/80" : "bg-white border-slate-200/80"
                   }`}>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                        Output Tax
-                      </span>
-                      <span className="p-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
-                        <FileText size={15} />
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <span className="p-2.5 rounded-xl bg-amber-100 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400">
+                          <FileText size={18} />
+                        </span>
+                        <div>
+                          <h4 className="text-sm font-bold tracking-tight">Output Tax</h4>
+                          <p className="text-xs text-slate-400 dark:text-slate-500">Tax liability on sales</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => navigate('/app/gst')}
+                        className="text-xs font-semibold text-amber-600 dark:text-amber-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        GST Details <ArrowUpRight size={13} />
+                      </button>
+                    </div>
+
+                    <div className="flex items-baseline justify-between pt-1">
+                      <div className="text-3xl font-black text-amber-600 dark:text-amber-400 tracking-tight">
+                        ₹ {Number(realStats.outputTaxMonthly || 0).toLocaleString()}
+                      </div>
+                      <span className="text-xs text-slate-400 dark:text-slate-500 font-medium">
+                        Monthly Tax Liability
                       </span>
                     </div>
-                    <div className="text-2xl font-extrabold text-amber-600 dark:text-amber-400 tracking-tight">
-                      ₹ {Number(realStats.outputTaxMonthly || 0).toLocaleString()}
-                    </div>
-                    <div className="text-[11px] text-slate-400 dark:text-slate-500 font-medium mt-1">
-                      Tax liability on sales
+
+                    {/* Output Tax Monthly Bar Graph */}
+                    <div className="h-36 w-full pt-1">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={getMonthlyChartData()} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? '#334155' : '#f1f5f9'} />
+                          <XAxis dataKey="month" stroke={isDark ? '#94a3b8' : '#64748b'} fontSize={10} tickLine={false} />
+                          <YAxis stroke={isDark ? '#94a3b8' : '#64748b'} fontSize={10} tickLine={false} tickFormatter={(v) => `₹${v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v}`} />
+                          <Tooltip
+                            contentStyle={{
+                              backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                              borderColor: isDark ? '#334155' : '#e2e8f0',
+                              borderRadius: '8px',
+                              fontSize: '11px'
+                            }}
+                            formatter={(val: any) => [`₹ ${Number(val).toLocaleString()}`, 'Output Tax']}
+                          />
+                          <Bar dataKey="OutputTax" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
                     </div>
                   </div>
                 )}
