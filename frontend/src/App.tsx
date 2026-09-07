@@ -126,6 +126,8 @@ import Consolidation from "./components/reports/Consolidation";
 import LedgerCaraction from "./components/reports/LedgerCaraction";
 import AttributeSummary from "./components/reports/AttributeSummary";
 import VoucherReportComingSoon from "./components/reports/voucher/VoucherReportComingSoon";
+import PaymentVoucherReport from "./components/reports/voucher/PaymentVoucherReport";
+import PaymentVoucherReportDetail from "./components/reports/voucher/PaymentVoucherReportDetail";
 
 // GST Module Components
 
@@ -1173,7 +1175,19 @@ function App() {
                   path="reports/voucher/payment"
                   element={
                     <RequireCompany>
-                      <VoucherReportComingSoon title="Payment Voucher Report" />
+                      <RequireSubscription>
+                        <PaymentVoucherReport />
+                      </RequireSubscription>
+                    </RequireCompany>
+                  }
+                />
+                <Route
+                  path="reports/voucher/payment/detail/:month"
+                  element={
+                    <RequireCompany>
+                      <RequireSubscription>
+                        <PaymentVoucherReportDetail />
+                      </RequireSubscription>
                     </RequireCompany>
                   }
                 />
