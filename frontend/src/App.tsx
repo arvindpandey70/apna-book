@@ -126,6 +126,18 @@ import Consolidation from "./components/reports/Consolidation";
 import LedgerCaraction from "./components/reports/LedgerCaraction";
 import AttributeSummary from "./components/reports/AttributeSummary";
 import VoucherReportComingSoon from "./components/reports/voucher/VoucherReportComingSoon";
+import PaymentVoucherReport from "./components/reports/voucher/PaymentVoucherReport";
+import PaymentVoucherReportDetail from "./components/reports/voucher/PaymentVoucherReportDetail";
+import ReceiptVoucherReport from "./components/reports/voucher/ReceiptVoucherReport";
+import ReceiptVoucherReportDetail from "./components/reports/voucher/ReceiptVoucherReportDetail";
+import ContraVoucherReport from "./components/reports/voucher/ContraVoucherReport";
+import ContraVoucherReportDetail from "./components/reports/voucher/ContraVoucherReportDetail";
+import JournalVoucherReport from "./components/reports/voucher/JournalVoucherReport";
+import JournalVoucherReportDetail from "./components/reports/voucher/JournalVoucherReportDetail";
+import PurchaseVoucherReport from "./components/reports/voucher/PurchaseVoucherReport";
+import PurchaseVoucherReportDetail from "./components/reports/voucher/PurchaseVoucherReportDetail";
+import SalesVoucherReport from "./components/reports/voucher/SalesVoucherReport";
+import SalesVoucherReportDetail from "./components/reports/voucher/SalesVoucherReportDetail";
 
 // GST Module Components
 
@@ -1173,7 +1185,19 @@ function App() {
                   path="reports/voucher/payment"
                   element={
                     <RequireCompany>
-                      <VoucherReportComingSoon title="Payment Voucher Report" />
+                      <RequireSubscription>
+                        <PaymentVoucherReport />
+                      </RequireSubscription>
+                    </RequireCompany>
+                  }
+                />
+                <Route
+                  path="reports/voucher/payment/detail/:month"
+                  element={
+                    <RequireCompany>
+                      <RequireSubscription>
+                        <PaymentVoucherReportDetail />
+                      </RequireSubscription>
                     </RequireCompany>
                   }
                 />
@@ -1181,7 +1205,19 @@ function App() {
                   path="reports/voucher/receipt"
                   element={
                     <RequireCompany>
-                      <VoucherReportComingSoon title="Receipt Voucher Report" />
+                      <RequireSubscription>
+                        <ReceiptVoucherReport />
+                      </RequireSubscription>
+                    </RequireCompany>
+                  }
+                />
+                <Route
+                  path="reports/voucher/receipt/detail/:month"
+                  element={
+                    <RequireCompany>
+                      <RequireSubscription>
+                        <ReceiptVoucherReportDetail />
+                      </RequireSubscription>
                     </RequireCompany>
                   }
                 />
@@ -1189,7 +1225,19 @@ function App() {
                   path="reports/voucher/contra"
                   element={
                     <RequireCompany>
-                      <VoucherReportComingSoon title="Contra Voucher Report" />
+                      <RequireSubscription>
+                        <ContraVoucherReport />
+                      </RequireSubscription>
+                    </RequireCompany>
+                  }
+                />
+                <Route
+                  path="reports/voucher/contra/detail/:month"
+                  element={
+                    <RequireCompany>
+                      <RequireSubscription>
+                        <ContraVoucherReportDetail />
+                      </RequireSubscription>
                     </RequireCompany>
                   }
                 />
@@ -1197,7 +1245,19 @@ function App() {
                   path="reports/voucher/journal"
                   element={
                     <RequireCompany>
-                      <VoucherReportComingSoon title="Journal Voucher Report" />
+                      <RequireSubscription>
+                        <JournalVoucherReport />
+                      </RequireSubscription>
+                    </RequireCompany>
+                  }
+                />
+                <Route
+                  path="reports/voucher/journal/detail/:month"
+                  element={
+                    <RequireCompany>
+                      <RequireSubscription>
+                        <JournalVoucherReportDetail />
+                      </RequireSubscription>
                     </RequireCompany>
                   }
                 />
@@ -1205,7 +1265,19 @@ function App() {
                   path="reports/voucher/sales"
                   element={
                     <RequireCompany>
-                      <VoucherReportComingSoon title="Sales Voucher Report" />
+                      <RequireSubscription>
+                        <SalesVoucherReport />
+                      </RequireSubscription>
+                    </RequireCompany>
+                  }
+                />
+                <Route
+                  path="reports/voucher/sales/detail/:month"
+                  element={
+                    <RequireCompany>
+                      <RequireSubscription>
+                        <SalesVoucherReportDetail />
+                      </RequireSubscription>
                     </RequireCompany>
                   }
                 />
@@ -1213,7 +1285,19 @@ function App() {
                   path="reports/voucher/purchase"
                   element={
                     <RequireCompany>
-                      <VoucherReportComingSoon title="Purchase Voucher Report" />
+                      <RequireSubscription>
+                        <PurchaseVoucherReport />
+                      </RequireSubscription>
+                    </RequireCompany>
+                  }
+                />
+                <Route
+                  path="reports/voucher/purchase/detail/:month"
+                  element={
+                    <RequireCompany>
+                      <RequireSubscription>
+                        <PurchaseVoucherReportDetail />
+                      </RequireSubscription>
                     </RequireCompany>
                   }
                 />

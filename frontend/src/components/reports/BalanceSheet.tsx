@@ -262,13 +262,13 @@ const BalanceSheet: React.FC = () => {
           return (
             <div key={group.id}>
               <div
-                className={`grid grid-cols-2 gap-2 py-1 text-sm cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-200 rounded px-2  `}
+                className={`grid grid-cols-2 gap-2 py-1 text-sm cursor-pointer transition-all duration-150 group rounded px-2 ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}
                 style={{ paddingLeft: `${level * 1.5}rem` }}
                 onClick={() =>
                   navigate(`/app/reports/sub-group-summary/${group.id}`)
                 }
               >
-                <span className="italic font-semibold text-blue-500">
+                <span className="italic font-semibold text-blue-500 group-hover:text-white">
                   {group.name}
                 </span>
                 <span className="text-right font-mono text-xs">
@@ -285,7 +285,7 @@ const BalanceSheet: React.FC = () => {
           return (
             <div
               key={ledger.id}
-              className="grid grid-cols-2 gap-2 py-1 text-xs text-gray-500 font-semibold dark:text-gray-600 cursor-pointer hover:text-blue-600 px-2"
+              className={`grid grid-cols-2 gap-2 py-1 text-xs text-gray-500 font-semibold dark:text-gray-400 cursor-pointer transition-all duration-150 rounded px-2 ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}
               style={{ paddingLeft: `${level * 1.5}rem` }}
               onClick={() => navigate(`/app/reports/ledger/${ledger.id}`)}
             >
@@ -345,10 +345,10 @@ const BalanceSheet: React.FC = () => {
                 {/* Capital Account */}
                 <div>
                   <div
-                    className="grid grid-cols-2 gap-2 py-2 border-b border-gray-300 cursor-pointer"
+                    className={`grid grid-cols-2 gap-2 py-2 border-b border-gray-300 cursor-pointer transition-all duration-150 group rounded px-2 ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}
                     onClick={() => handleGroupClick(-4)}
                   >
-                    <span className="text-blue-600 font-semibold ">
+                    <span className="text-blue-600 font-semibold group-hover:text-white">
                       Capital Account
                     </span>
                     <span className="text-right font-mono font-bold">
@@ -361,10 +361,10 @@ const BalanceSheet: React.FC = () => {
                 {/* Loans */}
                 <div>
                   <div
-                    className="grid grid-cols-2 gap-2 py-2 border-b border-gray-300 cursor-pointer"
+                    className={`grid grid-cols-2 gap-2 py-2 border-b border-gray-300 cursor-pointer transition-all duration-150 group rounded px-2 ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}
                     onClick={() => handleGroupClick(-13)}
                   >
-                    <span className="text-blue-600 font-semibold ">
+                    <span className="text-blue-600 font-semibold group-hover:text-white">
                       Loans (Liability)
                     </span>
                     <span className="text-right font-mono font-bold">
@@ -377,10 +377,10 @@ const BalanceSheet: React.FC = () => {
                 {/* Current Liabilities */}
                 <div>
                   <div
-                    className="grid grid-cols-2 gap-2 py-2 border-b border-gray-300 cursor-pointer"
+                    className={`grid grid-cols-2 gap-2 py-2 border-b border-gray-300 cursor-pointer transition-all duration-150 group rounded px-2 ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}
                     onClick={() => handleGroupClick(-6)}
                   >
-                    <span className="text-blue-600 font-semibold ">
+                    <span className="text-blue-600 font-semibold group-hover:text-white">
                       Current Liabilities
                     </span>
                     <span className="text-right font-mono font-bold">
@@ -393,10 +393,10 @@ const BalanceSheet: React.FC = () => {
                 {/* TDS Payable */}
                 <div>
                   <div
-                    className="grid grid-cols-2 gap-2 py-2 border-b border-gray-300 cursor-pointer"
+                    className={`grid grid-cols-2 gap-2 py-2 border-b border-gray-300 cursor-pointer transition-all duration-150 group rounded px-2 ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}
                     onClick={() => handleGroupClick(-19)}
                   >
-                    <span className="text-blue-600 font-semibold ">
+                    <span className="text-blue-600 font-semibold group-hover:text-white">
                       TDS Payable
                     </span>
                     <span className="text-right font-mono font-bold">
@@ -411,10 +411,10 @@ const BalanceSheet: React.FC = () => {
                 {/* Profit & Loss */}
                 <div className="border-b border-gray-300 pb-2">
                   <div
-                    className="grid grid-cols-2 gap-2 py-2 cursor-pointer"
+                    className={`grid grid-cols-2 gap-2 py-2 cursor-pointer transition-all duration-150 group rounded px-2 ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}
                     onClick={() => navigate("/app/reports/profit-loss")}
                   >
-                    <span className="text-blue-600 font-semibold ">
+                    <span className="text-blue-600 font-semibold group-hover:text-white">
                       Profit & Loss
                     </span>
                     <span className="text-right font-mono font-bold">
@@ -460,10 +460,10 @@ const BalanceSheet: React.FC = () => {
                 {/* Fixed Assets */}
                 <div>
                   <div
-                    className="grid grid-cols-2 gap-2 py-2 border-b border-gray-300 cursor-pointer"
+                    className={`grid grid-cols-2 gap-2 py-2 border-b border-gray-300 cursor-pointer transition-all duration-150 group rounded px-2 ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}
                     onClick={() => handleGroupClick(-9)}
                   >
-                    <span className="text-blue-600 font-semibold ">
+                    <span className="text-blue-600 font-semibold group-hover:text-white">
                       Fixed Assets
                     </span>
                     <span className="text-right font-mono font-bold">
@@ -478,10 +478,10 @@ const BalanceSheet: React.FC = () => {
                 {/* Current Assets */}
                 <div>
                   <div
-                    className="grid grid-cols-2 gap-2 py-2 border-b border-gray-300 cursor-pointer"
+                    className={`grid grid-cols-2 gap-2 py-2 border-b border-gray-300 cursor-pointer transition-all duration-150 group rounded px-2 ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}
                     onClick={() => handleGroupClick(-5)}
                   >
-                    <span className="text-blue-600 font-semibold ">
+                    <span className="text-blue-600 font-semibold group-hover:text-white">
                       Current Assets
                     </span>
                     <span className="text-right font-mono font-bold">

@@ -861,9 +861,9 @@ const DayBook: React.FC = () => {
                       onMouseEnter={() => setHoveredVoucherId(voucher.voucherId)}
                       onMouseLeave={() => setHoveredVoucherId(null)}
                       onDoubleClick={() => setActiveVoucherId(activeVoucherId === voucher.voucherId ? null : voucher.voucherId)}
-                      className={`transition-colors duration-150 cursor-pointer ${theme === "dark"
-                        ? `border-b border-gray-700 ${hoveredVoucherId === voucher.voucherId || activeVoucherId === voucher.voucherId ? "bg-gray-700" : "hover:bg-gray-700"}`
-                        : `border-b border-gray-200 ${hoveredVoucherId === voucher.voucherId || activeVoucherId === voucher.voucherId ? "bg-blue-100" : "hover:bg-gray-50"}`
+                      className={`transition-all duration-150 cursor-pointer ${theme === "dark"
+                        ? `border-b border-gray-700 ${hoveredVoucherId === voucher.voucherId || activeVoucherId === voucher.voucherId ? "bg-blue-600 text-white font-bold" : "hover:bg-blue-600 hover:text-white"}`
+                        : `border-b border-gray-200 ${hoveredVoucherId === voucher.voucherId || activeVoucherId === voucher.voucherId ? "bg-blue-600 text-white font-bold" : "hover:bg-blue-600 hover:text-white font-bold"}`
                         }`}
                       onClick={() => handleVoucherClick(voucher)}
                     >
@@ -1030,9 +1030,9 @@ const DayBook: React.FC = () => {
                         onMouseEnter={() => setHoveredVoucherId(entry.voucherId)}
                         onMouseLeave={() => setHoveredVoucherId(null)}
                         onDoubleClick={() => setActiveVoucherId(activeVoucherId === entry.voucherId ? null : entry.voucherId)}
-                        className={`transition-colors duration-150 ${theme === "dark"
-                          ? `border-b border-gray-700 ${hoveredVoucherId === entry.voucherId || activeVoucherId === entry.voucherId ? "bg-gray-700" : ""}`
-                          : `border-b border-gray-200 ${hoveredVoucherId === entry.voucherId || activeVoucherId === entry.voucherId ? "bg-blue-100" : ""}`
+                        className={`transition-all duration-150 ${theme === "dark"
+                          ? `border-b border-gray-700 ${hoveredVoucherId === entry.voucherId || activeVoucherId === entry.voucherId ? "bg-blue-600 text-white font-bold" : "hover:bg-blue-600 hover:text-white"}`
+                          : `border-b border-gray-200 ${hoveredVoucherId === entry.voucherId || activeVoucherId === entry.voucherId ? "bg-blue-600 text-white font-bold" : "hover:bg-blue-600 hover:text-white font-bold"}`
                           }`}
                       >
                         {/* DATE */}
@@ -1180,9 +1180,9 @@ const DayBook: React.FC = () => {
                             setSelectedMonth(data.month);
                             setViewMode("grouped");
                           }}
-                          className={`cursor-pointer transition-colors duration-150 ${theme === "dark"
-                            ? "border-b border-gray-700 hover:bg-gray-700"
-                            : "border-b border-gray-200 hover:bg-gray-50"
+                          className={`cursor-pointer transition-all duration-150 ${theme === "dark"
+                            ? "border-b border-gray-700 hover:bg-blue-600 hover:text-white"
+                            : "border-b border-gray-200 hover:bg-blue-600 hover:text-white font-bold"
                             }`}
                         >
                           <td className="px-4 py-3 font-medium">{data.month}</td>

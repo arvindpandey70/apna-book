@@ -184,11 +184,11 @@ const TrialBalance: React.FC = () => {
           return (
             <React.Fragment key={group.id}>
               <tr
-                className={`cursor-pointer text-sm transition-colors ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
+                className={`cursor-pointer text-sm transition-all duration-150 ${theme === 'dark' ? 'hover:bg-blue-600 hover:text-white' : 'hover:bg-blue-600 hover:text-white font-bold'}`}
                 onClick={() => navigate(`/app/reports/sub-group-summary/${group.id}`)}
               >
                 <td className="py-2 px-4" style={{ paddingLeft: `${(level + 1) * 1.5}rem` }}>
-                  <span className="italic font-semibold text-blue-500">{group.name}</span>
+                  <span className="italic font-semibold">{group.name}</span>
                 </td>
                 {showOpening && (
                   <td className="py-2 px-4 text-right font-mono text-xs">
@@ -229,7 +229,7 @@ const TrialBalance: React.FC = () => {
           return (
             <tr
               key={ledger.id}
-              className={`cursor-pointer text-xs text-gray-600 font-semibold transition-colors ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
+              className={`cursor-pointer text-xs font-semibold transition-all duration-150 ${theme === 'dark' ? 'hover:bg-blue-600 hover:text-white' : 'hover:bg-blue-600 hover:text-white font-bold'}`}
               onClick={() => navigate(`/app/reports/ledger/${ledger.id}`)}
             >
               <td className="py-1 px-4" style={{ paddingLeft: `${(level + 1) * 1.5}rem` }}>
@@ -358,10 +358,10 @@ const TrialBalance: React.FC = () => {
                 return (
                   <React.Fragment key={tg.id}>
                     <tr
-                      className={`border-b border-gray-300 font-semibold cursor-pointer transition-colors ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-indigo-50'}`}
+                      className={`border-b border-gray-300 font-semibold cursor-pointer transition-all duration-150 group ${theme === 'dark' ? 'hover:bg-blue-600 hover:text-white' : 'hover:bg-blue-600 hover:text-white font-bold'}`}
                       onClick={() => navigate(`/app/reports/sub-group-summary/${tg.id}`)}
                     >
-                      <td className="py-3 px-4 text-blue-600">{tg.name}</td>
+                      <td className="py-3 px-4 text-blue-600 group-hover:text-white">{tg.name}</td>
                       {showOpening && (
                         <td className="py-3 px-4 text-right font-mono">
                           {totals.opening !== 0 ? `${Math.abs(totals.opening).toLocaleString()} ${totals.opening > 0 ? "Dr" : "Cr"}` : (isAlwaysShow ? "0" : "")}
@@ -383,7 +383,7 @@ const TrialBalance: React.FC = () => {
               })}
             </tbody>
             <tfoot>
-              <tr className="font-bold text-lg border-t-2 border-gray-400 cursor-pointer" onClick={() => setIsDetailedView(true)}>
+              <tr className={`font-bold text-lg border-t-2 border-gray-400 cursor-pointer transition-all duration-150 ${theme === 'dark' ? 'hover:bg-blue-600 hover:text-white' : 'hover:bg-blue-600 hover:text-white'}`} onClick={() => setIsDetailedView(true)}>
                 <td className="py-3 px-4 font-bold">Grand Total</td>
                 {showOpening && (
                   <td className="py-3 px-4 text-right text-indigo-600 font-mono text-sm">
