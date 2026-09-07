@@ -134,6 +134,8 @@ import ContraVoucherReport from "./components/reports/voucher/ContraVoucherRepor
 import ContraVoucherReportDetail from "./components/reports/voucher/ContraVoucherReportDetail";
 import JournalVoucherReport from "./components/reports/voucher/JournalVoucherReport";
 import JournalVoucherReportDetail from "./components/reports/voucher/JournalVoucherReportDetail";
+import PurchaseVoucherReport from "./components/reports/voucher/PurchaseVoucherReport";
+import PurchaseVoucherReportDetail from "./components/reports/voucher/PurchaseVoucherReportDetail";
 
 // GST Module Components
 
@@ -1269,7 +1271,19 @@ function App() {
                   path="reports/voucher/purchase"
                   element={
                     <RequireCompany>
-                      <VoucherReportComingSoon title="Purchase Voucher Report" />
+                      <RequireSubscription>
+                        <PurchaseVoucherReport />
+                      </RequireSubscription>
+                    </RequireCompany>
+                  }
+                />
+                <Route
+                  path="reports/voucher/purchase/detail/:month"
+                  element={
+                    <RequireCompany>
+                      <RequireSubscription>
+                        <PurchaseVoucherReportDetail />
+                      </RequireSubscription>
                     </RequireCompany>
                   }
                 />
