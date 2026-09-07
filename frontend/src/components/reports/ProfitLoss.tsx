@@ -883,12 +883,11 @@ const ProfitLoss: React.FC = () => {
             <div className="space-y-2">
               <div className="py-2 border-b border-gray-300 dark:border-gray-600">
                 <div
-                  className={`flex justify-between cursor-pointer transition-colors ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-50"
-                    }`}
+                  className={`flex justify-between cursor-pointer transition-all duration-150 p-1.5 rounded group ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}
                   onClick={handleStockClick}
                   title="Click to view Stock Summary"
                 >
-                  <span className="text-blue-600 dark:text-blue-400 underline font-semibold">
+                  <span className="text-blue-600 dark:text-blue-400 group-hover:text-white underline font-semibold">
                     To Opening Stock
                   </span>
                   <span className="font-mono font-semibold">
@@ -903,10 +902,9 @@ const ProfitLoss: React.FC = () => {
                       <div
                         key={index}
                         onClick={() => handleOpeningStockItemClick(item.name, item.id)}
-                        className={`flex justify-between cursor-pointer hover:bg-gray-100 ${theme === "dark" ? "text-gray-300 hover:bg-gray-700" : "text-gray-700"
-                          }`}
+                        className={`flex justify-between cursor-pointer transition-all duration-150 p-1 rounded group ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}
                       >
-                        <span className="text-blue-600 underline">
+                        <span className="text-blue-600 group-hover:text-white underline">
                           {item.name}
                         </span>
                         <span className="font-mono">
@@ -924,9 +922,9 @@ const ProfitLoss: React.FC = () => {
 
               {/* purchase */}
               <div className="py-2 border-b border-gray-300 dark:border-gray-600">
-                <div className="flex justify-between font-semibold cursor-pointer">
+                <div className={`flex justify-between font-semibold cursor-pointer transition-all duration-150 p-1.5 rounded group ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}>
                   <Link to="purchase">
-                    <span className="text-blue-600 dark:text-blue-400 underline font-semibold">To Purchases</span>
+                    <span className="text-blue-600 dark:text-blue-400 group-hover:text-white underline font-semibold">To Purchases</span>
                   </Link>
                   <span className="font-mono">
                     {showDetailed
@@ -947,10 +945,9 @@ const ProfitLoss: React.FC = () => {
                           onClick={() =>
                             handlePurchaseLedgerClick(item.name, item.id)
                           }
-                          className={`flex justify-between cursor-pointer hover:bg-gray-100 ${theme === "dark" ? "text-gray-300" : "text-gray-700"
-                            }`}
+                          className={`flex justify-between cursor-pointer transition-all duration-150 p-1 rounded group ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}
                         >
-                          <span className="text-blue-600 underline">
+                          <span className="text-blue-600 group-hover:text-white underline">
                             {item.name}
                           </span>
                           <span className="font-mono">
@@ -966,10 +963,9 @@ const ProfitLoss: React.FC = () => {
                           <div
                             key={`item-${index}`}
                             onClick={() => handlePurchaseItemClick(item.name, item.id)}
-                            className={`flex justify-between cursor-pointer hover:bg-gray-100 ${theme === "dark" ? "text-gray-300 hover:bg-gray-700" : "text-gray-700"
-                              }`}
+                            className={`flex justify-between cursor-pointer transition-all duration-150 p-1 rounded group ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}
                           >
-                            <span className="text-blue-600 underline">
+                            <span className="text-blue-600 group-hover:text-white underline">
                               {item.name}
                             </span>
                             <span className="font-mono">
@@ -989,10 +985,9 @@ const ProfitLoss: React.FC = () => {
                       <div
                         key={index}
                         onClick={() => handlePurchaseItemClick(item.name, item.id)}
-                        className={`flex justify-between cursor-pointer hover:bg-gray-100 ${theme === "dark" ? "text-gray-300 hover:bg-gray-700" : "text-gray-700"
-                          }`}
+                        className={`flex justify-between cursor-pointer transition-all duration-150 p-1 rounded group ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}
                       >
-                        <span className="text-blue-600 underline">
+                        <span className="text-blue-600 group-hover:text-white underline">
                           {item.name}
                         </span>
                         <span className="font-mono">
@@ -1010,9 +1005,9 @@ const ProfitLoss: React.FC = () => {
 
               <div className="py-2 border-b border-gray-300 dark:border-gray-600">
                 {/* Header – Always visible */}
-                <div className="flex justify-between font-semibold cursor-pointer">
+                <div className={`flex justify-between font-semibold cursor-pointer transition-all duration-150 p-1.5 rounded group ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}>
                   <Link to="/app/reports/group-summary/-7">
-                    <span className="text-blue-600 dark:text-blue-400 underline font-semibold">
+                    <span className="text-blue-600 dark:text-blue-400 group-hover:text-white underline font-semibold">
                       To Direct Expenses
                     </span>
                   </Link>
@@ -1030,10 +1025,9 @@ const ProfitLoss: React.FC = () => {
                         <div
                           key={index}
                           onClick={() => handleDirectExpenseClick(item.name, item.id)}
-                          className={`flex justify-between cursor-pointer hover:bg-gray-100 ${theme === "dark" ? "text-gray-300 hover:bg-gray-700" : "text-gray-700"
-                            }`}
+                          className={`flex justify-between cursor-pointer transition-all duration-150 p-1 rounded group ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}
                         >
-                          <span className="text-blue-600 underline">
+                          <span className="text-blue-600 group-hover:text-white underline">
                             {item.name}
                           </span>
                           <span className="font-mono">
@@ -1053,10 +1047,9 @@ const ProfitLoss: React.FC = () => {
                         <div
                           key={index}
                           onClick={() => handleDirectExpenseClick(item.name, item.id)}
-                          className={`flex justify-between cursor-pointer hover:bg-gray-100 ${theme === "dark" ? "text-gray-300 hover:bg-gray-700" : "text-gray-700"
-                            }`}
+                          className={`flex justify-between cursor-pointer transition-all duration-150 p-1 rounded group ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}
                         >
-                          <span className="text-blue-600 underline">
+                          <span className="text-blue-600 group-hover:text-white underline">
                             {item.name}
                           </span>
                           <span className="font-mono">
@@ -1098,9 +1091,9 @@ const ProfitLoss: React.FC = () => {
             <div className="space-y-2">
               <div className="py-2 border-b border-gray-300 dark:border-gray-600">
                 {/* Sales Account */}
-                <div className="flex justify-between font-semibold cursor-pointer">
+                <div className={`flex justify-between font-semibold cursor-pointer transition-all duration-150 p-1.5 rounded group ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}>
                   <Link to="sales">
-                    <span className="text-blue-600 dark:text-blue-400 underline font-semibold">By Sales</span>
+                    <span className="text-blue-600 dark:text-blue-400 group-hover:text-white underline font-semibold">By Sales</span>
                   </Link>
                   <span className="font-mono">
                     {showDetailed
@@ -1121,10 +1114,9 @@ const ProfitLoss: React.FC = () => {
                           onClick={() =>
                             handleSalesLedgerClick(item.name, item.id)
                           }
-                          className={`flex justify-between cursor-pointer hover:bg-gray-100 ${theme === "dark" ? "text-gray-300" : "text-gray-700"
-                            }`}
+                          className={`flex justify-between cursor-pointer transition-all duration-150 p-1 rounded group ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}
                         >
-                          <span className="text-blue-600 underline">
+                          <span className="text-blue-600 group-hover:text-white underline">
                             {item.name}
                           </span>
                           <span className="font-mono">
@@ -1140,10 +1132,9 @@ const ProfitLoss: React.FC = () => {
                           <div
                             key={`item-${index}`}
                             onClick={() => handleSalesItemClick(item.name, item.id)}
-                            className={`flex justify-between cursor-pointer hover:bg-gray-100 ${theme === "dark" ? "text-gray-300 hover:bg-gray-700" : "text-gray-700"
-                              }`}
+                            className={`flex justify-between cursor-pointer transition-all duration-150 p-1 rounded group ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}
                           >
-                            <span className="text-blue-600 underline">
+                            <span className="text-blue-600 group-hover:text-white underline">
                               {item.name}
                             </span>
                             <span className="font-mono">
@@ -1163,10 +1154,9 @@ const ProfitLoss: React.FC = () => {
                       <div
                         key={index}
                         onClick={() => handleSalesItemClick(item.name, item.id)}
-                        className={`flex justify-between cursor-pointer hover:bg-gray-100 ${theme === "dark" ? "text-gray-300 hover:bg-gray-700" : "text-gray-700"
-                          }`}
+                        className={`flex justify-between cursor-pointer transition-all duration-150 p-1 rounded group ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}
                       >
-                        <span className="text-blue-600 underline">
+                        <span className="text-blue-600 group-hover:text-white underline">
                           {item.name}
                         </span>
                         <span className="font-mono">
@@ -1184,9 +1174,9 @@ const ProfitLoss: React.FC = () => {
 
               {/* Direct Income */}
               <div className="py-2 border-b border-gray-300 dark:border-gray-600">
-                <div className="flex justify-between font-semibold cursor-pointer">
+                <div className={`flex justify-between font-semibold cursor-pointer transition-all duration-150 p-1.5 rounded group ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}>
                   <Link to="/app/reports/group-summary/-8">
-                    <span className="text-blue-600 dark:text-blue-400 underline font-semibold">
+                    <span className="text-blue-600 dark:text-blue-400 group-hover:text-white underline font-semibold">
                       By Direct Income
                     </span>
                   </Link>
@@ -1204,10 +1194,9 @@ const ProfitLoss: React.FC = () => {
                         <div
                           key={index}
                           onClick={() => handleDirectIncomeClick(item.name, item.id)}
-                          className={`flex justify-between cursor-pointer hover:bg-gray-100 ${theme === "dark" ? "text-gray-300 hover:bg-gray-700" : "text-gray-700"
-                            }`}
+                          className={`flex justify-between cursor-pointer transition-all duration-150 p-1 rounded group ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}
                         >
-                          <span className="text-blue-600 underline">
+                          <span className="text-blue-600 group-hover:text-white underline">
                             {item.name}
                           </span>
                           <span className="font-mono">
@@ -1221,12 +1210,11 @@ const ProfitLoss: React.FC = () => {
 
               <div className="py-2 border-b border-gray-300 dark:border-gray-600">
                 <div
-                  className={`flex justify-between cursor-pointer transition-colors ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-50"
-                    }`}
+                  className={`flex justify-between cursor-pointer transition-all duration-150 p-1.5 rounded group ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}
                   onClick={handleStockClick}
                   title="Click to view Stock Summary"
                 >
-                  <span className="text-blue-600 dark:text-blue-400 underline font-semibold">
+                  <span className="text-blue-600 dark:text-blue-400 group-hover:text-white underline font-semibold">
                     By Closing Stock
                   </span>
                   <span className="font-mono font-semibold">
@@ -1241,10 +1229,9 @@ const ProfitLoss: React.FC = () => {
                       <div
                         key={index}
                         onClick={() => handleOpeningStockItemClick(item.name, item.id)}
-                        className={`flex justify-between cursor-pointer hover:bg-gray-100 ${theme === "dark" ? "text-gray-300 hover:bg-gray-700" : "text-gray-700"
-                          }`}
+                        className={`flex justify-between cursor-pointer transition-all duration-150 p-1 rounded group ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}
                       >
-                        <span className="text-blue-600 underline">
+                        <span className="text-blue-600 group-hover:text-white underline">
                           {item.name}
                         </span>
                         <span className="font-mono">
@@ -1309,9 +1296,9 @@ const ProfitLoss: React.FC = () => {
                 </div>
               )}
               <div className="py-2 border-b border-gray-300 dark:border-gray-600">
-                <div className="flex justify-between font-semibold cursor-pointer">
+                <div className={`flex justify-between font-semibold cursor-pointer transition-all duration-150 p-1.5 rounded group ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}>
                   <Link to="/app/reports/group-summary/-10">
-                    <span className="text-blue-600 dark:text-blue-400 underline font-semibold">
+                    <span className="text-blue-600 dark:text-blue-400 group-hover:text-white underline font-semibold">
                       To Indirect Expenses
                     </span>
                   </Link>
@@ -1329,10 +1316,9 @@ const ProfitLoss: React.FC = () => {
                         <div
                           key={index}
                           onClick={() => handleIndirectExpenseClick(ledger.name, ledger.id)}
-                          className={`flex justify-between cursor-pointer hover:bg-gray-100 ${theme === "dark" ? "text-gray-300 hover:bg-gray-700" : "text-gray-700"
-                            }`}
+                          className={`flex justify-between cursor-pointer transition-all duration-150 p-1 rounded group ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}
                         >
-                          <span className="text-blue-600 underline">{ledger.name}</span>
+                          <span className="text-blue-600 group-hover:text-white underline">{ledger.name}</span>
                           <span className="font-mono">
                             {(ledgerBalances[Number(ledger.id)]?.debit || 0).toLocaleString()}
                           </span>
@@ -1400,9 +1386,9 @@ const ProfitLoss: React.FC = () => {
                 </div>
               )}
               <div className="py-2 border-b border-gray-300 dark:border-gray-600">
-                <div className="flex justify-between font-semibold cursor-pointer">
+                <div className={`flex justify-between font-semibold cursor-pointer transition-all duration-150 p-1.5 rounded group ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}>
                   <Link to="/app/reports/group-summary/-11">
-                    <span className="text-blue-600 dark:text-blue-400 underline font-semibold">
+                    <span className="text-blue-600 dark:text-blue-400 group-hover:text-white underline font-semibold">
                       By Indirect Income
                     </span>
                   </Link>
@@ -1420,10 +1406,9 @@ const ProfitLoss: React.FC = () => {
                         <div
                           key={index}
                           onClick={() => handleIndirectIncomeClick(ledger.name, ledger.id)}
-                          className={`flex justify-between cursor-pointer hover:bg-gray-100 ${theme === "dark" ? "text-gray-300 hover:bg-gray-700" : "text-gray-700"
-                            }`}
+                          className={`flex justify-between cursor-pointer transition-all duration-150 p-1 rounded group ${theme === "dark" ? "hover:bg-blue-600 hover:text-white" : "hover:bg-blue-600 hover:text-white font-bold"}`}
                         >
-                          <span className="text-blue-600 underline">{ledger.name}</span>
+                          <span className="text-blue-600 group-hover:text-white underline">{ledger.name}</span>
                           <span className="font-mono">
                             {((ledgerBalances[Number(ledger.id)]?.credit || 0) - (ledgerBalances[Number(ledger.id)]?.debit || 0)).toLocaleString()}
                           </span>

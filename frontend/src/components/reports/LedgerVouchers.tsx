@@ -178,9 +178,9 @@ const LedgerVouchers: React.FC = () => {
                 <tr
                   key={voucher.id}
                   onClick={() => handleVoucherClick(voucher)}
-                  className={`cursor-pointer transition-colors ${theme === 'dark'
-                      ? 'hover:bg-gray-700 text-gray-200'
-                      : 'hover:bg-gray-50 text-gray-900'
+                  className={`cursor-pointer transition-all duration-150 ${theme === 'dark'
+                      ? 'hover:bg-blue-600 hover:text-white'
+                      : 'hover:bg-blue-600 hover:text-white font-bold'
                     }`}
                 >
                   <td className="px-4 py-3 whitespace-nowrap text-sm">

@@ -1194,10 +1194,10 @@ const LedgerCaraction: React.FC = () => {
                           {voucherGroup.map((txn, i) => (
                             <tr
                               key={txn.id}
-                              className={`${theme === "dark"
-                                ? "hover:bg-gray-700"
-                                : "hover:bg-gray-50"
-                                } transition`}
+                              className={`transition-all duration-150 ${theme === "dark"
+                                ? "hover:bg-blue-600 hover:text-white"
+                                : "hover:bg-blue-600 hover:text-white font-bold"
+                                }`}
                             >
                               {/* Date */}
                               <td className="px-4 py-3 text-sm">{formatDate(txn.date)}</td>
@@ -1399,10 +1399,10 @@ const LedgerCaraction: React.FC = () => {
                         <tr
                           key={m.key}
                           onClick={() => handleMonthClick(m.key)}
-                          className={`cursor-pointer ${theme === "dark"
-                            ? "hover:bg-gray-700"
-                            : "hover:bg-gray-50"
-                            } transition`}
+                          className={`cursor-pointer transition-all duration-150 ${theme === "dark"
+                            ? "hover:bg-blue-600 hover:text-white"
+                            : "hover:bg-blue-600 hover:text-white font-bold"
+                            }`}
                         >
                           {/* Month */}
                           <td className="px-4 py-3 font-medium text-sm">
@@ -1509,7 +1509,7 @@ const LedgerCaraction: React.FC = () => {
                       <tr
                         key={idx}
                         onClick={() => handleDayClick(day.date)}
-                        className={`cursor-pointer ${theme === "dark" ? "hover:bg-gray-700 border-b border-gray-700" : "hover:bg-gray-50 border-b border-gray-100"} transition`}
+                        className={`cursor-pointer transition-all duration-150 ${theme === "dark" ? "hover:bg-blue-600 hover:text-white border-b border-gray-700" : "hover:bg-blue-600 hover:text-white font-bold border-b border-gray-100"}`}
                       >
                         <td className="px-4 py-3 font-medium text-sm">{formatDate(day.date)}</td>
                         <td className="px-4 py-3 text-right text-sm font-mono">{day.debit > 0 ? formatCurrency(day.debit) : ""}</td>
