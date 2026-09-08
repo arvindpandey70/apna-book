@@ -40,10 +40,11 @@ interface MonthSummary {
   monthName: string;
   monthIndex: number; // 0-11
   year: number;
-  openingBalance: number;
-  debit: number;
-  credit: number;
-  closingBalance: number;
+  count: number;
+  startVoucherNumber: number | null;
+  endVoucherNumber: number | null;
+  voucherNumberRange: string;
+  totalValue: number;
   vouchers: VoucherEntry[];
 }
 
@@ -69,14 +70,6 @@ const PurchaseVoucherReport: React.FC = () => {
     }).format(amount);
   };
 
-  const formatDrCrBalance = (amount: number, forceDisplay: boolean = false): string => {
-    if (Math.abs(amount) < 0.001) {
-      return forceDisplay ? "₹0.00" : "";
-    }
-    const formatted = formatCurrency(Math.abs(amount));
-    return `${formatted} ${amount > 0 ? "Cr" : "Dr"}`;
-  };
-
   const calculateDebitCredit = (voucher: VoucherEntry) => {
     if (voucher.entries && voucher.entries.length > 0) {
       const debit = voucher.entries
@@ -94,6 +87,20 @@ const PurchaseVoucherReport: React.FC = () => {
 
     const totalAmt = Number(voucher.total || voucher.billAmount || voucher.netAmount || 0);
     return { debit: totalAmt, credit: totalAmt };
+  };
+
+  const getVoucherAmount = (voucher: VoucherEntry): number => {
+    if (voucher.total !== undefined && voucher.total !== null && !isNaN(Number(voucher.total))) {
+      return Number(voucher.total);
+    }
+    if (voucher.billAmount !== undefined && voucher.billAmount !== null && !isNaN(Number(voucher.billAmount))) {
+      return Number(voucher.billAmount);
+    }
+    if (voucher.netAmount !== undefined && voucher.netAmount !== null && !isNaN(Number(voucher.netAmount))) {
+      return Number(voucher.netAmount);
+    }
+    const { debit, credit } = calculateDebitCredit(voucher);
+    return debit > 0 ? debit : credit;
   };
 
   // Fetch All Purchase Vouchers
@@ -161,55 +168,68 @@ const PurchaseVoucherReport: React.FC = () => {
       { name: "March", monthIndex: 2, yearOffset: 1 },
     ];
 
-    let runningBalance = 0;
-    let totalDebitSum = 0;
-    let totalCreditSum = 0;
+    let runningSeq = 0;
+    let totalCountSum = 0;
+    let totalValueSum = 0;
 
     const summaries: MonthSummary[] = fyMonthsConfig.map((mConfig, index) => {
       const targetYear = startYear + mConfig.yearOffset;
       const targetMonthIndex = mConfig.monthIndex;
 
-      const monthVouchers = yearFilteredVouchers.filter((v) => {
-        const parsed = parseVoucherDate(v.date);
-        if (!parsed) return false;
-        return parsed.year === targetYear && parsed.monthIndex === targetMonthIndex;
-      });
+      const monthVouchers = yearFilteredVouchers
+        .filter((v) => {
+          const parsed = parseVoucherDate(v.date);
+          if (!parsed) return false;
+          return parsed.year === targetYear && parsed.monthIndex === targetMonthIndex;
+        })
+        .sort((a, b) => {
+          const dateA = new Date(a.date).getTime();
+          const dateB = new Date(b.date).getTime();
+          if (dateA !== dateB) return dateA - dateB;
+          return String(a.id).localeCompare(String(b.id), undefined, { numeric: true });
+        });
 
-      let monthDebit = 0;
-      let monthCredit = 0;
-
+      const monthCount = monthVouchers.length;
+      let monthTotalValue = 0;
       monthVouchers.forEach((v) => {
-        const { debit, credit } = calculateDebitCredit(v);
-        monthDebit += debit;
-        monthCredit += credit;
+        monthTotalValue += getVoucherAmount(v);
       });
 
-      const openingBalance = runningBalance;
-      const netChange = monthCredit - monthDebit;
-      runningBalance = openingBalance + netChange;
-      const closingBalance = runningBalance;
+      let startSeq: number | null = null;
+      let endSeq: number | null = null;
+      let rangeStr = "—";
 
-      totalDebitSum += monthDebit;
-      totalCreditSum += monthCredit;
+      if (monthCount > 0) {
+        startSeq = runningSeq + 1;
+        endSeq = runningSeq + monthCount;
+        runningSeq = endSeq;
+        rangeStr = startSeq === endSeq ? `${startSeq}` : `${startSeq}–${endSeq}`;
+      }
+
+      totalCountSum += monthCount;
+      totalValueSum += monthTotalValue;
 
       return {
         monthName: mConfig.name,
         monthIndex: index,
         year: targetYear,
-        openingBalance,
-        debit: monthDebit,
-        credit: monthCredit,
-        closingBalance,
+        count: monthCount,
+        startVoucherNumber: startSeq,
+        endVoucherNumber: endSeq,
+        voucherNumberRange: rangeStr,
+        totalValue: monthTotalValue,
         vouchers: monthVouchers,
       };
     });
 
+    const overallRange = totalCountSum > 0 ? (totalCountSum === 1 ? "1" : `1–${totalCountSum}`) : "—";
+
     return {
       monthlySummaries: summaries,
       grandTotal: {
-        totalDebit: totalDebitSum,
-        totalCredit: totalCreditSum,
-        finalClosingBalance: runningBalance,
+        totalCount: totalCountSum,
+        overallRange,
+        totalValue: totalValueSum,
       },
     };
   }, [vouchers, selectedFinYear]);
@@ -217,20 +237,20 @@ const PurchaseVoucherReport: React.FC = () => {
   const handleExportCSV = () => {
     const csvContent = [
       ["Financial Year", selectedFinYear || "All"],
-      ["Month", "Debit Amount", "Credit Amount", "Closing Balance"],
+      ["Month", "Voucher Count", "Voucher Numbers", "Total Value"],
       ...monthlySummaries.map((m) => {
         return [
           m.monthName,
-          m.debit > 0 ? m.debit.toString() : "",
-          m.credit > 0 ? m.credit.toString() : "",
-          formatDrCrBalance(m.closingBalance, true),
+          m.count.toString(),
+          m.voucherNumberRange,
+          `"${formatCurrency(m.totalValue)}"`,
         ].join(",");
       }),
       [
         "Grand Total",
-        grandTotal.totalDebit.toString(),
-        grandTotal.totalCredit.toString(),
-        formatDrCrBalance(grandTotal.finalClosingBalance, true),
+        grandTotal.totalCount.toString(),
+        grandTotal.overallRange,
+        `"${formatCurrency(grandTotal.totalValue)}"`,
       ].join(","),
     ].join("\n");
 
@@ -255,6 +275,7 @@ const PurchaseVoucherReport: React.FC = () => {
             th { background-color: #f2f2f2; }
             .header { text-align: center; margin-bottom: 20px; }
             .text-right { text-align: right; }
+            .text-center { text-align: center; }
             .font-bold { font-weight: bold; }
           </style>
         </head>
@@ -268,9 +289,9 @@ const PurchaseVoucherReport: React.FC = () => {
             <thead>
               <tr>
                 <th>Month</th>
-                <th class="text-right">Debit</th>
-                <th class="text-right">Credit</th>
-                <th class="text-right">Closing Balance</th>
+                <th class="text-right">Voucher Count</th>
+                <th class="text-center">Voucher Numbers</th>
+                <th class="text-right">Total Value</th>
               </tr>
             </thead>
             <tbody>
@@ -279,9 +300,9 @@ const PurchaseVoucherReport: React.FC = () => {
                   (m) => `
                 <tr>
                   <td>${m.monthName}</td>
-                  <td class="text-right">${m.debit > 0 ? formatCurrency(m.debit) : ""}</td>
-                  <td class="text-right">${m.credit > 0 ? formatCurrency(m.credit) : ""}</td>
-                  <td class="text-right">${formatDrCrBalance(m.closingBalance, true)}</td>
+                  <td class="text-right">${m.count}</td>
+                  <td class="text-center">${m.voucherNumberRange}</td>
+                  <td class="text-right">${formatCurrency(m.totalValue)}</td>
                 </tr>`
                 )
                 .join("")}
@@ -289,9 +310,9 @@ const PurchaseVoucherReport: React.FC = () => {
             <tfoot>
               <tr class="font-bold">
                 <td>Grand Total</td>
-                <td class="text-right">${formatCurrency(grandTotal.totalDebit)}</td>
-                <td class="text-right">${formatCurrency(grandTotal.totalCredit)}</td>
-                <td class="text-right">${formatDrCrBalance(grandTotal.finalClosingBalance, true)}</td>
+                <td class="text-right">${grandTotal.totalCount}</td>
+                <td class="text-center">${grandTotal.overallRange}</td>
+                <td class="text-right">${formatCurrency(grandTotal.totalValue)}</td>
               </tr>
             </tfoot>
           </table>
@@ -310,7 +331,7 @@ const PurchaseVoucherReport: React.FC = () => {
   if (loading) {
     return (
       <div className="pt-[56px] px-4 min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600"></div>
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-amber-600"></div>
       </div>
     );
   }
@@ -329,7 +350,7 @@ const PurchaseVoucherReport: React.FC = () => {
           </button>
           <div>
             <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
-              <ShoppingBag className="text-indigo-600" size={28} />
+              <ShoppingBag className="text-amber-600" size={28} />
               Purchase Voucher Report
             </h1>
             <p className="text-xs text-gray-500 mt-0.5">
@@ -362,7 +383,7 @@ const PurchaseVoucherReport: React.FC = () => {
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-8">
         <div className="px-6 py-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
           <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
-            <Calendar className="text-indigo-600" size={20} />
+            <Calendar className="text-amber-600" size={20} />
             Financial Year Monthly Breakdown (April → March)
           </h2>
           <span className="text-xs text-gray-500">
@@ -375,38 +396,33 @@ const PurchaseVoucherReport: React.FC = () => {
             <thead className="bg-gray-100 text-gray-600 uppercase text-xs tracking-wider">
               <tr>
                 <th className="px-6 py-3.5 text-left font-semibold">Month</th>
-                <th className="px-6 py-3.5 text-right font-semibold">Debit</th>
-                <th className="px-6 py-3.5 text-right font-semibold">Credit</th>
-                <th className="px-6 py-3.5 text-right font-semibold">Closing Balance</th>
+                <th className="px-6 py-3.5 text-right font-semibold">Voucher Count</th>
+                <th className="px-6 py-3.5 text-center font-semibold">Voucher Numbers</th>
+                <th className="px-6 py-3.5 text-right font-semibold">Total Value</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {monthlySummaries.map((mSummary) => {
-                const hasTransactions = mSummary.debit > 0 || mSummary.credit > 0;
-                const isBalanceNonZero = Math.abs(mSummary.closingBalance) >= 0.001;
-
                 return (
                   <tr
                     key={mSummary.monthName}
                     onClick={() => navigate(`/app/reports/voucher/purchase/detail/${mSummary.monthName}`)}
-                    className="cursor-pointer hover:bg-indigo-50/70 transition-colors group"
+                    className="cursor-pointer hover:bg-amber-50/70 transition-colors group"
                   >
                     <td className="px-6 py-3.5 whitespace-nowrap text-sm text-gray-900 flex items-center justify-between">
-                      <span className="font-medium text-indigo-700 group-hover:underline flex items-center gap-1.5">
+                      <span className="font-medium text-amber-700 group-hover:underline flex items-center gap-1.5">
                         {mSummary.monthName}
                       </span>
-                      <ChevronRight size={16} className="text-gray-400 group-hover:text-indigo-600 transition-colors" />
+                      <ChevronRight size={16} className="text-gray-400 group-hover:text-amber-600 transition-colors" />
                     </td>
                     <td className="px-6 py-3.5 whitespace-nowrap text-sm text-right font-medium text-gray-800">
-                      {mSummary.debit > 0 ? formatCurrency(mSummary.debit) : ""}
+                      {mSummary.count}
                     </td>
-                    <td className="px-6 py-3.5 whitespace-nowrap text-sm text-right font-medium text-gray-800">
-                      {mSummary.credit > 0 ? formatCurrency(mSummary.credit) : ""}
+                    <td className="px-6 py-3.5 whitespace-nowrap text-sm text-center font-medium text-gray-800">
+                      {mSummary.voucherNumberRange}
                     </td>
                     <td className="px-6 py-3.5 whitespace-nowrap text-sm text-right font-semibold text-gray-900">
-                      {hasTransactions || isBalanceNonZero
-                        ? formatDrCrBalance(mSummary.closingBalance, true)
-                        : ""}
+                      {formatCurrency(mSummary.totalValue)}
                     </td>
                   </tr>
                 );
@@ -418,14 +434,14 @@ const PurchaseVoucherReport: React.FC = () => {
                 <td className="px-6 py-4 text-sm text-gray-900 font-bold">
                   Grand Total
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-blue-700 font-bold">
-                  {formatCurrency(grandTotal.totalDebit)}
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-amber-700 font-bold">
+                  {grandTotal.totalCount}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-green-700 font-bold">
-                  {formatCurrency(grandTotal.totalCredit)}
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-center text-gray-800 font-bold">
+                  {grandTotal.overallRange}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900 font-bold">
-                  {formatDrCrBalance(grandTotal.finalClosingBalance, true)}
+                  {formatCurrency(grandTotal.totalValue)}
                 </td>
               </tr>
             </tfoot>
