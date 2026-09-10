@@ -234,9 +234,9 @@ const PurchaseReport1: React.FC = () => {
   const [selectedQuarterFilter, setSelectedQuarterFilter] = useState<string>(getCurrentQuarterKey());
 
   const [filters, setFilters] = useState<FilterState>({
-    dateRange: "month",
-    fromDate: initialDates.fromDate,
-    toDate: initialDates.toDate,
+    dateRange: "all",
+    fromDate: "",
+    toDate: "",
     partyFilter: "",
     itemFilter: "",
     voucherTypeFilter: "",
@@ -827,9 +827,14 @@ const PurchaseReport1: React.FC = () => {
   const handleDateRangeChange = (range: string) => {
     const today = new Date();
     let fromDate = "";
-    let toDate = today.toISOString().split("T")[0];
+    let toDate = "";
 
     switch (range) {
+      case "all": {
+        fromDate = "";
+        toDate = "";
+        break;
+      }
       case "month": {
         const monthName = selectedMonthFilter || monthIndexToName[today.getMonth()] || "April";
         const res = getMonthDateRange(monthName);
@@ -856,8 +861,8 @@ const PurchaseReport1: React.FC = () => {
     setFilters((prev) => ({
       ...prev,
       dateRange: range,
-      fromDate: fromDate || prev.fromDate,
-      toDate: toDate || prev.toDate,
+      fromDate,
+      toDate,
     }));
   };
 
@@ -1123,6 +1128,7 @@ const PurchaseReport1: React.FC = () => {
                   : "bg-white border-gray-300 focus:border-blue-500"
                   } outline-none`}
               >
+                <option value="all">All</option>
                 <option value="month">Month</option>
                 <option value="quarter">Quarter</option>
                 <option value="custom">Custom Range</option>
@@ -1172,7 +1178,7 @@ const PurchaseReport1: React.FC = () => {
                   ))}
                 </select>
               </div>
-            ) : (
+            ) : filters.dateRange === "custom" ? (
               <div>
                 <label className="block text-sm font-medium mb-1">
                   From Date
@@ -1190,36 +1196,35 @@ const PurchaseReport1: React.FC = () => {
                     } outline-none`}
                 />
               </div>
-            )}
+            ) : null}
 
             {/* To Date */}
-            <div>
-              <label className="block text-sm font-medium mb-1">To Date</label>
-              <input
-                type="date"
-                title="Select To Date"
-                value={filters.toDate}
-                onChange={(e) =>
-                  setFilters((prev) => ({ ...prev, toDate: e.target.value }))
-                }
-                className={`w-full p-2 rounded border ${theme === "dark"
-                  ? "bg-gray-700 border-gray-600 focus:border-blue-500"
-                  : "bg-white border-gray-300 focus:border-blue-500"
-                  } outline-none`}
-              />
-            </div>
+            {filters.dateRange === "custom" && (
+              <div>
+                <label className="block text-sm font-medium mb-1">To Date</label>
+                <input
+                  type="date"
+                  title="Select To Date"
+                  value={filters.toDate}
+                  onChange={(e) =>
+                    setFilters((prev) => ({ ...prev, toDate: e.target.value }))
+                  }
+                  className={`w-full p-2 rounded border ${theme === "dark"
+                    ? "bg-gray-700 border-gray-600 focus:border-blue-500"
+                    : "bg-white border-gray-300 focus:border-blue-500"
+                    } outline-none`}
+                />
+              </div>
+            )}
 
             {/* Clear Filters */}
             <div className="flex items-end">
               <button
                 onClick={() => {
-                  const mName = monthIndexToName[new Date().getMonth()] || "April";
-                  const d = getMonthDateRange(mName);
-                  setSelectedMonthFilter(mName);
                   setFilters({
-                    dateRange: "month",
-                    fromDate: d.fromDate,
-                    toDate: d.toDate,
+                    dateRange: "all",
+                    fromDate: "",
+                    toDate: "",
                     partyFilter: "",
                     itemFilter: "",
                     voucherTypeFilter: "",
