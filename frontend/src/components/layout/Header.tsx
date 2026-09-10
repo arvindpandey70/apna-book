@@ -106,12 +106,6 @@ const Header: React.FC<HeaderProps> = ({ toggleSidebar }) => {
           ) : (
             <span className="text-xs opacity-75">No company assigned</span>
           )}
-
-          {companyData?.fdAccountType && (
-            <span className="text-[11px] px-2 py-0.5 rounded-md bg-white/10 text-indigo-200 font-medium">
-              {companyData.fdAccountType.toLowerCase() === 'self' ? 'Self Maintained' : 'Accountant'}
-            </span>
-          )}
         </div>
       </div>
 

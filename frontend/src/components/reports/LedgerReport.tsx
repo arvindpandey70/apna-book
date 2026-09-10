@@ -145,6 +145,7 @@ const LedgerReport: React.FC = () => {
   const [selectedVoucher, setSelectedVoucher] = useState<VoucherDetail | null>(
     null
   );
+  const [activeTxnId, setActiveTxnId] = useState<string | null>(null);
   const [includeOpening] = useState(true);
   const [includeClosing] = useState(true);
   // To drive output
@@ -1304,9 +1305,10 @@ const LedgerReport: React.FC = () => {
                           {voucherGroup.map((txn, i) => (
                             <tr
                               key={txn.id}
-                              className={`transition-all duration-150 ${theme === "dark"
-                                ? "hover:bg-blue-600 hover:text-white"
-                                : "hover:bg-blue-600 hover:text-white font-bold"
+                              onDoubleClick={() => setActiveTxnId(txn.id)}
+                              className={`transition-colors duration-75 cursor-pointer ${theme === "dark"
+                                ? `border-b border-gray-700 ${activeTxnId === txn.id ? "bg-blue-600 text-white font-bold" : "hover:bg-blue-600 hover:text-white"}`
+                                : `border-b border-gray-200 ${activeTxnId === txn.id ? "bg-blue-600 text-white font-bold" : "hover:bg-blue-600 hover:text-white"}`
                                 }`}
                             >
                               {/* Date */}
@@ -1477,10 +1479,11 @@ const LedgerReport: React.FC = () => {
                       return (
                         <tr
                           key={m.key}
+                          onDoubleClick={() => setActiveTxnId(m.key)}
                           onClick={() => handleMonthClick(m.key)}
-                          className={`cursor-pointer transition-all duration-150 ${theme === "dark"
-                            ? "hover:bg-blue-600 hover:text-white"
-                            : "hover:bg-blue-600 hover:text-white font-bold"
+                          className={`cursor-pointer transition-colors duration-75 ${theme === "dark"
+                            ? `${activeTxnId === m.key ? "bg-blue-600 text-white font-bold" : "hover:bg-blue-600 hover:text-white"}`
+                            : `${activeTxnId === m.key ? "bg-blue-600 text-white font-bold" : "hover:bg-blue-600 hover:text-white"}`
                             }`}
                         >
                           {/* Month */}
@@ -1587,8 +1590,12 @@ const LedgerReport: React.FC = () => {
                     {dailySummary.map((day, idx) => (
                       <tr
                         key={idx}
+                        onDoubleClick={() => setActiveTxnId(day.date)}
                         onClick={() => handleDayClick(day.date)}
-                        className={`cursor-pointer transition-all duration-150 ${theme === "dark" ? "hover:bg-blue-600 hover:text-white border-b border-gray-700" : "hover:bg-blue-600 hover:text-white font-bold border-b border-gray-100"}`}
+                        className={`cursor-pointer transition-colors duration-75 ${theme === "dark"
+                          ? `border-b border-gray-700 ${activeTxnId === day.date ? "bg-blue-600 text-white font-bold" : "hover:bg-blue-600 hover:text-white"}`
+                          : `border-b border-gray-100 ${activeTxnId === day.date ? "bg-blue-600 text-white font-bold" : "hover:bg-blue-600 hover:text-white"}`
+                          }`}
                       >
                         <td className="px-4 py-3 font-medium text-sm">{formatDate(day.date)}</td>
                         <td className="px-4 py-3 text-right text-sm font-mono">{day.debit > 0 ? formatCurrency(day.debit) : ""}</td>

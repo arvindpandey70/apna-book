@@ -80,6 +80,120 @@ interface FilterState {
   amountRangeMax: string;
 }
 
+const MONTHS = [
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+  "January",
+  "February",
+  "March",
+];
+
+const monthIndexToName: Record<number, string> = {
+  0: "January",
+  1: "February",
+  2: "March",
+  3: "April",
+  4: "May",
+  5: "June",
+  6: "July",
+  7: "August",
+  8: "September",
+  9: "October",
+  10: "November",
+  11: "December",
+};
+
+const getMonthDateRange = (monthName: string) => {
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth();
+
+  const fyStartYear = currentMonth >= 3 ? currentYear : currentYear - 1;
+
+  const monthMap: Record<string, { monthIndex: number; isNextYear: boolean }> = {
+    April: { monthIndex: 3, isNextYear: false },
+    May: { monthIndex: 4, isNextYear: false },
+    June: { monthIndex: 5, isNextYear: false },
+    July: { monthIndex: 6, isNextYear: false },
+    August: { monthIndex: 7, isNextYear: false },
+    September: { monthIndex: 8, isNextYear: false },
+    October: { monthIndex: 9, isNextYear: false },
+    November: { monthIndex: 10, isNextYear: false },
+    December: { monthIndex: 11, isNextYear: false },
+    January: { monthIndex: 0, isNextYear: true },
+    February: { monthIndex: 1, isNextYear: true },
+    March: { monthIndex: 2, isNextYear: true },
+  };
+
+  const info = monthMap[monthName];
+  if (!info) return { fromDate: "", toDate: "" };
+
+  const year = info.isNextYear ? fyStartYear + 1 : fyStartYear;
+  const startMonthStr = String(info.monthIndex + 1).padStart(2, "0");
+  const fromDate = `${year}-${startMonthStr}-01`;
+
+  const lastDay = new Date(year, info.monthIndex + 1, 0).getDate();
+  const lastDayStr = String(lastDay).padStart(2, "0");
+  const toDate = `${year}-${startMonthStr}-${lastDayStr}`;
+
+  return { fromDate, toDate };
+};
+
+const QUARTERS = [
+  { key: "Q1", label: "Apr - Jun" },
+  { key: "Q2", label: "Jul - Sep" },
+  { key: "Q3", label: "Oct - Dec" },
+  { key: "Q4", label: "Jan - Mar" },
+];
+
+const getCurrentQuarterKey = () => {
+  const m = new Date().getMonth();
+  if (m >= 3 && m <= 5) return "Q1";
+  if (m >= 6 && m <= 8) return "Q2";
+  if (m >= 9 && m <= 11) return "Q3";
+  return "Q4";
+};
+
+const getQuarterDateRange = (quarterKey: string) => {
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth();
+
+  const fyStartYear = currentMonth >= 3 ? currentYear : currentYear - 1;
+
+  switch (quarterKey) {
+    case "Q1":
+      return {
+        fromDate: `${fyStartYear}-04-01`,
+        toDate: `${fyStartYear}-06-30`,
+      };
+    case "Q2":
+      return {
+        fromDate: `${fyStartYear}-07-01`,
+        toDate: `${fyStartYear}-09-30`,
+      };
+    case "Q3":
+      return {
+        fromDate: `${fyStartYear}-10-01`,
+        toDate: `${fyStartYear}-12-31`,
+      };
+    case "Q4":
+      return {
+        fromDate: `${fyStartYear + 1}-01-01`,
+        toDate: `${fyStartYear + 1}-03-31`,
+      };
+    default:
+      return { fromDate: "", toDate: "" };
+  }
+};
+
 const SalesReport: React.FC = () => {
   const { theme, units } = useAppContext();
   const navigate = useNavigate();
@@ -103,12 +217,14 @@ const SalesReport: React.FC = () => {
     | "billwise"
     | "billwiseprofit"
   >("summary");
+  const initialMonthName = monthIndexToName[new Date().getMonth()] || "April";
+  const [selectedMonthFilter, setSelectedMonthFilter] = useState<string>(initialMonthName);
+  const [selectedQuarterFilter, setSelectedQuarterFilter] = useState<string>(getCurrentQuarterKey());
+
   const [filters, setFilters] = useState<FilterState>({
-    dateRange: "this-year",
-    fromDate: new Date(new Date().getFullYear(), 0, 1)
-      .toISOString()
-      .split("T")[0],
-    toDate: new Date().toISOString().split("T")[0],
+    dateRange: "all",
+    fromDate: "",
+    toDate: "",
     partyFilter: "",
     itemFilter: "",
     voucherTypeFilter: "",
@@ -131,35 +247,6 @@ const SalesReport: React.FC = () => {
 
   //sales repost month wise
   const [salesVouchers, setSalesVouchers] = useState<any[]>([]);
-  const MONTHS = [
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-    "January",
-    "February",
-    "March",
-  ];
-
-  const monthIndexToName: Record<number, string> = {
-    0: "January",
-    1: "February",
-    2: "March",
-    3: "April",
-    4: "May",
-    5: "June",
-    6: "July",
-    7: "August",
-    8: "September",
-    9: "October",
-    10: "November",
-    11: "December",
-  };
 
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [selectedParty, setSelectedParty] = useState<string | null>(null);
@@ -707,50 +794,60 @@ const SalesReport: React.FC = () => {
   const handleDateRangeChange = (range: string) => {
     const today = new Date();
     let fromDate = "";
-    let toDate = today.toISOString().split("T")[0];
+    let toDate = "";
 
     switch (range) {
-      case "today":
-        fromDate = toDate;
-        break;
-      case "yesterday": {
-        const yesterday = new Date(today);
-        yesterday.setDate(yesterday.getDate() - 1);
-        fromDate = toDate = yesterday.toISOString().split("T")[0];
+      case "all": {
+        fromDate = "";
+        toDate = "";
         break;
       }
-      case "this-week": {
-        const weekStart = new Date(today);
-        weekStart.setDate(today.getDate() - today.getDay());
-        fromDate = weekStart.toISOString().split("T")[0];
+      case "month": {
+        const monthName = selectedMonthFilter || monthIndexToName[today.getMonth()] || "April";
+        const res = getMonthDateRange(monthName);
+        fromDate = res.fromDate;
+        toDate = res.toDate;
         break;
       }
-      case "this-month": {
-        fromDate = new Date(today.getFullYear(), today.getMonth(), 1)
-          .toISOString()
-          .split("T")[0];
+      case "quarter": {
+        const qKey = selectedQuarterFilter || getCurrentQuarterKey();
+        const res = getQuarterDateRange(qKey);
+        fromDate = res.fromDate;
+        toDate = res.toDate;
         break;
       }
-      case "this-quarter": {
-        const quarterStartMonth = Math.floor(today.getMonth() / 3) * 3;
-        fromDate = new Date(today.getFullYear(), quarterStartMonth, 1)
-          .toISOString()
-          .split("T")[0];
-        break;
-      }
-      case "this-year": {
-        fromDate = new Date(today.getFullYear(), 0, 1)
-          .toISOString()
-          .split("T")[0];
+      case "custom": {
+        fromDate = filters.fromDate;
+        toDate = filters.toDate;
         break;
       }
       default:
-        return;
+        break;
     }
 
     setFilters((prev) => ({
       ...prev,
       dateRange: range,
+      fromDate,
+      toDate,
+    }));
+  };
+
+  const handleMonthSelect = (monthName: string) => {
+    setSelectedMonthFilter(monthName);
+    const { fromDate, toDate } = getMonthDateRange(monthName);
+    setFilters((prev) => ({
+      ...prev,
+      fromDate,
+      toDate,
+    }));
+  };
+
+  const handleQuarterSelect = (quarterKey: string) => {
+    setSelectedQuarterFilter(quarterKey);
+    const { fromDate, toDate } = getQuarterDateRange(quarterKey);
+    setFilters((prev) => ({
+      ...prev,
       fromDate,
       toDate,
     }));
@@ -1006,63 +1103,103 @@ const SalesReport: React.FC = () => {
                   : "bg-white border-gray-300 focus:border-blue-500"
                   } outline-none`}
               >
-                <option value="today">Today</option>
-                <option value="this-quarter">This Quarter</option>
-                <option value="this-year">This Year</option>
+                <option value="all">All</option>
+                <option value="month">Month</option>
+                <option value="quarter">Quarter</option>
                 <option value="custom">Custom Range</option>
               </select>
             </div>
 
-            {/* From Date */}
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                From Date
-              </label>
-              <input
-                type="date"
-                title="Select From Date"
-                value={filters.fromDate}
-                onChange={(e) =>
-                  setFilters((prev) => ({ ...prev, fromDate: e.target.value }))
-                }
-                className={`w-full p-2 rounded border ${theme === "dark"
-                  ? "bg-gray-700 border-gray-600 focus:border-blue-500"
-                  : "bg-white border-gray-300 focus:border-blue-500"
-                  } outline-none`}
-              />
-            </div>
+            {/* From Date / Month Select / Quarter Select */}
+            {filters.dateRange === "month" ? (
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Select Month
+                </label>
+                <select
+                  title="Select Month"
+                  value={selectedMonthFilter}
+                  onChange={(e) => handleMonthSelect(e.target.value)}
+                  className={`w-full p-2 rounded border ${theme === "dark"
+                    ? "bg-gray-700 border-gray-600 focus:border-blue-500"
+                    : "bg-white border-gray-300 focus:border-blue-500"
+                    } outline-none`}
+                >
+                  {MONTHS.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : filters.dateRange === "quarter" ? (
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Select Quarter
+                </label>
+                <select
+                  title="Select Quarter"
+                  value={selectedQuarterFilter}
+                  onChange={(e) => handleQuarterSelect(e.target.value)}
+                  className={`w-full p-2 rounded border ${theme === "dark"
+                    ? "bg-gray-700 border-gray-600 focus:border-blue-500"
+                    : "bg-white border-gray-300 focus:border-blue-500"
+                    } outline-none`}
+                >
+                  {QUARTERS.map((q) => (
+                    <option key={q.key} value={q.key}>
+                      {q.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : filters.dateRange === "custom" ? (
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  From Date
+                </label>
+                <input
+                  type="date"
+                  title="Select From Date"
+                  value={filters.fromDate}
+                  onChange={(e) =>
+                    setFilters((prev) => ({ ...prev, fromDate: e.target.value }))
+                  }
+                  className={`w-full p-2 rounded border ${theme === "dark"
+                    ? "bg-gray-700 border-gray-600 focus:border-blue-500"
+                    : "bg-white border-gray-300 focus:border-blue-500"
+                    } outline-none`}
+                />
+              </div>
+            ) : null}
 
             {/* To Date */}
-            <div>
-              <label className="block text-sm font-medium mb-1">To Date</label>
-              <input
-                type="date"
-                title="Select To Date"
-                value={filters.toDate}
-                onChange={(e) =>
-                  setFilters((prev) => ({ ...prev, toDate: e.target.value }))
-                }
-                className={`w-full p-2 rounded border ${theme === "dark"
-                  ? "bg-gray-700 border-gray-600 focus:border-blue-500"
-                  : "bg-white border-gray-300 focus:border-blue-500"
-                  } outline-none`}
-              />
-            </div>
+            {filters.dateRange === "custom" && (
+              <div>
+                <label className="block text-sm font-medium mb-1">To Date</label>
+                <input
+                  type="date"
+                  title="Select To Date"
+                  value={filters.toDate}
+                  onChange={(e) =>
+                    setFilters((prev) => ({ ...prev, toDate: e.target.value }))
+                  }
+                  className={`w-full p-2 rounded border ${theme === "dark"
+                    ? "bg-gray-700 border-gray-600 focus:border-blue-500"
+                    : "bg-white border-gray-300 focus:border-blue-500"
+                    } outline-none`}
+                />
+              </div>
+            )}
 
             {/* Clear Filters */}
             <div className="flex items-end">
               <button
                 onClick={() =>
                   setFilters({
-                    dateRange: "this-year",
-                    fromDate: new Date(
-                      new Date().getFullYear(),
-                      0,
-                      1
-                    )
-                      .toISOString()
-                      .split("T")[0],
-                    toDate: new Date().toISOString().split("T")[0],
+                    dateRange: "all",
+                    fromDate: "",
+                    toDate: "",
                     partyFilter: "",
                     itemFilter: "",
                     voucherTypeFilter: "",
