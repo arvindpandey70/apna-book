@@ -104,8 +104,8 @@ const SalesReport: React.FC = () => {
     | "billwiseprofit"
   >("summary");
   const [filters, setFilters] = useState<FilterState>({
-    dateRange: "this-month",
-    fromDate: new Date(new Date().getFullYear(), new Date().getMonth(), -100)
+    dateRange: "this-year",
+    fromDate: new Date(new Date().getFullYear(), 0, 1)
       .toISOString()
       .split("T")[0],
     toDate: new Date().toISOString().split("T")[0],
@@ -1007,9 +1007,6 @@ const SalesReport: React.FC = () => {
                   } outline-none`}
               >
                 <option value="today">Today</option>
-                <option value="yesterday">Yesterday</option>
-                <option value="this-week">This Week</option>
-                <option value="this-month">This Month</option>
                 <option value="this-quarter">This Quarter</option>
                 <option value="this-year">This Year</option>
                 <option value="custom">Custom Range</option>
@@ -1057,10 +1054,10 @@ const SalesReport: React.FC = () => {
               <button
                 onClick={() =>
                   setFilters({
-                    dateRange: "this-month",
+                    dateRange: "this-year",
                     fromDate: new Date(
                       new Date().getFullYear(),
-                      new Date().getMonth(),
+                      0,
                       1
                     )
                       .toISOString()
