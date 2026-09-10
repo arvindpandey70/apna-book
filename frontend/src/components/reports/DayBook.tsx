@@ -87,7 +87,6 @@ const DayBook: React.FC = () => {
   const [selectedVoucher, setSelectedVoucher] = useState<VoucherGroup | null>(
     null
   );
-  const [hoveredVoucherId, setHoveredVoucherId] = useState<string | null>(null);
   const [activeVoucherId, setActiveVoucherId] = useState<string | null>(null);
 
   const [groupedVouchers, setGroupedVouchers] = useState<VoucherGroup[]>([]);
@@ -858,14 +857,11 @@ const DayBook: React.FC = () => {
                   groupedVouchers.map((voucher) => (
                     <tr
                       key={voucher.voucherId}
-                      onMouseEnter={() => setHoveredVoucherId(voucher.voucherId)}
-                      onMouseLeave={() => setHoveredVoucherId(null)}
-                      onDoubleClick={() => setActiveVoucherId(activeVoucherId === voucher.voucherId ? null : voucher.voucherId)}
-                      className={`transition-all duration-150 cursor-pointer ${theme === "dark"
-                        ? `border-b border-gray-700 ${hoveredVoucherId === voucher.voucherId || activeVoucherId === voucher.voucherId ? "bg-blue-600 text-white font-bold" : "hover:bg-blue-600 hover:text-white"}`
-                        : `border-b border-gray-200 ${hoveredVoucherId === voucher.voucherId || activeVoucherId === voucher.voucherId ? "bg-blue-600 text-white font-bold" : "hover:bg-blue-600 hover:text-white font-bold"}`
+                      onDoubleClick={() => setActiveVoucherId(voucher.voucherId)}
+                      className={`transition-colors duration-75 cursor-pointer ${theme === "dark"
+                        ? `border-b border-gray-700 ${activeVoucherId === voucher.voucherId ? "bg-blue-600 text-white font-bold" : "hover:bg-blue-600 hover:text-white"}`
+                        : `border-b border-gray-200 ${activeVoucherId === voucher.voucherId ? "bg-blue-600 text-white font-bold" : "hover:bg-blue-600 hover:text-white"}`
                         }`}
-                      onClick={() => handleVoucherClick(voucher)}
                     >
                       <td className="px-4 py-3">
                         {voucher.date ? formatDate(String(voucher.date)) : "—"}
@@ -1027,12 +1023,10 @@ const DayBook: React.FC = () => {
                     return (
                       <tr
                         key={`${entry.id}-${index}`}
-                        onMouseEnter={() => setHoveredVoucherId(entry.voucherId)}
-                        onMouseLeave={() => setHoveredVoucherId(null)}
-                        onDoubleClick={() => setActiveVoucherId(activeVoucherId === entry.voucherId ? null : entry.voucherId)}
-                        className={`transition-all duration-150 ${theme === "dark"
-                          ? `border-b border-gray-700 ${hoveredVoucherId === entry.voucherId || activeVoucherId === entry.voucherId ? "bg-blue-600 text-white font-bold" : "hover:bg-blue-600 hover:text-white"}`
-                          : `border-b border-gray-200 ${hoveredVoucherId === entry.voucherId || activeVoucherId === entry.voucherId ? "bg-blue-600 text-white font-bold" : "hover:bg-blue-600 hover:text-white font-bold"}`
+                        onDoubleClick={() => setActiveVoucherId(entry.voucherId)}
+                        className={`transition-colors duration-75 cursor-pointer ${theme === "dark"
+                          ? `border-b border-gray-700 ${activeVoucherId === entry.voucherId ? "bg-blue-600 text-white font-bold" : "hover:bg-blue-600 hover:text-white"}`
+                          : `border-b border-gray-200 ${activeVoucherId === entry.voucherId ? "bg-blue-600 text-white font-bold" : "hover:bg-blue-600 hover:text-white"}`
                           }`}
                       >
                         {/* DATE */}
