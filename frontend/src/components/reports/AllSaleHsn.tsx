@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+﻿import React, { useState, useMemo, useEffect } from "react";
 import { useAppContext } from "../../context/AppContext";
 import { useNavigate } from "react-router-dom";
 import {
@@ -837,37 +837,37 @@ const AllSaleHsn: React.FC = () => {
       {/* TAB 1: DASHBOARD TAB CONTENT                                        */}
       {/* =================================================================== */}
       {!loading && !error && activeTab === "dashboard" && (
-        <div className="space-y-6">
-          {/* Dashboard Filter & Header Bar */}
+        <div className="space-y-4">
+          {/* Header Bar */}
           <div
-            className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+            className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
               theme === "dark"
                 ? "bg-gray-800/90 border-gray-700"
                 : "bg-white border-gray-200 shadow-sm"
             }`}
           >
             <div className="flex items-center gap-2">
-              <PieChart className="text-blue-600 dark:text-blue-400" size={20} />
-              <h2 className="text-base font-bold text-gray-900 dark:text-white">
-                HSN Overview
+              <PieChart className="text-blue-600 dark:text-blue-400" size={18} />
+              <h2 className="text-sm font-bold text-gray-900 dark:text-white">
+                HSN Summary
               </h2>
-              <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">
-                (Click any HSN card to view filtered Details)
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                ({dashboardFilteredHsns.length} HSN codes) — Click a row to view Details
               </span>
             </div>
 
             {/* HSN Quick Search */}
-            <div className="relative w-full sm:w-72">
+            <div className="relative w-full sm:w-64">
               <Search
-                size={16}
+                size={14}
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
               />
               <input
                 type="text"
-                placeholder="Search HSN code or item..."
+                placeholder="Search HSN code..."
                 value={dashboardHsnSearch}
                 onChange={(e) => setDashboardHsnSearch(e.target.value)}
-                className={`w-full pl-9 pr-3 py-2 text-xs rounded-xl border ${
+                className={`w-full pl-9 pr-3 py-1.5 text-xs rounded-lg border ${
                   theme === "dark"
                     ? "bg-gray-700/80 border-gray-600 text-white placeholder-gray-400"
                     : "bg-gray-50 border-gray-200 text-black placeholder-gray-400"
@@ -876,58 +876,127 @@ const AllSaleHsn: React.FC = () => {
             </div>
           </div>
 
-          {/* Direct 3-Column HSN Cards Grid (Without Batch Headers) */}
+          {/* Excel-Style HSN Summary Table */}
           {dashboardFilteredHsns.length === 0 ? (
             <div className="text-center py-16 text-gray-500 dark:text-gray-400 text-sm">
               No HSN data found for the selected criteria.
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-              {dashboardFilteredHsns.map((item) => {
-                const isSelected = selectedHsnCode === item.hsnCode;
-                const themeStyle = item.colorTheme;
-
-                return (
-                  <div
-                    key={item.hsnCode}
-                    onClick={() => handleHsnCardClick(item.hsnCode)}
-                    className={`p-5 rounded-2xl cursor-pointer transition-all duration-300 ${
-                      themeStyle.cardBg
-                    } ${
-                      isSelected
-                        ? "ring-4 ring-white/90 shadow-2xl scale-[1.02]"
-                        : "shadow-md"
-                    } transform hover:-translate-y-1.5 hover:shadow-2xl flex flex-col justify-between space-y-4`}
-                  >
-                    {/* Header: Large HSN Number */}
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="text-[11px] font-bold uppercase tracking-wider block opacity-85 text-white">
-                          HSN CODE
-                        </span>
-                        <h3 className="text-3xl font-black font-mono tracking-tight text-white mt-0.5">
-                          {item.hsnCode}
-                        </h3>
-                      </div>
-                      <span
-                        className={`px-3 py-1.5 text-xs font-bold rounded-xl ${themeStyle.badgeBg}`}
-                      >
-                        Details →
-                      </span>
-                    </div>
-
-                    {/* Footer: Total Invoice */}
-                    <div className={`pt-3 border-t ${themeStyle.divider} flex items-center justify-between`}>
-                      <span className={`text-xs font-semibold ${themeStyle.totalLabel}`}>
-                        Total Invoice
-                      </span>
-                      <span className={themeStyle.totalAmount}>
-                        {formatCurrency(item.totalValue)}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
+            <div
+              className={`rounded-xl border overflow-hidden ${
+                theme === "dark" ? "border-gray-700" : "border-gray-300"
+              }`}
+            >
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className={`${
+                      theme === "dark"
+                        ? "bg-blue-900/60 text-blue-100"
+                        : "bg-blue-600 text-white"
+                    }`}>
+                      <th className="px-5 py-3.5 text-left font-bold border-r border-white/20 dark:border-blue-700 w-8">#</th>
+                      <th className="px-5 py-3.5 text-left font-bold border-r border-white/20 dark:border-blue-700">HSN Code</th>
+                      <th className="px-5 py-3.5 text-right font-bold border-r border-white/20 dark:border-blue-700">Taxable Value</th>
+                      <th className="px-5 py-3.5 text-right font-bold border-r border-white/20 dark:border-blue-700">IGST</th>
+                      <th className="px-5 py-3.5 text-right font-bold border-r border-white/20 dark:border-blue-700">CGST</th>
+                      <th className="px-5 py-3.5 text-right font-bold border-r border-white/20 dark:border-blue-700">SGST</th>
+                      <th className="px-5 py-3.5 text-right font-bold border-r border-white/20 dark:border-blue-700">Total Tax</th>
+                      <th className="px-5 py-3.5 text-right font-bold border-r border-white/20 dark:border-blue-700">Total Invoice</th>
+                      <th className="px-5 py-3.5 text-center font-bold">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dashboardFilteredHsns.map((item, idx) => {
+                      const isSelected = selectedHsnCode === item.hsnCode;
+                      return (
+                        <tr
+                          key={item.hsnCode}
+                          onClick={() => handleHsnCardClick(item.hsnCode)}
+                          className={`cursor-pointer border-b transition-colors ${
+                            isSelected
+                              ? theme === "dark"
+                                ? "bg-blue-900/40 border-blue-700"
+                                : "bg-blue-50 border-blue-200"
+                              : idx % 2 === 0
+                              ? theme === "dark"
+                                ? "bg-gray-800 border-gray-700 hover:bg-gray-750"
+                                : "bg-white border-gray-200 hover:bg-blue-50/40"
+                              : theme === "dark"
+                              ? "bg-gray-800/60 border-gray-700 hover:bg-gray-750"
+                              : "bg-gray-50/70 border-gray-200 hover:bg-blue-50/40"
+                          }`}
+                        >
+                          <td className={`px-4 py-2 text-center font-medium border-r ${
+                            theme === "dark" ? "border-gray-700 text-gray-400" : "border-gray-200 text-gray-500"
+                          }`}>{idx + 1}</td>
+                          <td className={`px-4 py-2 border-r font-bold font-mono ${
+                            theme === "dark" ? "border-gray-700 text-blue-400" : "border-gray-200 text-blue-700"
+                          }`}>{item.hsnCode}</td>
+                          <td className={`px-4 py-2 text-right border-r ${
+                            theme === "dark" ? "border-gray-700 text-gray-200" : "border-gray-200 text-gray-800"
+                          }`}>₹{item.totalTaxableValue.toFixed(2)}</td>
+                          <td className={`px-4 py-2 text-right border-r ${
+                            theme === "dark" ? "border-gray-700 text-gray-300" : "border-gray-200 text-gray-700"
+                          }`}>₹{item.totalIgst.toFixed(2)}</td>
+                          <td className={`px-4 py-2 text-right border-r ${
+                            theme === "dark" ? "border-gray-700 text-gray-300" : "border-gray-200 text-gray-700"
+                          }`}>₹{item.totalCgst.toFixed(2)}</td>
+                          <td className={`px-4 py-2 text-right border-r ${
+                            theme === "dark" ? "border-gray-700 text-gray-300" : "border-gray-200 text-gray-700"
+                          }`}>₹{item.totalSgst.toFixed(2)}</td>
+                          <td className={`px-4 py-2 text-right border-r ${
+                            theme === "dark" ? "border-gray-700 text-gray-300" : "border-gray-200 text-gray-700"
+                          }`}>₹{item.totalTax.toFixed(2)}</td>
+                          <td className={`px-4 py-2 text-right border-r font-bold ${
+                            theme === "dark" ? "border-gray-700 text-emerald-400" : "border-gray-200 text-emerald-700"
+                          }`}>₹{item.totalValue.toFixed(2)}</td>
+                          <td className="px-5 py-3.5 text-center">
+                            <span className={`inline-flex items-center px-2.5 py-1 text-[11px] font-semibold rounded-md ${
+                              theme === "dark"
+                                ? "bg-blue-800/60 text-blue-300 border border-blue-700"
+                                : "bg-blue-100 text-blue-700 border border-blue-200"
+                            }`}>View →</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className={`font-bold border-t-2 ${
+                      theme === "dark"
+                        ? "bg-gray-700/80 text-white border-gray-500"
+                        : "bg-gray-100 text-gray-900 border-gray-400"
+                    }`}>
+                      <td className={`px-4 py-2 border-r ${theme === "dark" ? "border-gray-600" : "border-gray-300"}`}></td>
+                      <td className={`px-4 py-2 border-r ${theme === "dark" ? "border-gray-600" : "border-gray-300"}`}>
+                        Grand Total ({dashboardFilteredHsns.length})
+                      </td>
+                      <td className={`px-4 py-2 text-right border-r ${theme === "dark" ? "border-gray-600" : "border-gray-300"}`}>
+                        ₹{dashboardFilteredHsns.reduce((s, i) => s + i.totalTaxableValue, 0).toFixed(2)}
+                      </td>
+                      <td className={`px-4 py-2 text-right border-r ${theme === "dark" ? "border-gray-600" : "border-gray-300"}`}>
+                        ₹{dashboardFilteredHsns.reduce((s, i) => s + i.totalIgst, 0).toFixed(2)}
+                      </td>
+                      <td className={`px-4 py-2 text-right border-r ${theme === "dark" ? "border-gray-600" : "border-gray-300"}`}>
+                        ₹{dashboardFilteredHsns.reduce((s, i) => s + i.totalCgst, 0).toFixed(2)}
+                      </td>
+                      <td className={`px-4 py-2 text-right border-r ${theme === "dark" ? "border-gray-600" : "border-gray-300"}`}>
+                        ₹{dashboardFilteredHsns.reduce((s, i) => s + i.totalSgst, 0).toFixed(2)}
+                      </td>
+                      <td className={`px-4 py-2 text-right border-r ${theme === "dark" ? "border-gray-600" : "border-gray-300"}`}>
+                        ₹{dashboardFilteredHsns.reduce((s, i) => s + i.totalTax, 0).toFixed(2)}
+                      </td>
+                      <td className={`px-4 py-2 text-right border-r font-bold ${
+                        theme === "dark" ? "border-gray-600 text-emerald-400" : "border-gray-300 text-emerald-700"
+                      }`}>
+                        ₹{dashboardFilteredHsns.reduce((s, i) => s + i.totalValue, 0).toFixed(2)}
+                      </td>
+                      <td className="px-4 py-2"></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
             </div>
           )}
         </div>

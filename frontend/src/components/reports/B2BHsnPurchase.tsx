@@ -1,172 +1,241 @@
-import React, { useState, useMemo, useRef, useEffect } from "react";
+﻿import React, { useState, useMemo, useEffect } from "react";
 import { useAppContext } from "../../context/AppContext";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Download, Filter, Building2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Download,
+  Filter,
+  Building2,
+  Search,
+  PieChart,
+  TableProperties,
+  X,
+} from "lucide-react";
 import * as XLSX from "xlsx";
-import { formatSingleQuantity, formatAggregatedQuantities } from "../../utils/formatQuantity";
 import "./reports.css";
-interface B2BTransactionLine {
-  totalAmount: any;
-  taxAmount: any;
-  priority: any;
-  outstanding: any;
-  contractDetails?: {
-    contractId: string;
-    startDate: string;
-    endDate: string;
-    renewalTerms: string;
-    volumeCommitments: number;
-  };
-  contactPerson: any;
-  businessGSTIN: any;
-  id: any;
-  dueDate: any;
-  netAmount: number;
-  businessType: string;
-  status: string;
-  transactionType: string;
-  businessName: any;
-  voucherId: number;
-  voucherNo: string;
-  date: string;
-  narration: string | null;
-  referenceNo: string | null;
-  subtotal: string;
-  cgstTotal: string;
-  sgstTotal: string;
-  igstTotal: string;
-  discountTotal: string;
-  total: string;
-  createdAt: string;
-  partyId: number;
-  partyName: string;
-  partyGSTIN: string | null;
-  itemId: number;
-  itemName: string;
-  hsnCode: string | null;
-  quantity: string;
-  unit: string | null;
-  rate: string;
-  amount: string;
-  cgstRate: string;
-  sgstRate: string;
-  igstRate: string;
-}
 
+// ─────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────
 interface FilterState {
   dateRange: string;
   fromDate: string;
   toDate: string;
-  businessFilter: string;
-  transactionType: string;
-  statusFilter: string;
-  businessTypeFilter: string;
-  priorityFilter: string;
-  amountRangeMin: string;
-  amountRangeMax: string;
 }
 
-type ViewType =
-  | "dashboard"
-  | "transactions"
-  | "partners"
-  | "analytics"
-  | "contracts";
+type ActiveTab = "dashboard" | "details";
 
+// ─────────────────────────────────────────────
+// Helper
+// ─────────────────────────────────────────────
+const fmt = (n: number) =>
+  new Intl.NumberFormat("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(n);
+
+// ─────────────────────────────────────────────
+// Component
+// ─────────────────────────────────────────────
 const B2BPurchaseHsn: React.FC = () => {
-  const { theme, units } = useAppContext();
+  const { theme } = useAppContext();
   const navigate = useNavigate();
-  const printRef = useRef<HTMLDivElement | null>(null);
 
-  const [transactions, setTransactions] = useState<B2BTransactionLine[]>([]);
-  const [, setLoading] = useState(false);
-  const [, setError] = useState<string | null>(null);
-
-  // Example filters — can be moved to state and UI controlled
   const companyId = localStorage.getItem("company_id") || "";
   const ownerType = localStorage.getItem("supplier") || "";
   const ownerId =
-    localStorage.getItem(
-      ownerType === "employee" ? "employee_id" : "user_id"
-    ) || "";
+    localStorage.getItem(ownerType === "employee" ? "employee_id" : "user_id") || "";
 
+  // ── Data States ──────────────────────────────
+  const [purchaseData, setPurchaseData] = useState<any[]>([]);
+  const [ledger, setLedger] = useState<any[]>([]);
+  const [purchaseHistory, setPurchaseHistory] = useState<any[]>([]);
+  const [rawMatchedPurchases, setRawMatchedPurchases] = useState<any[]>([]);
+  const [partyIds, setPartyIds] = useState<number[]>([]);
+
+  // ── UI States ────────────────────────────────
+  const [activeTab, setActiveTab] = useState<ActiveTab>("dashboard");
   const [showFilterPanel, setShowFilterPanel] = useState(false);
-  const [selectedView, setSelectedView] = useState<ViewType>("dashboard");
+  const [dashboardHsnSearch, setDashboardHsnSearch] = useState("");
+  const [selectedHsnCode, setSelectedHsnCode] = useState<string | null>(null);
   const [filters, setFilters] = useState<FilterState>({
-    dateRange: "this-month",
-    fromDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-      .toISOString()
-      .split("T")[0],
+    dateRange: "this-year",
+    fromDate: new Date(new Date().getFullYear(), 0, 1).toISOString().split("T")[0],
     toDate: new Date().toISOString().split("T")[0],
-    businessFilter: "",
-    transactionType: "",
-    statusFilter: "",
-    businessTypeFilter: "",
-    priorityFilter: "",
-    amountRangeMin: "",
-    amountRangeMax: "",
   });
 
-  const filteredTransactions = useMemo(() => {
-    return transactions.filter((transaction) => {
-      // Safety filter: Ensure GST number exists (backend already filters, but double-check)
-      const hasGstNumber =
-        transaction.businessGSTIN &&
-        String(transaction.businessGSTIN).trim() !== "";
-
-      const transactionDate = new Date(transaction.date);
-      const fromDate = new Date(filters.fromDate);
-      const toDate = new Date(filters.toDate);
-      const dateInRange =
-        transactionDate >= fromDate && transactionDate <= toDate;
-      const businessMatch =
-        !filters.businessFilter ||
-        transaction.businessName
-          .toLowerCase()
-          .includes(filters.businessFilter.toLowerCase());
-      const typeMatch =
-        !filters.transactionType ||
-        transaction.transactionType === filters.transactionType;
-      const statusMatch =
-        !filters.statusFilter || transaction.status === filters.statusFilter;
-      const businessTypeMatch =
-        !filters.businessTypeFilter ||
-        transaction.businessType === filters.businessTypeFilter;
-      // Implement amountRange filter if needed (parsing)
-      if (
-        filters.amountRangeMin &&
-        transaction.netAmount < parseFloat(filters.amountRangeMin)
-      )
-        return false;
-      if (
-        filters.amountRangeMax &&
-        transaction.netAmount > parseFloat(filters.amountRangeMax)
-      )
-        return false;
-
-      return (
-        hasGstNumber &&
-        dateInRange &&
-        businessMatch &&
-        typeMatch &&
-        statusMatch &&
-        businessTypeMatch
-      );
-    });
-  }, [transactions, filters]);
-
-  // Update progress bar widths after render
+  // ── Fetch Purchase Vouchers ──────────────────
   useEffect(() => {
-    const progressBars = document.querySelectorAll(
-      ".progress-bar[data-percentage]"
-    );
-    progressBars.forEach((bar) => {
-      const percentage = bar.getAttribute("data-percentage");
-      if (percentage && bar instanceof HTMLElement) {
-        bar.style.width = `${percentage}%`;
+    if (!companyId || !ownerType || !ownerId) return;
+    const load = async () => {
+      try {
+        const res = await fetch(
+          `${import.meta.env.VITE_API_URL}/api/purchase-vouchers?company_id=${companyId}&owner_type=${ownerType}&owner_id=${ownerId}`
+        );
+        const json = await res.json();
+        const vouchers = Array.isArray(json?.data)
+          ? json.data
+          : Array.isArray(json)
+          ? json
+          : [];
+        setPurchaseData(vouchers);
+        setPartyIds(
+          vouchers.map((v: any) => v.partyId).filter((id: any) => id != null)
+        );
+      } catch {
+        setPurchaseData([]);
+        setPartyIds([]);
       }
+    };
+    load();
+  }, [companyId, ownerType, ownerId]);
+
+  // ── Fetch Ledger ─────────────────────────────
+  useEffect(() => {
+    if (!companyId || !ownerType || !ownerId) return;
+    const load = async () => {
+      try {
+        const res = await fetch(
+          `${import.meta.env.VITE_API_URL}/api/ledger?company_id=${companyId}&owner_type=${ownerType}&owner_id=${ownerId}`
+        );
+        const json = await res.json();
+        setLedger(Array.isArray(json) ? json : []);
+      } catch {
+        setLedger([]);
+      }
+    };
+    load();
+  }, [companyId, ownerType, ownerId]);
+
+  // ── Fetch Purchase History (HSN) ─────────────
+  useEffect(() => {
+    if (!companyId || !ownerType || !ownerId) return;
+    const load = async () => {
+      try {
+        const res = await fetch(
+          `${import.meta.env.VITE_API_URL}/api/purchase-vouchers/purchase-history?company_id=${companyId}&owner_type=${ownerType}&owner_id=${ownerId}`
+        );
+        const json = await res.json();
+        const rows = Array.isArray(json?.data)
+          ? json.data
+          : Array.isArray(json)
+          ? json
+          : [];
+        setPurchaseHistory(rows);
+      } catch {
+        setPurchaseHistory([]);
+      }
+    };
+    load();
+  }, [companyId, ownerType, ownerId]);
+
+  // ── Match B2B Purchases (party must have GSTIN) ──
+  useEffect(() => {
+    if (!partyIds.length || !ledger.length || !purchaseData.length) return;
+    const partyIdSet = new Set(partyIds);
+    const gstLedgers = ledger.filter(
+      (l: any) =>
+        partyIdSet.has(l.id) && l.gstNumber && String(l.gstNumber).trim() !== ""
+    );
+    const gstLedgerIds = new Set(gstLedgers.map((l: any) => l.id));
+    setRawMatchedPurchases(
+      purchaseData.filter((s: any) => gstLedgerIds.has(s.partyId))
+    );
+  }, [partyIds, ledger, purchaseData]);
+
+  // ── Lookup Maps ──────────────────────────────
+  const ledgerMap = useMemo(() => {
+    const m = new Map<number, any>();
+    ledger.forEach((l: any) => m.set(l.id, l));
+    return m;
+  }, [ledger]);
+
+  const purchaseHistoryMap = useMemo(
+    () => new Map(purchaseHistory.map((h: any) => [h.voucherNumber, h])),
+    [purchaseHistory]
+  );
+
+  // ── Date-filtered matched purchases ──────────
+  const matchedPurchases = useMemo(() => {
+    return rawMatchedPurchases.filter((s: any) => {
+      if (!s.date) return false;
+      const d = new Date(s.date);
+      d.setHours(0, 0, 0, 0);
+      const from = new Date(filters.fromDate);
+      from.setHours(0, 0, 0, 0);
+      const to = new Date(filters.toDate);
+      to.setHours(23, 59, 59, 999);
+      return d >= from && d <= to;
     });
-  });
+  }, [rawMatchedPurchases, filters]);
+
+  // ── HSN Summary (Dashboard) ──────────────────
+  const hsnSummaryList = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        hsnCode: string;
+        totalTaxableValue: number;
+        totalIgst: number;
+        totalCgst: number;
+        totalSgst: number;
+        totalTax: number;
+        totalValue: number;
+        transactionCount: number;
+      }
+    >();
+
+    matchedPurchases.forEach((purchase: any) => {
+      const hsn = purchaseHistoryMap.get(purchase.number)?.hsnCode || "N/A";
+      if (!map.has(hsn)) {
+        map.set(hsn, {
+          hsnCode: hsn,
+          totalTaxableValue: 0,
+          totalIgst: 0,
+          totalCgst: 0,
+          totalSgst: 0,
+          totalTax: 0,
+          totalValue: 0,
+          transactionCount: 0,
+        });
+      }
+      const item = map.get(hsn)!;
+      const igst = Number(purchase.igstTotal || 0);
+      const cgst = Number(purchase.cgstTotal || 0);
+      const sgst = Number(purchase.sgstTotal || 0);
+      item.totalTaxableValue += Number(purchase.subtotal || 0);
+      item.totalIgst += igst;
+      item.totalCgst += cgst;
+      item.totalSgst += sgst;
+      item.totalTax += igst + cgst + sgst;
+      item.totalValue += Number(purchase.total || 0);
+      item.transactionCount += 1;
+    });
+
+    return Array.from(map.values()).sort((a, b) => b.totalValue - a.totalValue);
+  }, [matchedPurchases, purchaseHistoryMap]);
+
+  // ── Dashboard filtered (search) ──────────────
+  const dashboardFilteredHsns = useMemo(() => {
+    if (!dashboardHsnSearch.trim()) return hsnSummaryList;
+    const q = dashboardHsnSearch.trim().toLowerCase();
+    return hsnSummaryList.filter((h) => h.hsnCode.toLowerCase().includes(q));
+  }, [hsnSummaryList, dashboardHsnSearch]);
+
+  // ── Details: voucher rows filtered by HSN ────
+  const detailRows = useMemo(() => {
+    return matchedPurchases.filter((purchase: any) => {
+      const hsn = purchaseHistoryMap.get(purchase.number)?.hsnCode || "N/A";
+      if (!selectedHsnCode) return true;
+      return hsn === selectedHsnCode;
+    });
+  }, [matchedPurchases, selectedHsnCode, purchaseHistoryMap]);
+
+  // ── Handlers ─────────────────────────────────
+  const handleHsnRowClick = (hsnCode: string) => {
+    setSelectedHsnCode(hsnCode);
+    setActiveTab("details");
+  };
 
   const handleFilterChange = (key: keyof FilterState, value: string) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
@@ -174,39 +243,31 @@ const B2BPurchaseHsn: React.FC = () => {
 
   const handleDateRangeChange = (range: string) => {
     if (range === "custom") {
-      setFilters((prev) => ({
-        ...prev,
-        dateRange: range,
-      }));
+      setFilters((prev) => ({ ...prev, dateRange: range }));
       return;
     }
-
     const today = new Date();
     let fromDate = new Date();
     let toDate = new Date();
-
     switch (range) {
       case "today":
         fromDate = toDate = today;
         break;
       case "this-week":
-        fromDate = new Date(
-          today.getTime() - today.getDay() * 24 * 60 * 60 * 1000
-        );
+        fromDate = new Date(today.getTime() - today.getDay() * 86400000);
         break;
       case "this-month":
         fromDate = new Date(today.getFullYear(), today.getMonth(), 1);
         break;
       case "this-quarter": {
-        const quarterStart = Math.floor(today.getMonth() / 3) * 3;
-        fromDate = new Date(today.getFullYear(), quarterStart, 1);
+        const qs = Math.floor(today.getMonth() / 3) * 3;
+        fromDate = new Date(today.getFullYear(), qs, 1);
         break;
       }
       case "this-year":
         fromDate = new Date(today.getFullYear(), 0, 1);
         break;
     }
-
     setFilters((prev) => ({
       ...prev,
       dateRange: range,
@@ -215,266 +276,93 @@ const B2BPurchaseHsn: React.FC = () => {
     }));
   };
 
+  // ── Export ───────────────────────────────────
   const handleExport = () => {
-    const exportData = filteredTransactions.map((transaction) => ({
-      "Transaction ID": transaction.id,
-      Type: transaction.transactionType,
-      "Business Name": transaction.businessName,
-      GSTIN: transaction.businessGSTIN,
-      "Contact Person": transaction.contactPerson,
-      Date: transaction.date,
-      "Total Amount": transaction.totalAmount,
-      "Tax Amount": transaction.taxAmount,
-      "Net Amount": transaction.netAmount,
-      Status: transaction.status,
-      Priority: transaction.priority,
-      Outstanding: transaction.outstanding,
-    }));
+    const data =
+      activeTab === "dashboard"
+        ? dashboardFilteredHsns.map((h) => ({
+            "HSN Code": h.hsnCode,
+            "Taxable Value": h.totalTaxableValue.toFixed(2),
+            IGST: h.totalIgst.toFixed(2),
+            CGST: h.totalCgst.toFixed(2),
+            SGST: h.totalSgst.toFixed(2),
+            "Total Tax": h.totalTax.toFixed(2),
+            "Total Invoice": h.totalValue.toFixed(2),
+            Transactions: h.transactionCount,
+          }))
+        : detailRows.map((purchase: any) => {
+            const ledgerEntry = ledgerMap.get(purchase.partyId);
+            const hist = purchaseHistoryMap.get(purchase.number);
+            return {
+              HSN: hist?.hsnCode || "N/A",
+              Supplier: ledgerEntry?.name || "Unknown",
+              "Voucher No": purchase.number,
+              "GST No": ledgerEntry?.gstNumber || "-",
+              QTY: hist?.purchaseQuantity ? Math.abs(hist.purchaseQuantity) : 0,
+              Rate: hist?.rate || 0,
+              "Taxable Amount": Number(purchase.subtotal || 0).toFixed(2),
+              IGST: Number(purchase.igstTotal || 0).toFixed(2),
+              CGST: Number(purchase.cgstTotal || 0).toFixed(2),
+              SGST: Number(purchase.sgstTotal || 0).toFixed(2),
+              "Total Amount": Number(purchase.total || 0).toFixed(2),
+              Date: new Date(purchase.date).toLocaleDateString("en-IN"),
+            };
+          });
 
-    const ws = XLSX.utils.json_to_sheet(exportData);
+    const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "B2B Transactions");
+    XLSX.utils.book_append_sheet(
+      wb,
+      ws,
+      activeTab === "dashboard" ? "HSN Summary" : "HSN Details"
+    );
     XLSX.writeFile(
       wb,
-      `B2B_Report_${new Date().toISOString().split("T")[0]}.xlsx`
+      `B2B_Purchase_HSN_${activeTab}_${new Date().toISOString().split("T")[0]}.xlsx`
     );
   };
 
-  //disabled block
-  const isTabDisabled = (view: ViewType) => {
-    return view !== "dashboard";
-  };
-
-  const [saleData, setSaleData] = useState<any[]>([]);
-  const [partyIds, setPartyIds] = useState<number[]>([]);
-
-  const [ledger, setLedger] = useState<any[]>([]);
-  const [matchedLedgers, setMatchedLedgers] = useState<any[]>([]);
-
-  const [rawMatchedSales, setRawMatchedSales] = useState<any[]>([]);
-
-  useEffect(() => {
-    if (!companyId || !ownerType || !ownerId) return;
-
-    const loadSalesVouchers = async () => {
-      try {
-        const url = `${
-          import.meta.env.VITE_API_URL
-        }/api/purchase-vouchers?company_id=${companyId}&owner_type=${ownerType}&owner_id=${ownerId}`;
-
-        const res = await fetch(url);
-        const json = await res.json();
-
-        const vouchers = json?.data || json || [];
-
-        const allPartyIds = vouchers
-          .map((v: any) => v.partyId)
-          .filter((id: any) => id !== null && id !== undefined);
-
-        setSaleData(vouchers);
-        setPartyIds(allPartyIds);
-      } catch (err) {
-        console.error("Failed to fetch sales vouchers:", err);
-        setSaleData([]);
-        setPartyIds([]);
-      }
-    };
-
-    loadSalesVouchers();
-  }, [companyId, ownerType, ownerId]);
-
-  // ledger get
-
-  useEffect(() => {
-    const fetchLedger = async () => {
-      try {
-        const ledgerRes = await fetch(
-          `${
-            import.meta.env.VITE_API_URL
-          }/api/ledger?company_id=${companyId}&owner_type=${ownerType}&owner_id=${ownerId}`
-        );
-        const ledgerData = await ledgerRes.json();
-        setLedger(ledgerData || []);
-      } catch (err) {
-        console.error("Ledger fetch failed:", err);
-        setLedger([]);
-      }
-    };
-
-    fetchLedger();
-  }, [companyId, ownerType, ownerId]);
-
-  useEffect(() => {
-    if (!partyIds.length || !ledger.length || !saleData.length) return;
-
-    // 🔹 partyIds → Set (fast lookup)
-    const partyIdSet = new Set(partyIds);
-
-    const filteredLedgers = ledger.filter((l: any) => {
-      return (
-        partyIdSet.has(l.id) && l.gstNumber && String(l.gstNumber).trim() !== ""
-      );
-    });
-
-    setMatchedLedgers(filteredLedgers);
-
-    // 🔹 matched ledger ids ka Set
-    const matchedLedgerIdSet = new Set(filteredLedgers.map((l: any) => l.id));
-
-    const filteredSales = saleData.filter((s: any) =>
-      matchedLedgerIdSet.has(s.partyId)
-    );
-
-    setRawMatchedSales(filteredSales);
-  }, [partyIds, ledger, saleData]);
-
-  const matchedSales = useMemo(() => {
-    return rawMatchedSales.filter((s: any) => {
-      if (!s.date) return false;
-      const saleDate = new Date(s.date);
-      saleDate.setHours(0, 0, 0, 0);
-
-      const from = new Date(filters.fromDate);
-      from.setHours(0, 0, 0, 0);
-
-      const to = new Date(filters.toDate);
-      to.setHours(23, 59, 59, 999);
-
-      return saleDate >= from && saleDate <= to;
-    });
-  }, [rawMatchedSales, filters.fromDate, filters.toDate]);
-
-  // 🔹 Ledger quick lookup (id → ledger)
-  const ledgerMap = useMemo(() => {
-    const map = new Map<number, any>();
-    ledger.forEach((l: any) => {
-      map.set(l.id, l);
-    });
-    return map;
-  }, [ledger]);
-
-  //GET HSN NUMBER FROM SALES HISTORY
-  const [salesHistory, setSalesHistory] = useState<any[]>([]);
-  const [hsnSearch, setHsnSearch] = useState("");
-
-  useEffect(() => {
-    const fetchSalesHistory = async () => {
-      try {
-        const res = await fetch(
-          `${
-            import.meta.env.VITE_API_URL
-          }/api/purchase-vouchers/purchase-history?company_id=${companyId}&owner_type=${ownerType}&owner_id=${ownerId}`
-        );
-        const resJson = await res.json();
-        console.log("res", resJson);
-        const rows = Array.isArray(resJson?.data)
-          ? resJson.data
-          : Array.isArray(resJson)
-          ? resJson
-          : [];
-
-        setSalesHistory(rows);
-      } catch (err) {
-        console.error("Purchase history fetch failed", err);
-        setSalesHistory([]);
-      }
-    };
-
-    fetchSalesHistory();
-  }, [companyId, ownerType, ownerId]);
-
-  const salesHistoryMap = useMemo(() => {
-    return new Map(salesHistory.map((h: any) => [h.voucherNumber, h]));
-  }, [salesHistory]);
-
-  //get hsn number
-  const getHsnByVoucher = (voucherNo: string) => {
-    return salesHistoryMap.get(voucherNo)?.hsnCode || "-";
-  };
-
-  const getQtyByVoucher = (voucherNo: string) => {
-    const qty = salesHistoryMap.get(voucherNo)?.purchaseQuantity;
-    return qty ? Math.abs(qty) : 0;
-  };
-
-  const getQtyFormattedByVoucher = (voucherNo: string) => {
-    const historyItem = salesHistoryMap.get(voucherNo);
-    if (!historyItem) return "0";
-    const qty = historyItem.purchaseQuantity ? Math.abs(historyItem.purchaseQuantity) : 0;
-    return formatSingleQuantity(qty, historyItem.unit, units);
-  };
-
-  const getRateByVoucher = (voucherNo: string) => {
-    return salesHistoryMap.get(voucherNo)?.rate || 0;
-  };
-
-  const dashboardTotals = useMemo(() => {
-    const filtered = matchedSales.filter((sale: any) => {
-      if (!hsnSearch.trim()) return true;
-      const hsn = getHsnByVoucher(sale.number);
-      return hsn?.toString().trim() === hsnSearch.trim();
-    });
-
-    return filtered.reduce((acc, sale) => {
-      acc.qty += Number(getQtyByVoucher(sale.number)) || 0;
-      acc.amount += Number(sale.subtotal || 0);
-      acc.taxValue += (Number(sale.igstTotal || 0) + Number(sale.cgstTotal || 0) + Number(sale.sgstTotal || 0));
-      acc.igst += Number(sale.igstTotal || 0);
-      acc.cgst += Number(sale.cgstTotal || 0);
-      acc.sgst += Number(sale.sgstTotal || 0);
-      acc.total += Number(sale.total || 0);
-      return acc;
-    }, { qty: 0, amount: 0, taxValue: 0, igst: 0, cgst: 0, sgst: 0, total: 0 });
-  }, [matchedSales, hsnSearch, salesHistoryMap]);
+  // ─────────────────────────────────────────────
+  // Render
+  // ─────────────────────────────────────────────
+  const isDark = theme === "dark";
 
   return (
-    <div className="pt-[56px] px-4">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center">
+    <div className="pt-[56px] px-4 pb-8">
+      {/* ── Page Header ── */}
+      <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center gap-3">
           <button
             onClick={() => navigate("/app/reports")}
             title="Back to Reports"
-            className={`p-2 rounded-lg mr-3 ${
-              theme === "dark"
+            className={`p-2 rounded-lg ${
+              isDark
                 ? "bg-gray-700 hover:bg-gray-600 text-white"
                 : "bg-gray-100 hover:bg-gray-200 text-gray-700"
             }`}
           >
-            <ArrowLeft size={20} />
+            <ArrowLeft size={18} />
           </button>
           <div>
-            <h1 className="text-2xl font-bold flex items-center">
-              <Building2 className="mr-2 text-blue-600" size={28} />
-              B2B HSN Management
+            <h1 className="text-xl font-bold flex items-center gap-2">
+              <Building2 className="text-blue-600" size={24} />
+              B2B HSN Purchase Report
             </h1>
-            <p className="text-sm text-gray-600 mt-1">
-              Business-to-Business transactions and partnerships
-            </p>
-            <p className="text-xs text-blue-600 mt-1">
-              📊{" "}
-              <strong>
-                Auto-populated from Ledgers with GSTIN/UIN numbers
-              </strong>{" "}
-              |
-              <span className="ml-2">
-                B2B hsn transactions come from ledgers without GSTIN/UIN
-              </span>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+              Business-to-Business · Purchase Vouchers · Ledgers with GSTIN/UIN · HSN-wise Summary
             </p>
           </div>
         </div>
-        <div className="flex space-x-2">
+        <div className="flex gap-2">
           <button
             onClick={() => setShowFilterPanel(!showFilterPanel)}
             title="Toggle Filters"
             className={`p-2 rounded-lg ${
               showFilterPanel
-                ? theme === "dark"
-                  ? "bg-blue-600"
-                  : "bg-blue-500 text-white"
-                : theme === "dark"
-                ? "bg-gray-700 hover:bg-gray-600"
-                : "bg-gray-100 hover:bg-gray-200"
+                ? "bg-blue-500 text-white"
+                : isDark
+                ? "bg-gray-700 hover:bg-gray-600 text-white"
+                : "bg-gray-100 hover:bg-gray-200 text-gray-700"
             }`}
           >
             <Filter size={16} />
@@ -483,9 +371,9 @@ const B2BPurchaseHsn: React.FC = () => {
             onClick={handleExport}
             title="Export to Excel"
             className={`p-2 rounded-lg ${
-              theme === "dark"
-                ? "bg-gray-700 hover:bg-gray-600"
-                : "bg-gray-100 hover:bg-gray-200"
+              isDark
+                ? "bg-gray-700 hover:bg-gray-600 text-white"
+                : "bg-gray-100 hover:bg-gray-200 text-gray-700"
             }`}
           >
             <Download size={16} />
@@ -493,24 +381,23 @@ const B2BPurchaseHsn: React.FC = () => {
         </div>
       </div>
 
-      {/* Filter Panel */}
+      {/* ── Filter Panel ── */}
       {showFilterPanel && (
         <div
-          className={`p-4 rounded-lg mb-6 ${
-            theme === "dark" ? "bg-gray-800" : "bg-gray-50"
+          className={`p-4 rounded-xl border mb-4 ${
+            isDark ? "bg-gray-800 border-gray-700" : "bg-gray-50 border-gray-200"
           }`}
         >
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1">
+              <label className="block text-xs font-medium mb-1 text-gray-600 dark:text-gray-300">
                 Date Range
               </label>
               <select
                 value={filters.dateRange}
                 onChange={(e) => handleDateRangeChange(e.target.value)}
-                title="Select date range"
-                className={`w-full p-2 rounded border ${
-                  theme === "dark"
+                className={`w-full p-2 rounded-lg border text-xs ${
+                  isDark
                     ? "bg-gray-700 border-gray-600 text-white"
                     : "bg-white border-gray-300 text-black"
                 } outline-none`}
@@ -526,31 +413,33 @@ const B2BPurchaseHsn: React.FC = () => {
             {filters.dateRange === "custom" && (
               <>
                 <div>
-                  <label className="block text-sm font-medium mb-1">
+                  <label className="block text-xs font-medium mb-1 text-gray-600 dark:text-gray-300">
                     From Date
                   </label>
                   <input
                     type="date"
                     value={filters.fromDate}
                     onChange={(e) => handleFilterChange("fromDate", e.target.value)}
-                    className={`w-full p-2 rounded border ${theme === "dark"
-                      ? "bg-gray-700 border-gray-600 text-white"
-                      : "bg-white border-gray-300 text-black"
-                      } outline-none`}
+                    className={`w-full p-2 rounded-lg border text-xs ${
+                      isDark
+                        ? "bg-gray-700 border-gray-600 text-white"
+                        : "bg-white border-gray-300 text-black"
+                    } outline-none`}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">
+                  <label className="block text-xs font-medium mb-1 text-gray-600 dark:text-gray-300">
                     To Date
                   </label>
                   <input
                     type="date"
                     value={filters.toDate}
                     onChange={(e) => handleFilterChange("toDate", e.target.value)}
-                    className={`w-full p-2 rounded border ${theme === "dark"
-                      ? "bg-gray-700 border-gray-600 text-white"
-                      : "bg-white border-gray-300 text-black"
-                      } outline-none`}
+                    className={`w-full p-2 rounded-lg border text-xs ${
+                      isDark
+                        ? "bg-gray-700 border-gray-600 text-white"
+                        : "bg-white border-gray-300 text-black"
+                    } outline-none`}
                   />
                 </div>
               </>
@@ -559,256 +448,408 @@ const B2BPurchaseHsn: React.FC = () => {
         </div>
       )}
 
-      {/* View Selector */}
-      <div className="flex space-x-2 mb-6 overflow-x-auto">
-        {(
-          [
-            "dashboard",
-            "transactions",
-            "partners",
-            "analytics",
-            "contracts",
-          ] as ViewType[]
-        ).map((view) => {
-          const disabled = isTabDisabled(view);
-
-          return (
-            <button
-              key={view}
-              disabled={disabled}
-              onClick={() => {
-                if (!disabled) setSelectedView(view);
-              }}
-              className={`px-4 py-2 rounded-lg capitalize whitespace-nowrap
-          ${
-            selectedView === view
-              ? theme === "dark"
-                ? "bg-blue-600 text-white"
-                : "bg-blue-500 text-white"
-              : theme === "dark"
-              ? "bg-gray-700"
-              : "bg-gray-200"
-          }
-          ${
-            disabled
-              ? "opacity-50 cursor-not-allowed"
-              : "hover:bg-blue-400 hover:text-white"
-          }
-        `}
-              title={disabled ? "Coming soon" : view}
-            >
-              {view}
-            </button>
-          );
-        })}
+      {/* ── Tab Bar ── */}
+      <div
+        className={`flex rounded-xl border mb-4 overflow-hidden ${
+          isDark ? "border-gray-700 bg-gray-800" : "border-gray-200 bg-white shadow-sm"
+        }`}
+      >
+        <button
+          onClick={() => setActiveTab("dashboard")}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-semibold transition-colors ${
+            activeTab === "dashboard"
+              ? "bg-blue-600 text-white"
+              : isDark
+              ? "text-gray-300 hover:bg-gray-700"
+              : "text-gray-600 hover:bg-gray-50"
+          }`}
+        >
+          <PieChart size={15} />
+          Dashboard
+        </button>
+        <button
+          onClick={() => setActiveTab("details")}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-semibold transition-colors ${
+            activeTab === "details"
+              ? "bg-blue-600 text-white"
+              : isDark
+              ? "text-gray-300 hover:bg-gray-700"
+              : "text-gray-600 hover:bg-gray-50"
+          }`}
+        >
+          <TableProperties size={15} />
+          Details
+          {selectedHsnCode && (
+            <span className="ml-1 px-2 py-0.5 text-[10px] rounded-full bg-white/20 dark:bg-blue-800/60 text-white dark:text-blue-200 border border-white/30">
+              {selectedHsnCode}
+            </span>
+          )}
+        </button>
       </div>
 
-      <div ref={printRef}>
-        {/* Dashboard View */}
-        {selectedView === "dashboard" && (
+      {/* ═══════════════════════════════════════════ */}
+      {/* TAB 1: DASHBOARD                            */}
+      {/* ═══════════════════════════════════════════ */}
+      {activeTab === "dashboard" && (
+        <div className="space-y-4">
+          {/* Header Bar */}
           <div
-            className={`p-6 rounded-lg ${
-              theme === "dark" ? "bg-gray-800" : "bg-white shadow"
+            className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+              isDark
+                ? "bg-gray-800/90 border-gray-700"
+                : "bg-white border-gray-200 shadow-sm"
             }`}
           >
-            {/* Header + Search */}
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">Recent Orders</h3>
-
-              {/* HSN Search Box */}
+            <div className="flex items-center gap-2">
+              <PieChart className="text-blue-600 dark:text-blue-400" size={18} />
+              <h2 className="text-sm font-bold text-gray-900 dark:text-white">
+                HSN Purchase Summary
+              </h2>
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                ({dashboardFilteredHsns.length} HSN codes) — Click a row to view Details
+              </span>
+            </div>
+            <div className="relative w-full sm:w-64">
+              <Search
+                size={14}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+              />
               <input
                 type="text"
-                placeholder="Search HSN (Exact)..."
-                value={hsnSearch}
-                onChange={(e) => setHsnSearch(e.target.value)}
-                className={`px-3 py-2 text-sm rounded border w-56
-          ${
-            theme === "dark"
-              ? "bg-gray-700 border-gray-600 text-white placeholder-gray-400"
-              : "bg-white border-gray-300 text-black"
-          } outline-none`}
+                placeholder="Search HSN code..."
+                value={dashboardHsnSearch}
+                onChange={(e) => setDashboardHsnSearch(e.target.value)}
+                className={`w-full pl-9 pr-3 py-1.5 text-xs rounded-lg border ${
+                  isDark
+                    ? "bg-gray-700/80 border-gray-600 text-white placeholder-gray-400"
+                    : "bg-gray-50 border-gray-200 text-black placeholder-gray-400"
+                } outline-none focus:ring-2 focus:ring-blue-500`}
               />
             </div>
+          </div>
 
-            {/* Table */}
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead
-                  className={`${
-                    theme === "dark" ? "bg-gray-700" : "bg-gray-50"
-                  }`}
-                >
-                  <tr>
-                    <th className="text-left p-3">HSN</th>
-                    <th className="text-left p-3">Customer</th>
-                    <th className="text-left p-3">Voucher No</th>
-                    <th className="text-left p-3">GST No</th>
-                    <th className="text-left p-3">QTY</th>
-                    <th className="text-left p-3">Rate</th>
-                    <th className="text-left p-3">Amount</th>
-                    <th className="text-left p-3">Tax Value</th>
-                    <th className="text-left p-3">IGST</th>
-                    <th className="text-left p-3">CGST</th>
-                    <th className="text-left p-3">SGST</th>
-                    <th className="text-left p-3">Total Amount</th>
-                    <th className="text-left p-3">Date</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {matchedSales
-                    .filter((sale: any) => {
-                      // 🔹 search blank → sab allow
-                      if (!hsnSearch.trim()) return true;
-
-                      const hsn = getHsnByVoucher(sale.number);
-
-                      // 🔥 EXACT MATCH ONLY
-                      return hsn?.toString().trim() === hsnSearch.trim();
-                    })
-                    // 🔹 search ho to limit hata do
-                    .slice(0, hsnSearch.trim() ? matchedSales.length : 5)
-                    .map((sale: any, index: number) => {
-                      const partyLedger = ledgerMap.get(sale.partyId);
-
+          {/* Excel-Style Table */}
+          {dashboardFilteredHsns.length === 0 ? (
+            <div className="text-center py-16 text-gray-500 dark:text-gray-400 text-sm">
+              No B2B Purchase HSN data found for the selected criteria.
+            </div>
+          ) : (
+            <div
+              className={`rounded-xl border overflow-hidden ${
+                isDark ? "border-gray-700" : "border-gray-300"
+              }`}
+            >
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr
+                      className={
+                        isDark
+                          ? "bg-blue-900/60 text-blue-100"
+                          : "bg-blue-600 text-white"
+                      }
+                    >
+                      <th className="px-5 py-3.5 text-left font-bold border-r border-white/20 dark:border-blue-700 w-8">#</th>
+                      <th className="px-5 py-3.5 text-left font-bold border-r border-white/20 dark:border-blue-700">HSN Code</th>
+                      <th className="px-5 py-3.5 text-right font-bold border-r border-white/20 dark:border-blue-700">Taxable Value</th>
+                      <th className="px-5 py-3.5 text-right font-bold border-r border-white/20 dark:border-blue-700">IGST</th>
+                      <th className="px-5 py-3.5 text-right font-bold border-r border-white/20 dark:border-blue-700">CGST</th>
+                      <th className="px-5 py-3.5 text-right font-bold border-r border-white/20 dark:border-blue-700">SGST</th>
+                      <th className="px-5 py-3.5 text-right font-bold border-r border-white/20 dark:border-blue-700">Total Tax</th>
+                      <th className="px-5 py-3.5 text-right font-bold border-r border-white/20 dark:border-blue-700">Total Invoice</th>
+                      <th className="px-5 py-3.5 text-center font-bold border-r border-white/20 dark:border-blue-700">Txns</th>
+                      <th className="px-5 py-3.5 text-center font-bold">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dashboardFilteredHsns.map((item, idx) => {
+                      const isSelected = selectedHsnCode === item.hsnCode;
                       return (
                         <tr
-                          key={sale.id || index}
-                          className={`border-b ${
-                            theme === "dark"
-                              ? "border-gray-700"
-                              : "border-gray-200"
+                          key={item.hsnCode}
+                          onClick={() => handleHsnRowClick(item.hsnCode)}
+                          className={`cursor-pointer border-b transition-colors ${
+                            isSelected
+                              ? isDark
+                                ? "bg-blue-900/40 border-blue-700"
+                                : "bg-blue-50 border-blue-200"
+                              : idx % 2 === 0
+                              ? isDark
+                                ? "bg-gray-800 border-gray-700 hover:bg-gray-700"
+                                : "bg-white border-gray-200 hover:bg-blue-50/40"
+                              : isDark
+                              ? "bg-gray-800/60 border-gray-700 hover:bg-gray-700"
+                              : "bg-gray-50/70 border-gray-200 hover:bg-blue-50/40"
                           }`}
                         >
-                          {/* HSN */}
-                          <td className="p-3">
-                            {getHsnByVoucher(sale.number)}
+                          <td className={`px-4 py-2 text-center font-medium border-r ${isDark ? "border-gray-700 text-gray-400" : "border-gray-200 text-gray-500"}`}>
+                            {idx + 1}
                           </td>
-
-                          {/* Customer */}
-                          <td className="p-3">
-                            {partyLedger?.name || "Unknown Party"}
+                          <td className={`px-4 py-2 border-r font-bold font-mono ${isDark ? "border-gray-700 text-blue-400" : "border-gray-200 text-blue-700"}`}>
+                            {item.hsnCode}
                           </td>
-
-                          {/* Voucher No */}
-                          <td className="p-3 font-mono">{sale.number}</td>
-
-                          {/* GST No */}
-                          <td className="p-3">
-                            {partyLedger?.gstNumber || "-"}
+                          <td className={`px-4 py-2 text-right border-r ${isDark ? "border-gray-700 text-gray-200" : "border-gray-200 text-gray-800"}`}>
+                            ₹{fmt(item.totalTaxableValue)}
                           </td>
-
-                          {/* QTY */}
-                          <td className="p-3">
-                            {getQtyFormattedByVoucher(sale.number)}
+                          <td className={`px-4 py-2 text-right border-r ${isDark ? "border-gray-700 text-gray-300" : "border-gray-200 text-gray-700"}`}>
+                            ₹{fmt(item.totalIgst)}
                           </td>
-
-                          {/* Rate */}
-                          <td className="p-3">
-                            {getRateByVoucher(sale.number)}
+                          <td className={`px-4 py-2 text-right border-r ${isDark ? "border-gray-700 text-gray-300" : "border-gray-200 text-gray-700"}`}>
+                            ₹{fmt(item.totalCgst)}
                           </td>
-
-                          {/* Taxable Amount */}
-                          <td className="p-3">
-                            ₹{Number(sale.subtotal || 0).toFixed(2)}
+                          <td className={`px-4 py-2 text-right border-r ${isDark ? "border-gray-700 text-gray-300" : "border-gray-200 text-gray-700"}`}>
+                            ₹{fmt(item.totalSgst)}
                           </td>
-
-                          {/* Tax Value */}
-                          <td className="p-3">
-                            ₹
-                            {Number(sale.igstTotal || 0) +
-                              Number(sale.cgstTotal || 0) +
-                              Number(sale.sgstTotal || 0)}
+                          <td className={`px-4 py-2 text-right border-r ${isDark ? "border-gray-700 text-gray-300" : "border-gray-200 text-gray-700"}`}>
+                            ₹{fmt(item.totalTax)}
                           </td>
-
-                          {/* IGST */}
-                          <td className="p-3">{sale.igstTotal}</td>
-
-                          {/* CGST */}
-                          <td className="p-3">{sale.cgstTotal}</td>
-
-                          {/* SGST */}
-                          <td className="p-3">{sale.sgstTotal}</td>
-
-                          {/* Total */}
-                          <td className="p-3 font-semibold">
-                            ₹{Number(sale.total || 0)}
+                          <td className={`px-4 py-2 text-right border-r font-bold ${isDark ? "border-gray-700 text-emerald-400" : "border-gray-200 text-emerald-700"}`}>
+                            ₹{fmt(item.totalValue)}
                           </td>
-
-                          {/* Date */}
-                          <td className="p-3">
-                            {new Date(sale.date).toLocaleDateString("en-IN")}
+                          <td className={`px-4 py-2 text-center border-r ${isDark ? "border-gray-700 text-gray-400" : "border-gray-200 text-gray-500"}`}>
+                            {item.transactionCount}
+                          </td>
+                          <td className="px-5 py-3.5 text-center">
+                            <span className={`inline-flex items-center px-2.5 py-1 text-[11px] font-semibold rounded-md ${
+                              isDark
+                                ? "bg-blue-800/60 text-blue-300 border border-blue-700"
+                                : "bg-blue-100 text-blue-700 border border-blue-200"
+                            }`}>
+                              View →
+                            </span>
                           </td>
                         </tr>
                       );
                     })}
+                  </tbody>
+                  <tfoot>
+                    <tr className={`font-bold border-t-2 ${isDark ? "bg-gray-700/80 text-white border-gray-500" : "bg-gray-100 text-gray-900 border-gray-400"}`}>
+                      <td className={`px-4 py-2 border-r ${isDark ? "border-gray-600" : "border-gray-300"}`}></td>
+                      <td className={`px-4 py-2 border-r ${isDark ? "border-gray-600" : "border-gray-300"}`}>
+                        Grand Total ({dashboardFilteredHsns.length})
+                      </td>
+                      <td className={`px-4 py-2 text-right border-r ${isDark ? "border-gray-600" : "border-gray-300"}`}>
+                        ₹{fmt(dashboardFilteredHsns.reduce((s, i) => s + i.totalTaxableValue, 0))}
+                      </td>
+                      <td className={`px-4 py-2 text-right border-r ${isDark ? "border-gray-600" : "border-gray-300"}`}>
+                        ₹{fmt(dashboardFilteredHsns.reduce((s, i) => s + i.totalIgst, 0))}
+                      </td>
+                      <td className={`px-4 py-2 text-right border-r ${isDark ? "border-gray-600" : "border-gray-300"}`}>
+                        ₹{fmt(dashboardFilteredHsns.reduce((s, i) => s + i.totalCgst, 0))}
+                      </td>
+                      <td className={`px-4 py-2 text-right border-r ${isDark ? "border-gray-600" : "border-gray-300"}`}>
+                        ₹{fmt(dashboardFilteredHsns.reduce((s, i) => s + i.totalSgst, 0))}
+                      </td>
+                      <td className={`px-4 py-2 text-right border-r ${isDark ? "border-gray-600" : "border-gray-300"}`}>
+                        ₹{fmt(dashboardFilteredHsns.reduce((s, i) => s + i.totalTax, 0))}
+                      </td>
+                      <td className={`px-4 py-2 text-right border-r font-bold ${isDark ? "border-gray-600 text-emerald-400" : "border-gray-300 text-emerald-700"}`}>
+                        ₹{fmt(dashboardFilteredHsns.reduce((s, i) => s + i.totalValue, 0))}
+                      </td>
+                      <td className={`px-4 py-2 text-center border-r ${isDark ? "border-gray-600" : "border-gray-300"}`}>
+                        {dashboardFilteredHsns.reduce((s, i) => s + i.transactionCount, 0)}
+                      </td>
+                      <td className="px-4 py-2"></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
-                  {/* No data found */}
-                  {matchedSales.length > 0 &&
-                    matchedSales.filter((sale: any) => {
-                      if (!hsnSearch.trim()) return true;
-                      return (
-                        getHsnByVoucher(sale.number)?.toString().trim() ===
-                        hsnSearch.trim()
-                      );
-                    }).length === 0 && (
-                      <tr>
-                        <td
-                          colSpan={13}
-                          className="text-center p-4 text-gray-500"
-                        >
-                          No data found for this HSN
-                        </td>
-                      </tr>
-                    )}
-                </tbody>
-                <tfoot className={`${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-100'}`}>
-                  <tr className="font-bold border-t border-gray-400">
-                    <td className="p-3" colSpan={4}>Grand Total</td>
-                    <td className="p-3">
-                      {dashboardTotals.qty}
-                    </td>
-                    <td className="p-3"></td>
-                    <td className="p-3">₹{dashboardTotals.amount.toFixed(2)}</td>
-                    <td className="p-3">₹{dashboardTotals.taxValue.toFixed(2)}</td>
-                    <td className="p-3">{dashboardTotals.igst}</td>
-                    <td className="p-3">{dashboardTotals.cgst}</td>
-                    <td className="p-3">{dashboardTotals.sgst}</td>
-                    <td className="p-3 font-semibold">₹{dashboardTotals.total.toFixed(2)}</td>
-                    <td className="p-3"></td>
-                  </tr>
-                </tfoot>
-              </table>
+      {/* ═══════════════════════════════════════════ */}
+      {/* TAB 2: DETAILS                              */}
+      {/* ═══════════════════════════════════════════ */}
+      {activeTab === "details" && (
+        <div className="space-y-4">
+          {/* Details Header */}
+          <div
+            className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+              isDark
+                ? "bg-gray-800/90 border-gray-700 shadow-md"
+                : "bg-white border-gray-200 shadow-sm"
+            }`}
+          >
+            <div className="flex items-center gap-2 flex-wrap">
+              <TableProperties className="text-blue-600 dark:text-blue-400" size={18} />
+              <h2 className="text-sm font-bold text-gray-900 dark:text-white">
+                HSN Purchase Details
+              </h2>
+              {selectedHsnCode ? (
+                <span className="px-3 py-1 text-xs font-mono font-bold rounded-lg bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-200 border border-blue-200 dark:border-blue-800">
+                  HSN: {selectedHsnCode}
+                </span>
+              ) : (
+                <span className="px-3 py-1 text-xs rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 font-semibold">
+                  All HSN Records
+                </span>
+              )}
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                ({detailRows.length} vouchers)
+              </span>
+            </div>
+            <div className="flex gap-2">
+              {selectedHsnCode && (
+                <button
+                  onClick={() => {
+                    setSelectedHsnCode(null);
+                    setActiveTab("dashboard");
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors ${
+                    isDark
+                      ? "border-gray-600 text-gray-300 hover:bg-gray-700"
+                      : "border-gray-300 text-gray-600 hover:bg-gray-100"
+                  }`}
+                >
+                  <X size={12} /> Clear Filter
+                </button>
+              )}
             </div>
           </div>
-        )}
 
-        {/* Transactions View */}
-        {selectedView === "transactions" && <></>}
+          {/* Details Table */}
+          {detailRows.length === 0 ? (
+            <div className="text-center py-16 text-gray-500 dark:text-gray-400 text-sm">
+              No vouchers found{selectedHsnCode ? ` for HSN: ${selectedHsnCode}` : ""}.
+            </div>
+          ) : (
+            <div
+              className={`rounded-xl border overflow-hidden ${
+                isDark ? "border-gray-700" : "border-gray-300"
+              }`}
+            >
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr
+                      className={
+                        isDark
+                          ? "bg-blue-900/60 text-blue-100"
+                          : "bg-blue-600 text-white"
+                      }
+                    >
+                      {[
+                        "#",
+                        "HSN",
+                        "Supplier",
+                        "Voucher No",
+                        "GST No",
+                        "QTY",
+                        "Rate",
+                        "Taxable Amt",
+                        "IGST",
+                        "CGST",
+                        "SGST",
+                        "Total Amt",
+                        "Date",
+                      ].map((h) => (
+                        <th
+                          key={h}
+                          className="px-5 py-3.5 text-left font-bold border-r border-white/20 dark:border-blue-700 whitespace-nowrap"
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detailRows.map((purchase: any, idx: number) => {
+                      const partyLedger = ledgerMap.get(purchase.partyId);
+                      const hist = purchaseHistoryMap.get(purchase.number);
+                      const hsn = hist?.hsnCode || "N/A";
+                      const qty = hist?.purchaseQuantity
+                        ? Math.abs(hist.purchaseQuantity)
+                        : 0;
+                      const unit = hist?.unit ? hist.unit.toLowerCase() : "";
 
-        {/* Partners View */}
-        {selectedView === "partners" && <></>}
-
-        {/* Analytics View */}
-        {selectedView === "analytics" && <></>}
-
-        {/* Contracts View */}
-        {selectedView === "contracts" && <></>}
-      </div>
-
-      {/* Pro Tip */}
-      <div
-        className={`mt-6 p-4 rounded-lg ${
-          theme === "dark" ? "bg-gray-800" : "bg-blue-50"
-        }`}
-      >
-        <p className="text-sm">
-          <span className="font-semibold">Pro Tip:</span> Use the B2B module to
-          manage large-scale business relationships, track contract performance,
-          and analyze partnership profitability. Set up automated workflows for
-          better efficiency.
-        </p>
-      </div>
+                      return (
+                        <tr
+                          key={purchase.id || idx}
+                          className={`border-b transition-colors ${
+                            idx % 2 === 0
+                              ? isDark
+                                ? "bg-gray-800 border-gray-700"
+                                : "bg-white border-gray-200"
+                              : isDark
+                              ? "bg-gray-800/60 border-gray-700"
+                              : "bg-gray-50/70 border-gray-200"
+                          }`}
+                        >
+                          <td className={`px-3 py-2 border-r ${isDark ? "border-gray-700 text-gray-400" : "border-gray-200 text-gray-500"}`}>
+                            {idx + 1}
+                          </td>
+                          <td className={`px-3 py-2 border-r font-bold font-mono ${isDark ? "border-gray-700 text-blue-400" : "border-gray-200 text-blue-700"}`}>
+                            {hsn}
+                          </td>
+                          <td className={`px-3 py-2 border-r ${isDark ? "border-gray-700 text-gray-200" : "border-gray-200 text-gray-800"}`}>
+                            {partyLedger?.name || "Unknown"}
+                          </td>
+                          <td className={`px-3 py-2 border-r font-mono ${isDark ? "border-gray-700 text-gray-300" : "border-gray-200 text-gray-700"}`}>
+                            {purchase.number}
+                          </td>
+                          <td className={`px-3 py-2 border-r ${isDark ? "border-gray-700 text-gray-300" : "border-gray-200 text-gray-600"}`}>
+                            {partyLedger?.gstNumber || "-"}
+                          </td>
+                          <td className={`px-3 py-2 border-r ${isDark ? "border-gray-700 text-gray-300" : "border-gray-200 text-gray-700"}`}>
+                            {qty > 0 ? `${qty}${unit}` : "-"}
+                          </td>
+                          <td className={`px-3 py-2 border-r ${isDark ? "border-gray-700 text-gray-300" : "border-gray-200 text-gray-700"}`}>
+                            {hist?.rate || "-"}
+                          </td>
+                          <td className={`px-3 py-2 border-r text-right ${isDark ? "border-gray-700 text-gray-200" : "border-gray-200 text-gray-800"}`}>
+                            ₹{fmt(Number(purchase.subtotal || 0))}
+                          </td>
+                          <td className={`px-3 py-2 border-r text-right ${isDark ? "border-gray-700 text-gray-300" : "border-gray-200 text-gray-700"}`}>
+                            ₹{fmt(Number(purchase.igstTotal || 0))}
+                          </td>
+                          <td className={`px-3 py-2 border-r text-right ${isDark ? "border-gray-700 text-gray-300" : "border-gray-200 text-gray-700"}`}>
+                            ₹{fmt(Number(purchase.cgstTotal || 0))}
+                          </td>
+                          <td className={`px-3 py-2 border-r text-right ${isDark ? "border-gray-700 text-gray-300" : "border-gray-200 text-gray-700"}`}>
+                            ₹{fmt(Number(purchase.sgstTotal || 0))}
+                          </td>
+                          <td className={`px-3 py-2 border-r text-right font-bold ${isDark ? "border-gray-700 text-emerald-400" : "border-gray-200 text-emerald-700"}`}>
+                            ₹{fmt(Number(purchase.total || 0))}
+                          </td>
+                          <td className={`px-3 py-2 border-r ${isDark ? "border-gray-700 text-gray-400" : "border-gray-200 text-gray-600"}`}>
+                            {new Date(purchase.date).toLocaleDateString("en-IN")}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  {/* Grand Total */}
+                  <tfoot>
+                    <tr className={`font-bold border-t-2 ${isDark ? "bg-gray-700/80 text-white border-gray-500" : "bg-gray-100 text-gray-900 border-gray-400"}`}>
+                      <td colSpan={7} className={`px-3 py-2 border-r ${isDark ? "border-gray-600" : "border-gray-300"}`}>
+                        Grand Total ({detailRows.length} vouchers)
+                      </td>
+                      <td className={`px-3 py-2 text-right border-r ${isDark ? "border-gray-600" : "border-gray-300"}`}>
+                        ₹{fmt(detailRows.reduce((s: number, r: any) => s + Number(r.subtotal || 0), 0))}
+                      </td>
+                      <td className={`px-3 py-2 text-right border-r ${isDark ? "border-gray-600" : "border-gray-300"}`}>
+                        ₹{fmt(detailRows.reduce((s: number, r: any) => s + Number(r.igstTotal || 0), 0))}
+                      </td>
+                      <td className={`px-3 py-2 text-right border-r ${isDark ? "border-gray-600" : "border-gray-300"}`}>
+                        ₹{fmt(detailRows.reduce((s: number, r: any) => s + Number(r.cgstTotal || 0), 0))}
+                      </td>
+                      <td className={`px-3 py-2 text-right border-r ${isDark ? "border-gray-600" : "border-gray-300"}`}>
+                        ₹{fmt(detailRows.reduce((s: number, r: any) => s + Number(r.sgstTotal || 0), 0))}
+                      </td>
+                      <td className={`px-3 py-2 text-right border-r font-bold ${isDark ? "border-gray-600 text-emerald-400" : "border-gray-300 text-emerald-700"}`}>
+                        ₹{fmt(detailRows.reduce((s: number, r: any) => s + Number(r.total || 0), 0))}
+                      </td>
+                      <td className={`px-3 py-2 ${isDark ? "text-gray-400" : "text-gray-500"}`}></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
