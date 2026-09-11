@@ -1729,7 +1729,7 @@ const SalesVoucher: React.FC = () => {
       if (initialRate === 0 && itemMrp > 0) {
         initialRate = itemMrp;
       }
-      let defaultQty = 0;
+      let defaultQty = 1;
 
       if (details.batches?.length) {
         const defaultBatch = details.batches.find((b: any) => !b.batchName);
@@ -1748,9 +1748,6 @@ const SalesVoucher: React.FC = () => {
           if (defaultBatch.mrp || defaultBatch.MRP) {
             itemMrp = Number(defaultBatch.mrp || defaultBatch.MRP);
             if (initialRate === 0) initialRate = itemMrp;
-          }
-          if (defaultBatch.batchQuantity) {
-            defaultQty = Number(defaultBatch.batchQuantity);
           }
         }
       }
@@ -1874,10 +1871,8 @@ const SalesVoucher: React.FC = () => {
         }
 
         let populated = populateItemEntry(baseEntry, itemIdStr);
-        if (Number(populated.quantity || 0) <= 0) {
-          populated.quantity = 1;
-          populated.amount = recalcAmount(populated);
-        }
+        populated.quantity = 1;
+        populated.amount = recalcAmount(populated);
 
         if (emptyIndex !== -1) {
           entries[emptyIndex] = populated;
