@@ -125,6 +125,7 @@ import B2C from "./components/reports/B2C";
 import Consolidation from "./components/reports/Consolidation";
 import LedgerCaraction from "./components/reports/LedgerCaraction";
 import AttributeSummary from "./components/reports/AttributeSummary";
+import QuantityCorrection from "./components/reports/QuantityCorrection";
 import VoucherReportComingSoon from "./components/reports/voucher/VoucherReportComingSoon";
 import PaymentVoucherReport from "./components/reports/voucher/PaymentVoucherReport";
 import PaymentVoucherReportDetail from "./components/reports/voucher/PaymentVoucherReportDetail";
@@ -1532,6 +1533,14 @@ function App() {
                   element={
                     <RequireCompany>
                       <AttributeSummary />
+                    </RequireCompany>
+                  }
+                />
+                <Route
+                  path="reports/quantity-correction"
+                  element={
+                    <RequireCompany>
+                      <QuantityCorrection />
                     </RequireCompany>
                   }
                 />
