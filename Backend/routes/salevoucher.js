@@ -283,8 +283,9 @@ router.post("/", async (req, res) => {
     let overallDiscountPercent = Number(
       overallDiscountPercentRaw ?? overallDiscountPercentFallback ?? 0
     );
-    if (isNaN(overallDiscountPercent) || overallDiscountPercent < 0) overallDiscountPercent = 0;
+    if (isNaN(overallDiscountPercent)) overallDiscountPercent = 0;
     if (overallDiscountPercent > 100) overallDiscountPercent = 100;
+    if (overallDiscountPercent < -100) overallDiscountPercent = -100;
 
     // Helper to handle empty strings for integer/ID columns
     const cleanId = (id) => (id === "" || id === undefined || id === "null" ? null : id);
@@ -1067,8 +1068,9 @@ router.put("/:id", async (req, res) => {
   let overallDiscountPercent = Number(
     overallDiscountPercentRaw ?? overallDiscountPercentFallback ?? 0
   );
-  if (isNaN(overallDiscountPercent) || overallDiscountPercent < 0) overallDiscountPercent = 0;
+  if (isNaN(overallDiscountPercent)) overallDiscountPercent = 0;
   if (overallDiscountPercent > 100) overallDiscountPercent = 100;
+  if (overallDiscountPercent < -100) overallDiscountPercent = -100;
 
   // Helper to handle empty strings for integer/ID columns
   const cleanId = (id) => (id === "" || id === undefined || id === "null" ? null : id);

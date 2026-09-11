@@ -711,17 +711,6 @@ const ContraVoucher: React.FC = () => {
         </h1>
         <div className="ml-auto flex space-x-2">
           <button
-            title="Save Voucher"
-            onClick={handleSubmit}
-            disabled={isSubmitting || !isBalanced}
-            className={`p-2 rounded-md ${theme === "dark"
-              ? "bg-blue-600 hover:bg-blue-700"
-              : "bg-blue-500 hover:bg-blue-600"
-              } text-white flex items-center ${isSubmitting || !isBalanced ? "opacity-50 cursor-not-allowed" : ""}`}
-          >
-            <Save size={18} className="mr-2" /> {isSubmitting ? "Saving..." : "Save"}
-          </button>
-          <button
             title="Print Voucher"
             onClick={handlePrint}
             className={`p-2 rounded-md ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"
@@ -1434,6 +1423,32 @@ const ContraVoucher: React.FC = () => {
               </div>
             </div>
           )}
+          {/* Bottom Right Actions */}
+          <div className="flex justify-end space-x-3 mt-6">
+            <button
+              type="button"
+              title="Print Voucher"
+              onClick={handlePrint}
+              className={`px-4 py-2 rounded-md font-medium flex items-center transition-colors ${theme === "dark"
+                ? "bg-gray-700 hover:bg-gray-600 text-gray-200 border border-gray-600"
+                : "bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300"
+                }`}
+            >
+              <Printer size={18} className="mr-2" /> Print
+            </button>
+            <button
+              type="submit"
+              title="Save Voucher"
+              onClick={handleSubmit}
+              disabled={isSubmitting || !isBalanced}
+              className={`px-5 py-2 rounded-md font-medium flex items-center text-white transition-colors ${theme === "dark"
+                ? "bg-blue-600 hover:bg-blue-700"
+                : "bg-blue-600 hover:bg-blue-700"
+                } ${isSubmitting || !isBalanced ? "opacity-50 cursor-not-allowed" : ""}`}
+            >
+              <Save size={18} className="mr-2" /> {isSubmitting ? "Saving..." : "Save"}
+            </button>
+          </div>
         </form>
       </div>
 

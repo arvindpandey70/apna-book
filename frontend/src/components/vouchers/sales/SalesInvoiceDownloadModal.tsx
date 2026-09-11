@@ -259,13 +259,14 @@ const SalesInvoiceDownloadModal: React.FC<Props> = ({ voucherId, onClose }) => {
         sgstTotal += (baseAmount * (entry.sgstRate || 0)) / 100;
         igstTotal += (baseAmount * (entry.igstRate || 0)) / 100;
       });
+      const overallDiscount = Number(voucherData.overallDiscountAmount || voucherData.discountAmount || 0);
       return {
         subtotal,
         cgstTotal,
         sgstTotal,
         igstTotal,
-        discountTotal,
-        total: subtotal + cgstTotal + sgstTotal + igstTotal - discountTotal,
+        discountTotal: discountTotal + overallDiscount,
+        total: subtotal + cgstTotal + sgstTotal + igstTotal - discountTotal - overallDiscount,
       };
     }
 
