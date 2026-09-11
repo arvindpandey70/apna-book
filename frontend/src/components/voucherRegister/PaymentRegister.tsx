@@ -302,7 +302,33 @@ const PaymentRegister: React.FC = () => {
 
     return vouchers;
   };
-  // Get tenant info from localStorage
+  const isFilterActive = !!(
+    searchTerm ||
+    dateFilter ||
+    statusFilter ||
+    (viewType !== "Daily" && viewType !== "Custom Date") ||
+    (viewType === "Custom Date" && customStartDate && customEndDate) ||
+    selectedMonth ||
+    selectedQuarter ||
+    (selectedFinYear && selectedFinYear !== "All-Years" && selectedFinYear !== "All Years")
+  );
+
+  // Reset page to 1 when any filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [
+    searchTerm,
+    dateFilter,
+    statusFilter,
+    viewType,
+    selectedMonth,
+    selectedQuarter,
+    customStartDate,
+    customEndDate,
+    selectedFinYear
+  ]);
+
+  const lastFetchedWithFilterRef = React.useRef(false);
 
   useEffect(() => {
     if (!companyId || !ownerType || !ownerId) {
@@ -311,13 +337,20 @@ const PaymentRegister: React.FC = () => {
       return;
     }
 
+    if (isFilterActive && lastFetchedWithFilterRef.current) {
+      setLoading(false);
+      return;
+    }
+
+    const paginationParams = isFilterActive ? "" : `&page=${currentPage}&limit=${itemsPerPage}`;
+
     fetch(
       `${import.meta.env.VITE_API_URL
-      }/api/vouchers?companyId=${companyId}&ownerType=${ownerType}&ownerId=${ownerId}&voucherType=payment&page=${currentPage}&limit=${itemsPerPage}`
+      }/api/vouchers?companyId=${companyId}&ownerType=${ownerType}&ownerId=${ownerId}&voucherType=payment${paginationParams}`
     )
       .then((res) => res.json())
       .then((data) => {
-        if (data.total !== undefined) {
+        if (!isFilterActive && data.total !== undefined) {
           setServerTotalCount(data.total);
           if (data.data) setVouchers(data.data);
         } else {
@@ -325,13 +358,14 @@ const PaymentRegister: React.FC = () => {
           if (data.data) setVouchers(data.data);
           else if (Array.isArray(data)) setVouchers(data);
         }
+        lastFetchedWithFilterRef.current = isFilterActive;
         setLoading(false);
       })
       .catch(() => {
         setError("Failed to load vouchers");
         setLoading(false);
       });
-  }, [companyId, ownerType, ownerId, currentPage, itemsPerPage]);
+  }, [companyId, ownerType, ownerId, currentPage, itemsPerPage, isFilterActive]);
 
   // Filter vouchers based on search, filters, and view type
   const filteredVouchers = (() => {
@@ -360,13 +394,20 @@ const PaymentRegister: React.FC = () => {
   })();
 
   // Pagination
-  const isServerPaginated = serverTotalCount > 0;
+  const isServerPaginated = !isFilterActive && serverTotalCount > 0;
   const totalItemsForPagination = isServerPaginated ? serverTotalCount : filteredVouchers.length;
 
   const totalPages = Math.max(
     1,
     Math.ceil(totalItemsForPagination / itemsPerPage)
   );
+
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(1);
+    }
+  }, [currentPage, totalPages]);
+
   const startIndex = Math.max(0, (currentPage - 1) * itemsPerPage);
   const endIndex = Math.min(startIndex + itemsPerPage, totalItemsForPagination);
   

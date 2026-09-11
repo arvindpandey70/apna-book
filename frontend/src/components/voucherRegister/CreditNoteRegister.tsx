@@ -337,8 +337,28 @@ const CreditNoteRegister: React.FC = () => {
     });
   })();
 
+  // Reset page to 1 when any filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [
+    searchTerm,
+    dateFilter,
+    statusFilter,
+    viewType,
+    selectedMonth,
+    customStartDate,
+    customEndDate,
+  ]);
+
   // Pagination
-  const totalPages = Math.ceil(filteredVouchers.length / itemsPerPage);
+  const totalPages = Math.max(1, Math.ceil(filteredVouchers.length / itemsPerPage));
+
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(1);
+    }
+  }, [currentPage, totalPages]);
+
   const startIndex = (currentPage - 1) * itemsPerPage;
   const paginatedVouchers = filteredVouchers.slice(
     startIndex,
