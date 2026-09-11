@@ -2631,10 +2631,15 @@ const SalesVoucher: React.FC = () => {
 
       const overallDiscountPercent = Number(formData.discountPercent || 0);
       let overallDiscount = 0;
-      if (overallDiscountPercent > 0) {
+      if (overallDiscountPercent !== 0 && !isNaN(overallDiscountPercent)) {
         overallDiscount = Number(((subtotal * overallDiscountPercent) / 100).toFixed(2));
       } else {
-        overallDiscount = Number(formData.discountAmount || 0);
+        const rawAmt = formData.discountAmount;
+        if (rawAmt !== "" && rawAmt !== null && rawAmt !== undefined && rawAmt !== "-") {
+          overallDiscount = isNaN(Number(rawAmt)) ? 0 : Number(rawAmt);
+        } else {
+          overallDiscount = 0;
+        }
       }
 
       const total =
@@ -4439,7 +4444,7 @@ const SalesVoucher: React.FC = () => {
                                       </option>
                                     ))}
                                   </select>
-                                  <div className="flex items-center gap-1">
+                                   <div className="flex items-center gap-1">
                                     <input
                                       type="number"
                                       name="discountPercent"
@@ -4454,6 +4459,14 @@ const SalesVoucher: React.FC = () => {
                                           }));
                                           return;
                                         }
+                                        if (val === "-") {
+                                          setFormData((prev) => ({
+                                            ...prev,
+                                            discountPercent: "-",
+                                            discountAmount: 0,
+                                          }));
+                                          return;
+                                        }
                                         let num = parseFloat(val);
                                         if (isNaN(num)) {
                                           setFormData((prev) => ({
@@ -4463,8 +4476,8 @@ const SalesVoucher: React.FC = () => {
                                           }));
                                           return;
                                         }
-                                        if (num < 0) num = 0;
                                         if (num > 100) num = 100;
+                                        if (num < -100) num = -100;
 
                                         const currentSubtotal = totals?.subtotal || 0;
                                         const calcAmount = Number(((currentSubtotal * num) / 100).toFixed(2));
@@ -4477,7 +4490,6 @@ const SalesVoucher: React.FC = () => {
                                       onKeyDown={(e) => {
                                         if (e.key === "Enter") e.preventDefault();
                                       }}
-                                      min="0"
                                       max="100"
                                       step="any"
                                       className={`w-16 p-1 text-center border rounded text-xs outline-none transition-colors font-semibold ${
@@ -4498,7 +4510,14 @@ const SalesVoucher: React.FC = () => {
                                   <input
                                     type="number"
                                     name="discountAmount"
-                                    value={totals.overallDiscount ? totals.overallDiscount : (formData.discountAmount || "")}
+                                    value={
+                                      formData.discountPercent !== "" &&
+                                      formData.discountPercent !== null &&
+                                      formData.discountPercent !== undefined &&
+                                      formData.discountPercent !== "-"
+                                        ? (totals.overallDiscount !== undefined ? totals.overallDiscount : "")
+                                        : (formData.discountAmount !== undefined && formData.discountAmount !== null ? formData.discountAmount : "")
+                                    }
                                     onChange={(e) => {
                                       const val = e.target.value;
                                       if (val === "") {
@@ -4509,17 +4528,25 @@ const SalesVoucher: React.FC = () => {
                                         }));
                                         return;
                                       }
+                                      if (val === "-") {
+                                        setFormData((prev) => ({
+                                          ...prev,
+                                          discountAmount: "-",
+                                          discountPercent: "",
+                                        }));
+                                        return;
+                                      }
                                       let amt = parseFloat(val);
                                       if (isNaN(amt)) return;
-                                      if (amt < 0) amt = 0;
                                       const currentSubtotal = totals?.subtotal || 0;
                                       const calcPercent = currentSubtotal > 0 ? Number(((amt / currentSubtotal) * 100).toFixed(2)) : 0;
                                       setFormData((prev) => ({
                                         ...prev,
-                                        discountAmount: amt,
-                                        discountPercent: calcPercent <= 100 ? calcPercent : "",
+                                        discountAmount: val,
+                                        discountPercent: Math.abs(calcPercent) <= 100 ? calcPercent : "",
                                       }));
                                     }}
+                                    step="any"
                                     className={`w-24 p-1 text-right border rounded font-bold text-red-600 outline-none focus:border-blue-500 text-xs ${
                                       theme === "dark"
                                         ? "bg-gray-700 border-gray-600"
