@@ -1,572 +1,122 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAppContext } from '../../../context/AppContext';
+import { useCompany } from '../../../context/CompanyContext';
 import { useNavigate } from 'react-router-dom';
+import Swal from 'sweetalert2';
+import { mapForm3CDData, type Form3CDData } from '../../../utils/auditFormMapper';
 import {
   ArrowLeft,
   Save,
   Download,
   Printer,
   FileCheck,
-  AlertCircle
+  AlertCircle,
+  Loader2
 } from 'lucide-react';
-
-// Complete Form 3CD interface with all 44 clauses
-interface Form3CDData {
-  // Clause 1-8: Basic Information
-  nameOfAssessee: string;
-  address: string;
-  panNumber: string;
-  indirectTaxLiability: 'Yes' | 'No';
-  registrationNumbers: string;
-  status: string;
-  previousYearFrom: string;
-  previousYearTo: string;
-  assessmentYear: string;
-  section44ABClause: string;
-  taxRegimeOpted: string;
-  
-  // Clause 9: Partnership/LLP/BOI/AOP Details
-  partnersDetails: string[];
-  partnersChangeDetails: string;
-  
-  // Clause 10: Business/Profession Details
-  natureOfBusiness: string[];
-  businessChangeDetails: string;
-  
-  // Clause 11: Books of Account
-  booksPrescribed: 'Yes' | 'No';
-  booksListPrescribed: string[];
-  booksMaintained: string[];
-  booksAddress: string;
-  booksExamined: string[];
-  
-  // Clause 12: Presumptive Taxation
-  presumptiveProfits: 'Yes' | 'No';
-  presumptiveAmount: number;
-  presumptiveSection: string;
-  
-  // Clause 13: Accounting Method
-  accountingMethod: 'Cash' | 'Mercantile' | 'Hybrid';
-  accountingMethodChange: 'Yes' | 'No';
-  accountingChangeDetails: string;
-  icdsAdjustmentRequired: 'Yes' | 'No';
-  icdsAdjustmentDetails: string;
-  icdsDisclosure: string;
-  
-  // Clause 14: Stock Valuation
-  stockValuationMethod: string;
-  stockDeviationDetails: string;
-  
-  // Clause 15: Capital Asset to Stock
-  capitalAssetConversion: {
-    description: string;
-    acquisitionDate: string;
-    acquisitionCost: number;
-    conversionAmount: number;
-  }[];
-  
-  // Clause 16: Amounts not credited to P&L
-  section28Items: number;
-  proformaCredits: number;
-  escalationClaims: number;
-  otherIncomeItems: number;
-  capitalReceipts: number;
-  
-  // Clause 17: Property Transfer Details
-  propertyTransferDetails: string;
-  
-  // Clause 18: Depreciation Details
-  depreciationDetails: {
-    assetBlock: string;
-    rate: number;
-    wdvCost: number;
-    adjustments: number;
-    additionsDeductions: string;
-    depreciationAllowed: number;
-    endingWdv: number;
-  }[];
-  
-  // Clause 19: Special Deductions
-  specialDeductions: {
-    section33AB: number;
-    section35_1_i: number;
-    section35AD: number;
-    section35CCD: number;
-  };
-  
-  // Clause 20: Employee Payments & Funds
-  bonusCommissionDetails: string;
-  employeeFundContributions: string;
-  
-  // Clause 21: Inadmissible Expenditure
-  capitalPersonalExpenditure: number;
-  section40aDisallowances: number;
-  section40bDisallowances: number;
-  section40A3Disallowance: number;
-  gratuityProvisionDisallowance: number;
-  section40A9Disallowance: number;
-  contingentLiabilities: string;
-  section14ADisallowance: number;
-  section36_1_iiiDisallowance: number;
-  
-  // Clause 22: MSME Interest
-  msmeInterestInadmissible: number;
-  msmeTotalPayable: number;
-  msmeTimelyPayments: number;
-  msmeDelayedPayments: number;
-  
-  // Clause 23: Related Party Payments
-  relatedPartyPayments: string;
-  
-  // Clause 24: Deemed Profits
-  deemedProfitsSection32AC: number;
-  deemedProfitsOther: number;
-  
-  // Clause 25: Section 41 Profits
-  section41Profits: number;
-  section41Details: string;
-  
-  // Clause 26: Section 43B Liabilities
-  section43BPreexisting: {
-    paid: number;
-    notPaid: number;
-  };
-  section43BCurrentYear: {
-    paidBeforeDueDate: number;
-    notPaidBeforeDueDate: number;
-  };
-  
-  // Clause 27: CENVAT & Prior Period
-  cenvatCredits: number;
-  cenvatTreatment: string;
-  priorPeriodItems: string;
-  
-  // Clause 29A: Income from Other Sources
-  incomeOtherSources: 'Yes' | 'No';
-  incomeOtherSourcesNature: string;
-  incomeOtherSourcesAmount: number;
-  
-  // Clause 30: Hundi Borrowings
-  hundiBorrowings: number;
-  hundiDetails: string;
-  
-  // Clause 30A: Transfer Pricing
-  transferPricingAdjustment: 'Yes' | 'No';
-  transferPricingClause: string;
-  transferPricingAmount: number;
-  excessMoneyRepatriated: 'Yes' | 'No';
-  imputedInterest: number;
-  
-  // Clause 30B: Interest Limitation (Section 94B)
-  interestExceedsOneCrore: 'Yes' | 'No';
-  interestExpenditure: number;
-  ebitda: number;
-  excessInterest: number;
-  interestBroughtForward: number;
-  interestCarriedForward: number;
-  
-  // Clause 30C: GAAR
-  impermissibleArrangement: 'Yes' | 'No';
-  arrangementNature: string;
-  taxBenefitAmount: number;
-  
-  // Clause 31: Cash Transactions (Section 269SS/269ST/269T)
-  loansAboveLimit: {
-    name: string;
-    address: string;
-    pan: string;
-    amount: number;
-    maxOutstanding: number;
-    paymentMode: string;
-  }[];
-  cashReceiptsAboveLimit: {
-    name: string;
-    address: string;
-    pan: string;
-    amount: number;
-    transactionNature: string;
-  }[];
-  cashPaymentsAboveLimit: {
-    name: string;
-    address: string;
-    pan: string;
-    amount: number;
-    transactionNature: string;
-  }[];
-  loanRepaymentsAboveLimit: {
-    name: string;
-    address: string;
-    pan: string;
-    amount: number;
-    paymentMode: string;
-  }[];
-  
-  // Clause 32: Loss & Depreciation Carry Forward
-  broughtForwardLoss: number;
-  broughtForwardDepreciation: number;
-  shareholdingChange: 'Yes' | 'No';
-  speculationLoss: 'Yes' | 'No';
-  speculationLossAmount: number;
-  specifiedBusinessLoss: 'Yes' | 'No';
-  speculationBusiness: 'Yes' | 'No';
-  
-  // Clause 33: Chapter VIA Deductions
-  chapterVIADeductions: {
-    section80C: number;
-    section80D: number;
-    section80G: number;
-    section10A: number;
-    section10AA: number;
-  };
-  
-  // Clause 34: TDS/TCS Compliance
-  tdsRequired: 'Yes' | 'No';
-  tdsDetails: string;
-  tcsRequired: 'Yes' | 'No';
-  tcsDetails: string;
-  tdsInterest: number;
-  
-  // Clause 35: Trading/Manufacturing Details
-  tradingDetails: {
-    item: string;
-    openingStock: number;
-    purchases: number;
-    sales: number;
-    closingStock: number;
-    shortage: number;
-  }[];
-  manufacturingDetails: {
-    rawMaterial: string;
-    openingStock: number;
-    purchases: number;
-    consumption: number;
-    sales: number;
-    closingStock: number;
-    yield: number;
-    yieldPercentage: number;
-  }[];
-  
-  // Clause 36: Dividend Distribution Tax
-  dividendDistributionTax: {
-    distributedProfits: number;
-    reductionSection115O_1A_i: number;
-    reductionSection115O_1A_ii: number;
-    taxPaid: number;
-    paymentDates: string[];
-  };
-  
-  // Clause 36A: Deemed Dividend
-  deemedDividendReceived: 'Yes' | 'No';
-  deemedDividendAmount: number;
-  deemedDividendDate: string;
-  
-  // Clause 36B: Share Buyback
-  shareBuybackAmount: number;
-  shareBuybackCost: number;
-  
-  // Clause 37-39: Other Audits
-  costAuditConducted: 'Yes' | 'No';
-  costAuditDisagreements: string;
-  exciseAuditConducted: 'Yes' | 'No';
-  exciseAuditDisagreements: string;
-  serviceAuditConducted: 'Yes' | 'No';
-  serviceAuditDisagreements: string;
-  
-  // Clause 40: Financial Ratios
-  totalTurnover: number;
-  grossProfitRatio: number;
-  netProfitRatio: number;
-  stockTurnoverRatio: number;
-  materialConsumptionRatio: number;
-  previousYearTurnover: number;
-  previousGrossProfitRatio: number;
-  previousNetProfitRatio: number;
-  
-  // Clause 41: Tax Demands/Refunds
-  taxDemandsRefunds: string;
-  
-  // Clause 42: Form 61/61A/61B
-  form61Required: 'Yes' | 'No';
-  form61Details: string;
-  reportingEntityId: string;
-  
-  // Clause 43: Country-by-Country Reporting
-  cbcrRequired: 'Yes' | 'No';
-  cbcrDetails: string;
-  parentEntityName: string;
-  
-  // Clause 44: GST Expenditure Breakup
-  gstRegisteredExpenditure: number;
-  gstUnregisteredExpenditure: number;
-  gstCompositionExpenditure: number;
-  gstExemptExpenditure: number;
-  
-  // Auditor Information
-  auditorName: string;
-  auditorMembershipNo: string;
-  auditorFirmRegNo: string;
-  auditorAddress: string;
-  placeOfSigning: string;
-  dateOfSigning: string;
-}
 
 const Form3CD: React.FC = () => {
   const { theme } = useAppContext();
+  const { companyInfo, activeCompanyId } = useCompany();
   const navigate = useNavigate();
 
-  const [formData, setFormData] = useState<Form3CDData>({
-    // Clause 1-8: Basic Information
-    nameOfAssessee: '',
-    address: '',
-    panNumber: '',
-    indirectTaxLiability: 'No',
-    registrationNumbers: '',
-    status: '',
-    previousYearFrom: '2023-04-01',
-    previousYearTo: '2024-03-31',
-    assessmentYear: '2024-25',
-    section44ABClause: '',
-    taxRegimeOpted: '',
-    
-    // Clause 9: Partnership/LLP/BOI/AOP Details
-    partnersDetails: [],
-    partnersChangeDetails: '',
-    
-    // Clause 10: Business/Profession Details
-    natureOfBusiness: [],
-    businessChangeDetails: '',
-    
-    // Clause 11: Books of Account
-    booksPrescribed: 'Yes',
-    booksListPrescribed: [],
-    booksMaintained: [],
-    booksAddress: '',
-    booksExamined: [],
-    
-    // Clause 12: Presumptive Taxation
-    presumptiveProfits: 'No',
-    presumptiveAmount: 0,
-    presumptiveSection: '',
-    
-    // Clause 13: Accounting Method
-    accountingMethod: 'Mercantile',
-    accountingMethodChange: 'No',
-    accountingChangeDetails: '',
-    icdsAdjustmentRequired: 'No',
-    icdsAdjustmentDetails: '',
-    icdsDisclosure: '',
-    
-    // Clause 14: Stock Valuation
-    stockValuationMethod: '',
-    stockDeviationDetails: '',
-    
-    // Clause 15: Capital Asset to Stock
-    capitalAssetConversion: [],
-    
-    // Clause 16: Amounts not credited to P&L
-    section28Items: 0,
-    proformaCredits: 0,
-    escalationClaims: 0,
-    otherIncomeItems: 0,
-    capitalReceipts: 0,
-    
-    // Clause 17: Property Transfer Details
-    propertyTransferDetails: '',
-    
-    // Clause 18: Depreciation Details
-    depreciationDetails: [],
-    
-    // Clause 19: Special Deductions
-    specialDeductions: {
-      section33AB: 0,
-      section35_1_i: 0,
-      section35AD: 0,
-      section35CCD: 0,
-    },
-    
-    // Clause 20: Employee Payments & Funds
-    bonusCommissionDetails: '',
-    employeeFundContributions: '',
-    
-    // Clause 21: Inadmissible Expenditure
-    capitalPersonalExpenditure: 0,
-    section40aDisallowances: 0,
-    section40bDisallowances: 0,
-    section40A3Disallowance: 0,
-    gratuityProvisionDisallowance: 0,
-    section40A9Disallowance: 0,
-    contingentLiabilities: '',
-    section14ADisallowance: 0,
-    section36_1_iiiDisallowance: 0,
-    
-    // Clause 22: MSME Interest
-    msmeInterestInadmissible: 0,
-    msmeTotalPayable: 0,
-    msmeTimelyPayments: 0,
-    msmeDelayedPayments: 0,
-    
-    // Clause 23: Related Party Payments
-    relatedPartyPayments: '',
-    
-    // Clause 24: Deemed Profits
-    deemedProfitsSection32AC: 0,
-    deemedProfitsOther: 0,
-    
-    // Clause 25: Section 41 Profits
-    section41Profits: 0,
-    section41Details: '',
-    
-    // Clause 26: Section 43B Liabilities
-    section43BPreexisting: {
-      paid: 0,
-      notPaid: 0,
-    },
-    section43BCurrentYear: {
-      paidBeforeDueDate: 0,
-      notPaidBeforeDueDate: 0,
-    },
-    
-    // Clause 27: CENVAT & Prior Period
-    cenvatCredits: 0,
-    cenvatTreatment: '',
-    priorPeriodItems: '',
-    
-    // Clause 29A: Income from Other Sources
-    incomeOtherSources: 'No',
-    incomeOtherSourcesNature: '',
-    incomeOtherSourcesAmount: 0,
-    
-    // Clause 30: Hundi Borrowings
-    hundiBorrowings: 0,
-    hundiDetails: '',
-    
-    // Clause 30A: Transfer Pricing
-    transferPricingAdjustment: 'No',
-    transferPricingClause: '',
-    transferPricingAmount: 0,
-    excessMoneyRepatriated: 'No',
-    imputedInterest: 0,
-    
-    // Clause 30B: Interest Limitation (Section 94B)
-    interestExceedsOneCrore: 'No',
-    interestExpenditure: 0,
-    ebitda: 0,
-    excessInterest: 0,
-    interestBroughtForward: 0,
-    interestCarriedForward: 0,
-    
-    // Clause 30C: GAAR
-    impermissibleArrangement: 'No',
-    arrangementNature: '',
-    taxBenefitAmount: 0,
-    
-    // Clause 31: Cash Transactions
-    loansAboveLimit: [],
-    cashReceiptsAboveLimit: [],
-    cashPaymentsAboveLimit: [],
-    loanRepaymentsAboveLimit: [],
-    
-    // Clause 32: Loss & Depreciation Carry Forward
-    broughtForwardLoss: 0,
-    broughtForwardDepreciation: 0,
-    shareholdingChange: 'No',
-    speculationLoss: 'No',
-    speculationLossAmount: 0,
-    specifiedBusinessLoss: 'No',
-    speculationBusiness: 'No',
-    
-    // Clause 33: Chapter VIA Deductions
-    chapterVIADeductions: {
-      section80C: 0,
-      section80D: 0,
-      section80G: 0,
-      section10A: 0,
-      section10AA: 0,
-    },
-    
-    // Clause 34: TDS/TCS Compliance
-    tdsRequired: 'No',
-    tdsDetails: '',
-    tcsRequired: 'No',
-    tcsDetails: '',
-    tdsInterest: 0,
-    
-    // Clause 35: Trading/Manufacturing Details
-    tradingDetails: [],
-    manufacturingDetails: [],
-    
-    // Clause 36: Dividend Distribution Tax
-    dividendDistributionTax: {
-      distributedProfits: 0,
-      reductionSection115O_1A_i: 0,
-      reductionSection115O_1A_ii: 0,
-      taxPaid: 0,
-      paymentDates: [],
-    },
-    
-    // Clause 36A: Deemed Dividend
-    deemedDividendReceived: 'No',
-    deemedDividendAmount: 0,
-    deemedDividendDate: '',
-    
-    // Clause 36B: Share Buyback
-    shareBuybackAmount: 0,
-    shareBuybackCost: 0,
-    
-    // Clause 37-39: Other Audits
-    costAuditConducted: 'No',
-    costAuditDisagreements: '',
-    exciseAuditConducted: 'No',
-    exciseAuditDisagreements: '',
-    serviceAuditConducted: 'No',
-    serviceAuditDisagreements: '',
-    
-    // Clause 40: Financial Ratios
-    totalTurnover: 0,
-    grossProfitRatio: 0,
-    netProfitRatio: 0,
-    stockTurnoverRatio: 0,
-    materialConsumptionRatio: 0,
-    previousYearTurnover: 0,
-    previousGrossProfitRatio: 0,
-    previousNetProfitRatio: 0,
-    
-    // Clause 41: Tax Demands/Refunds
-    taxDemandsRefunds: '',
-    
-    // Clause 42: Form 61/61A/61B
-    form61Required: 'No',
-    form61Details: '',
-    reportingEntityId: '',
-    
-    // Clause 43: Country-by-Country Reporting
-    cbcrRequired: 'No',
-    cbcrDetails: '',
-    parentEntityName: '',
-    
-    // Clause 44: GST Expenditure Breakup
-    gstRegisteredExpenditure: 0,
-    gstUnregisteredExpenditure: 0,
-    gstCompositionExpenditure: 0,
-    gstExemptExpenditure: 0,
-    
-    // Auditor Information
-    auditorName: '',
-    auditorMembershipNo: '',
-    auditorFirmRegNo: '',
-    auditorAddress: '',
-    placeOfSigning: '',
-    dateOfSigning: '',
-  });
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  const [formData, setFormData] = useState<Form3CDData>(() => mapForm3CDData(null, companyInfo, null));
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchForm3CDData = async () => {
+      setIsLoading(true);
+      try {
+        const companyId = activeCompanyId || localStorage.getItem('company_id') || '';
+        const userId = localStorage.getItem('user_id') || '';
+        const userType = localStorage.getItem('userType') || '';
+
+        if (companyId) {
+          const res = await fetch(
+            `${import.meta.env.VITE_API_URL}/api/audit/form?company_id=${encodeURIComponent(companyId)}&form_type=3CD&user_id=${encodeURIComponent(userId)}&user_type=${encodeURIComponent(userType)}`
+          );
+          if (res.ok) {
+            const data = await res.json();
+            if (data.success && isMounted) {
+              const mapped = mapForm3CDData(data.savedData, data.companyInfo || companyInfo, data.caInfo);
+              setFormData(mapped);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch Form 3CD data:', err);
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    fetchForm3CDData();
+    return () => {
+      isMounted = false;
+    };
+  }, [activeCompanyId]);
 
   // DRY - Reusable input change handler
   const handleInputChange = (field: keyof Form3CDData, value: string | number | string[]) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
+  const saveAuditForm = async (status: 'draft' | 'submitted') => {
+    const companyId = activeCompanyId || localStorage.getItem('company_id') || '';
+    const userId = localStorage.getItem('user_id') || '';
+    if (!companyId) {
+      Swal.fire('Error', 'No company selected. Please select a company first.', 'error');
+      return;
+    }
+
+    setIsSaving(true);
+    setNotification(null);
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/audit/form`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company_id: companyId,
+          ca_id: userId,
+          form_type: '3CD',
+          assessment_year: formData.assessmentYear,
+          form_data: formData,
+          status
+        })
+      });
+
+      const resData = await response.json();
+      if (response.ok && resData.success) {
+        const msg = status === 'submitted' ? 'Form 3CD submitted successfully!' : 'Form 3CD saved successfully!';
+        setNotification({ type: 'success', message: msg });
+        Swal.fire({
+          icon: 'success',
+          title: status === 'submitted' ? 'Submitted!' : 'Saved!',
+          text: msg,
+          timer: 2000,
+          showConfirmButton: false
+        });
+      } else {
+        throw new Error(resData.message || 'Failed to save form data');
+      }
+    } catch (err: any) {
+      console.error('Error saving Form 3CD:', err);
+      const errorMsg = err.message || 'Error saving form. Please try again.';
+      setNotification({ type: 'error', message: errorMsg });
+      Swal.fire('Save Failed', errorMsg, 'error');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // Handlers
-  const handleSave = () => console.log('Saving Form 3CD:', formData);
-  const handleSubmit = () => console.log('Submitting Form 3CD:', formData);
+  const handleSave = () => saveAuditForm('draft');
+  const handleSubmit = () => saveAuditForm('submitted');
 
   // DRY - Reusable currency formatter
   const formatCurrency = (amount: number) => 
@@ -689,8 +239,27 @@ const Form3CD: React.FC = () => {
     </div>
   );
 
+  if (isLoading) {
+    return (
+      <div className="pt-[56px] px-4 max-w-5xl mx-auto flex flex-col items-center justify-center min-h-[400px]">
+        <Loader2 className="w-10 h-10 animate-spin text-blue-600 mb-4" />
+        <p className={`text-base font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>
+          Loading Form 3CD Audit Data...
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="pt-[56px] px-4 max-w-5xl mx-auto">
+      {notification && (
+        <div className={`mb-4 p-4 rounded-lg flex items-center justify-between ${
+          notification.type === 'success' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border border-green-200' : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 border border-red-200'
+        }`}>
+          <span>{notification.message}</span>
+          <button onClick={() => setNotification(null)} className="text-sm font-semibold underline ml-4">Dismiss</button>
+        </div>
+      )}
       {/* Header - Matching Form3CA design */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-4">
         <div className="flex items-center">
@@ -714,16 +283,18 @@ const Form3CD: React.FC = () => {
         <div className="flex flex-wrap gap-2">
           <button
             onClick={handleSave}
-            className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center text-sm"
+            disabled={isSaving}
+            className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center text-sm"
           >
-            <Save size={14} className="mr-1" />
+            {isSaving ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Save size={14} className="mr-1" />}
             Save
           </button>
           <button
             onClick={handleSubmit}
-            className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center text-sm"
+            disabled={isSaving}
+            className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors flex items-center text-sm"
           >
-            <FileCheck size={14} className="mr-1" />
+            {isSaving ? <Loader2 size={14} className="mr-1 animate-spin" /> : <FileCheck size={14} className="mr-1" />}
             Submit
           </button>
           <button className="px-3 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center text-sm">

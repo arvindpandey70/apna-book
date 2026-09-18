@@ -260,6 +260,9 @@ app.use("/api", roleManagementRouter);
 const caManagementRouter = require("./routes/caManagement");
 app.use("/api/ca", caManagementRouter);
 
+const auditFormsRouter = require("./routes/auditForms");
+app.use("/api/audit", auditFormsRouter);
+
 const userAccountsRouter = require("./routes/userAccounts");
 app.use("/api", userAccountsRouter);
 

@@ -1,117 +1,66 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAppContext } from '../../context/AppContext';
+import { useCompany } from '../../context/CompanyContext';
 import { useNavigate } from 'react-router-dom';
+import Swal from 'sweetalert2';
+import { mapForm3CBData, type Form3CBData } from '../../utils/auditFormMapper';
 import { 
   ArrowLeft, 
   Save, 
   Download, 
   Printer,
   FileCheck,
-  AlertCircle
+  AlertCircle,
+  Loader2
 } from 'lucide-react';
-
-interface Form3CBData {
-  // Part A - General Information
-  nameOfEntity: string;
-  panOfEntity: string;
-  assessmentYear: string;
-  previousYear: string;
-  addressOfEntity: string;
-  pinCode: string;
-  stateCode: string;
-  email: string;
-  phoneNumber: string;
-  
-  // Part B - Nature of Entity
-  natureOfEntity: string;
-  dateOfRegistration: string;
-  registrationNumber: string;
-  
-  // Part C - Books of Account
-  booksOfAccountMaintained: 'Yes' | 'No';
-  regularBooksOfAccount: 'Yes' | 'No';
-  booksOfAccountFromDate: string;
-  booksOfAccountToDate: string;
-  reasonForNotMaintaining: string;
-  
-  // Part D - Financial Particulars
-  grossReceipts: number;
-  totalSales: number;
-  totalPurchases: number;
-  grossProfit: number;
-  totalExpenses: number;
-  netProfit: number;
-  depreciationClaimed: number;
-  
-  // Part E - Method of Accounting
-  methodOfAccounting: 'Cash' | 'Mercantile' | 'Hybrid';
-  inventoryValuationMethod: string;
-  depreciationMethod: string;
-  
-  // Part F - Tax Audit Observations
-  taxAuditObservations: string;
-  discrepanciesFound: 'Yes' | 'No';
-  discrepancyDetails: string;
-  
-  // Part G - Other Information
-  applicabilityOfSection44AB: 'Yes' | 'No';
-  applicabilityOfSection44AD: 'Yes' | 'No';
-  anyOtherInformation: string;
-}
 
 const Form3CB: React.FC = () => {
   const { theme } = useAppContext();
+  const { companyInfo, activeCompanyId } = useCompany();
   const navigate = useNavigate();
   
-  const [formData, setFormData] = useState<Form3CBData>({
-    // Part A - General Information
-    nameOfEntity: '',
-    panOfEntity: '',
-    assessmentYear: '2024-25',
-    previousYear: '2023-24',
-    addressOfEntity: '',
-    pinCode: '',
-    stateCode: '',
-    email: '',
-    phoneNumber: '',
-    
-    // Part B - Nature of Entity
-    natureOfEntity: '',
-    dateOfRegistration: '',
-    registrationNumber: '',
-    
-    // Part C - Books of Account
-    booksOfAccountMaintained: 'Yes',
-    regularBooksOfAccount: 'Yes',
-    booksOfAccountFromDate: '',
-    booksOfAccountToDate: '',
-    reasonForNotMaintaining: '',
-    
-    // Part D - Financial Particulars
-    grossReceipts: 0,
-    totalSales: 0,
-    totalPurchases: 0,
-    grossProfit: 0,
-    totalExpenses: 0,
-    netProfit: 0,
-    depreciationClaimed: 0,
-    
-    // Part E - Method of Accounting
-    methodOfAccounting: 'Mercantile',
-    inventoryValuationMethod: '',
-    depreciationMethod: '',
-    
-    // Part F - Tax Audit Observations
-    taxAuditObservations: '',
-    discrepanciesFound: 'No',
-    discrepancyDetails: '',
-    
-    // Part G - Other Information
-    applicabilityOfSection44AB: 'Yes',
-    applicabilityOfSection44AD: 'No',
-    anyOtherInformation: ''
-  });
-  
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  const [formData, setFormData] = useState<Form3CBData>(() => mapForm3CBData(null, companyInfo, null));
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchForm3CBData = async () => {
+      setIsLoading(true);
+      try {
+        const companyId = activeCompanyId || localStorage.getItem('company_id') || '';
+        const userId = localStorage.getItem('user_id') || '';
+        const userType = localStorage.getItem('userType') || '';
+
+        if (companyId) {
+          const res = await fetch(
+            `${import.meta.env.VITE_API_URL}/api/audit/form?company_id=${encodeURIComponent(companyId)}&form_type=3CB&user_id=${encodeURIComponent(userId)}&user_type=${encodeURIComponent(userType)}`
+          );
+          if (res.ok) {
+            const data = await res.json();
+            if (data.success && isMounted) {
+              const mapped = mapForm3CBData(data.savedData, data.companyInfo || companyInfo, data.caInfo);
+              setFormData(mapped);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch Form 3CB data:', err);
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    fetchForm3CBData();
+    return () => {
+      isMounted = false;
+    };
+  }, [activeCompanyId]);
+
   const handleInputChange = (field: keyof Form3CBData, value: string | number) => {
     setFormData(prev => ({
       ...prev,
@@ -119,15 +68,56 @@ const Form3CB: React.FC = () => {
     }));
   };
 
-  const handleSave = () => {
-    console.log('Saving Form 3CB data:', formData);
-    // API call to save data
+  const saveAuditForm = async (status: 'draft' | 'submitted') => {
+    const companyId = activeCompanyId || localStorage.getItem('company_id') || '';
+    const userId = localStorage.getItem('user_id') || '';
+    if (!companyId) {
+      Swal.fire('Error', 'No company selected. Please select a company first.', 'error');
+      return;
+    }
+
+    setIsSaving(true);
+    setNotification(null);
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/audit/form`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company_id: companyId,
+          ca_id: userId,
+          form_type: '3CB',
+          assessment_year: formData.assessmentYear,
+          form_data: formData,
+          status
+        })
+      });
+
+      const resData = await response.json();
+      if (response.ok && resData.success) {
+        const msg = status === 'submitted' ? 'Form 3CB submitted successfully!' : 'Form 3CB saved successfully!';
+        setNotification({ type: 'success', message: msg });
+        Swal.fire({
+          icon: 'success',
+          title: status === 'submitted' ? 'Submitted!' : 'Saved!',
+          text: msg,
+          timer: 2000,
+          showConfirmButton: false
+        });
+      } else {
+        throw new Error(resData.message || 'Failed to save form data');
+      }
+    } catch (err: any) {
+      console.error('Error saving Form 3CB:', err);
+      const errorMsg = err.message || 'Error saving form. Please try again.';
+      setNotification({ type: 'error', message: errorMsg });
+      Swal.fire('Save Failed', errorMsg, 'error');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleSubmit = () => {
-    console.log('Submitting Form 3CB:', formData);
-    // API call to submit form
-  };
+  const handleSave = () => saveAuditForm('draft');
+  const handleSubmit = () => saveAuditForm('submitted');
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -136,8 +126,27 @@ const Form3CB: React.FC = () => {
     }).format(amount);
   };
 
+  if (isLoading) {
+    return (
+      <div className="pt-[56px] px-4 max-w-7xl mx-auto flex flex-col items-center justify-center min-h-[400px]">
+        <Loader2 className="w-10 h-10 animate-spin text-blue-600 mb-4" />
+        <p className={`text-base font-medium ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>
+          Loading Form 3CB Audit Data...
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="pt-[56px] px-4 max-w-7xl mx-auto">
+      {notification && (
+        <div className={`mb-4 p-4 rounded-lg flex items-center justify-between ${
+          notification.type === 'success' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border border-green-200' : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 border border-red-200'
+        }`}>
+          <span>{notification.message}</span>
+          <button onClick={() => setNotification(null)} className="text-sm font-semibold underline ml-4">Dismiss</button>
+        </div>
+      )}
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-4">
         <div className="flex items-center">
@@ -161,16 +170,18 @@ const Form3CB: React.FC = () => {
         <div className="flex flex-wrap gap-2">
           <button
             onClick={handleSave}
-            className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center text-sm"
+            disabled={isSaving}
+            className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center text-sm"
           >
-            <Save size={14} className="mr-1" />
+            {isSaving ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Save size={14} className="mr-1" />}
             Save
           </button>
           <button
             onClick={handleSubmit}
-            className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center text-sm"
+            disabled={isSaving}
+            className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors flex items-center text-sm"
           >
-            <FileCheck size={14} className="mr-1" />
+            {isSaving ? <Loader2 size={14} className="mr-1 animate-spin" /> : <FileCheck size={14} className="mr-1" />}
             Submit
           </button>
           <button className="px-3 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center text-sm">
