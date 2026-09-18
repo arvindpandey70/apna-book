@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { Edit, Trash2, Plus, Search, ArrowLeft, Download, FileCode2, Copy } from "lucide-react";
+import { Edit, Trash2, Plus, Search, ArrowLeft, Download, FileCode2, Copy, Upload } from "lucide-react";
 import { useAppContext } from "../../../context/AppContext";
 import type { Ledger, LedgerGroup } from "../../../types";
 import { formatGSTNumber } from "../../../utils/ledgerUtils";
 import Swal from "sweetalert2";
 import { allSystemGroups as baseGroups } from "../../../constants/ledgerGroups";
+import { LedgerExcelImportModal } from "./LedgerExcelImportModal";
 
 const LedgerList: React.FC = () => {
   const { theme, companyInfo } = useAppContext();
@@ -18,6 +19,7 @@ const LedgerList: React.FC = () => {
   const [ledgers, setLedgers] = useState<Ledger[]>([]);
   const [ledgerGroups, setLedgerGroups] = useState<LedgerGroup[]>([]);
   const [showExportPopup, setShowExportPopup] = useState(false);
+  const [showExcelImportModal, setShowExcelImportModal] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -490,88 +492,78 @@ const LedgerList: React.FC = () => {
     <>
       <div className="pt-[56px] px-4 ">
         {/* header */}
-        <div className="flex justify-between items-center mb-6">
-          <div className="flex items-center mb-6">
+        <div className="flex flex-wrap justify-between items-center gap-3 mb-5">
+          <div className="flex items-center">
             <button
               title="Back to Group List"
               onClick={() => navigate("/app/masters")}
-              className={`mr-4 p-2 rounded-full ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"
+              className={`mr-3 p-1.5 rounded-full transition-colors ${theme === "dark" ? "hover:bg-gray-700 text-gray-200" : "hover:bg-gray-200 text-gray-700"
                 }`}
             >
-              <ArrowLeft size={20} />
+              <ArrowLeft size={18} />
             </button>
             <h1
-              className={`text-2xl font-bold ${theme === "dark" ? "text-gray-100" : "text-gray-900"
+              className={`text-xl font-bold ${theme === "dark" ? "text-gray-100" : "text-gray-900"
                 }`}
             >
               Ledger List
             </h1>
           </div>
 
-          <div className="flex space-x-3">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => navigate("/app/masters/ledger/opn")}
-              className={`flex items-center px-4 py-2 rounded ${theme === "dark"
-                ? "bg-indigo-600 hover:bg-indigo-700 text-white"
-                : "bg-indigo-600 hover:bg-indigo-700 text-white"
-                }`}
+              className="flex items-center px-3 py-1.5 text-xs font-medium rounded bg-indigo-600 hover:bg-indigo-700 text-white transition-colors shadow-xs"
             >
               Opening Balance
             </button>
             <button
               type="button"
               onClick={handleImportAdminLedger}
-              className={`flex items-center px-4 py-2 rounded ${theme === "dark"
-                ? "bg-teal-600 hover:bg-teal-700 text-white"
-                : "bg-teal-600 hover:bg-teal-700 text-white"
-                }`}
+              className="flex items-center px-3 py-1.5 text-xs font-medium rounded bg-teal-600 hover:bg-teal-700 text-white transition-colors shadow-xs"
             >
               Import Admin Ledger
             </button>
             <button
               type="button"
-              onClick={handleExport}
-              className={`flex items-center px-4 py-2 rounded ${theme === "dark"
-                ? "bg-purple-600 hover:bg-purple-700 text-white"
-                : "bg-purple-600 hover:bg-purple-700 text-white"
-                }`}
+              onClick={() => setShowExcelImportModal(true)}
+              className="flex items-center px-3 py-1.5 text-xs font-medium rounded bg-emerald-600 hover:bg-emerald-700 text-white transition-colors shadow-xs"
             >
-              <Download size={18} className="mr-1" />
+              <Upload size={14} className="mr-1" />
+              Import Excel
+            </button>
+            <button
+              type="button"
+              onClick={handleExport}
+              className="flex items-center px-3 py-1.5 text-xs font-medium rounded bg-purple-600 hover:bg-purple-700 text-white transition-colors shadow-xs"
+            >
+              <Download size={14} className="mr-1" />
               Export
             </button>
             <button
               type="button"
               onClick={() => navigate("/app/masters/ledger/bulk-create")}
-              className={`flex items-center px-4 py-2 rounded ${theme === "dark"
-                ? "bg-green-600 hover:bg-green-700 text-white"
-                : "bg-green-600 hover:bg-green-700 text-white"
-                }`}
+              className="flex items-center px-3 py-1.5 text-xs font-medium rounded bg-green-600 hover:bg-green-700 text-white transition-colors shadow-xs"
             >
-              <Plus size={18} className="mr-1" />
+              <Plus size={14} className="mr-1" />
               Bulk Create
             </button>
             <button
               type="button"
               onClick={() => navigate("/app/masters/ledger/create")}
-              className={`flex items-center px-4 py-2 rounded ${theme === "dark"
-                ? "bg-blue-600 hover:bg-blue-700"
-                : "bg-blue-600 hover:bg-blue-700 text-white"
-                }`}
+              className="flex items-center px-3 py-1.5 text-xs font-medium rounded bg-blue-600 hover:bg-blue-700 text-white transition-colors shadow-xs"
             >
-              <Plus size={18} className="mr-1" />
+              <Plus size={14} className="mr-1" />
               Create Ledger
             </button>
             <button
               type="button"
               title="Export XML"
               onClick={() => setShowExportPopup(true)}
-              className={`flex items-center px-4 py-2 rounded text-sm font-medium ${theme === "dark"
-                  ? "bg-red-600 hover:bg-red-700 text-white"
-                  : "bg-red-600 hover:bg-red-700 text-white"
-                }`}
+              className="flex items-center px-3 py-1.5 text-xs font-medium rounded bg-red-600 hover:bg-red-700 text-white transition-colors shadow-xs"
             >
-              <FileCode2 size={18} className="mr-1" />
+              <FileCode2 size={14} className="mr-1" />
               Export XML
             </button>
           </div>
@@ -804,6 +796,14 @@ const LedgerList: React.FC = () => {
           </div>
         </div>
       )}
+
+      <LedgerExcelImportModal
+        isOpen={showExcelImportModal}
+        onClose={() => setShowExcelImportModal(false)}
+        onSuccess={fetchData}
+        existingLedgers={ledgers}
+        ledgerGroups={ledgerGroups}
+      />
     </>
   );
 };
