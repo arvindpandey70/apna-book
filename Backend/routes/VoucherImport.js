@@ -2328,9 +2328,13 @@ router.post("/sales_summary_import", async (req, res) => {
 
         let overallDiscountLedgerId = null;
         if (overallDiscountAmt > 0) {
-            let discountLedger = ledgers.find(ld => ld.name.toLowerCase() === "discount to customer") 
-                                 || ledgers.find(ld => ld.name.toLowerCase().includes("discount to customer"))
-                                 || ledgers.find(ld => ld.name.toLowerCase().includes("discount"));
+            const reqDiscLedger = voucher.overallDiscountLedger || voucher["Overall Discount Ledger"] || voucher["Discount Ledger"];
+            let discountLedger = reqDiscLedger ? ledgers.find(ld => ld.name.toLowerCase().trim() === String(reqDiscLedger).toLowerCase().trim()) : null;
+            if (!discountLedger) {
+                discountLedger = ledgers.find(ld => ld.name.toLowerCase() === "discount to customer") 
+                                     || ledgers.find(ld => ld.name.toLowerCase().includes("discount to customer"))
+                                     || ledgers.find(ld => ld.name.toLowerCase().includes("discount"));
+            }
             overallDiscountLedgerId = discountLedger ? discountLedger.id : null;
         }
 
@@ -2410,12 +2414,16 @@ router.post("/sales_summary_import", async (req, res) => {
         }
 
         if (overallDiscountAmt > 0) {
-            let discountLedger = ledgers.find(ld => ld.name.toLowerCase() === "discount to customer") 
-                                 || ledgers.find(ld => ld.name.toLowerCase().includes("discount to customer"))
-                                 || ledgers.find(ld => ld.name.toLowerCase().includes("discount"));
+            const reqDiscLedger = voucher.overallDiscountLedger || voucher["Overall Discount Ledger"] || voucher["Discount Ledger"];
+            let discountLedger = reqDiscLedger ? ledgers.find(ld => ld.name.toLowerCase().trim() === String(reqDiscLedger).toLowerCase().trim()) : null;
+            if (!discountLedger) {
+                discountLedger = ledgers.find(ld => ld.name.toLowerCase() === "discount to customer") 
+                                     || ledgers.find(ld => ld.name.toLowerCase().includes("discount to customer"))
+                                     || ledgers.find(ld => ld.name.toLowerCase().includes("discount"));
+            }
             
             const ledgerId = discountLedger ? discountLedger.id : null;
-            const ledgerName = discountLedger ? discountLedger.name : "Discount to Customer";
+            const ledgerName = discountLedger ? discountLedger.name : (reqDiscLedger || "Discount to Customer");
 
             await db.execute(
                 `INSERT INTO voucher_entries (voucher_id, ledger_id, ledger_name, amount, entry_type, narration, bank_name, cheque_number, cost_centre_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
