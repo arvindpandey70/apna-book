@@ -34,6 +34,88 @@ export interface Form3CBData {
   anyOtherInformation: string;
 }
 
+export interface Form3CDPartnerRow {
+  name: string;
+  pan: string;
+  profitShare: number;
+  capitalShare: number;
+}
+
+export interface Form3CDBusinessNatureRow {
+  sector: string;
+  code: string;
+  name: string;
+  description: string;
+}
+
+export interface Form3CDPropertyTransferRow {
+  description: string;
+  address: string;
+  stampValue: number;
+  consideration: number;
+}
+
+export interface Form3CDRelatedPartyRow {
+  name: string;
+  pan: string;
+  relationship: string;
+  amount: number;
+  transactionNature: string;
+}
+
+export interface Form3CDEmployeeContributionRow {
+  fundNature: string;
+  amountReceived: number;
+  dueDate: string;
+  paidDate: string;
+  amountPaid: number;
+}
+
+export interface Form3CDSection43BRow {
+  section: string;
+  nature: string;
+  preExistingPaid: number;
+  preExistingNotPaid: number;
+  currentPaidBeforeDue: number;
+  currentNotPaidBeforeDue: number;
+}
+
+export interface Form3CDLossCarryForwardRow {
+  assessmentYear: string;
+  natureOfLoss: string;
+  amountAsPerReturn: number;
+  amountAssessed: number;
+  carriedForwardAmount: number;
+}
+
+export interface Form3CDTdsStatementRow {
+  tan: string;
+  formType: string;
+  dueDate: string;
+  filingDate: string;
+  withinTime: 'Yes' | 'No';
+  lateFeePaid: number;
+}
+
+export interface Form3CDTdsDeductionRow {
+  tan: string;
+  section: string;
+  paymentNature: string;
+  totalAmount: number;
+  subjectToTds: number;
+  tdsDeducted: number;
+  tdsDeposited: number;
+}
+
+export interface Form3CDTaxDemandRefundRow {
+  financialYear: string;
+  authority: string;
+  orderDate: string;
+  demandAmount: number;
+  refundAmount: number;
+  remarks: string;
+}
+
 export interface Form3CDData {
   nameOfAssessee: string;
   address: string;
@@ -47,8 +129,10 @@ export interface Form3CDData {
   section44ABClause: string;
   taxRegimeOpted: string;
   partnersDetails: string[];
+  partnerList: Form3CDPartnerRow[];
   partnersChangeDetails: string;
   natureOfBusiness: string[];
+  businessNatureList: Form3CDBusinessNatureRow[];
   businessChangeDetails: string;
   booksPrescribed: 'Yes' | 'No';
   booksListPrescribed: string[];
@@ -78,6 +162,7 @@ export interface Form3CDData {
   otherIncomeItems: number;
   capitalReceipts: number;
   propertyTransferDetails: string;
+  propertyTransferList: Form3CDPropertyTransferRow[];
   depreciationDetails: {
     assetBlock: string;
     rate: number;
@@ -95,6 +180,7 @@ export interface Form3CDData {
   };
   bonusCommissionDetails: string;
   employeeFundContributions: string;
+  employeeContributionList: Form3CDEmployeeContributionRow[];
   capitalPersonalExpenditure: number;
   section40aDisallowances: number;
   section40bDisallowances: number;
@@ -109,6 +195,7 @@ export interface Form3CDData {
   msmeTimelyPayments: number;
   msmeDelayedPayments: number;
   relatedPartyPayments: string;
+  relatedPartyList: Form3CDRelatedPartyRow[];
   deemedProfitsSection32AC: number;
   deemedProfitsOther: number;
   section41Profits: number;
@@ -121,6 +208,7 @@ export interface Form3CDData {
     paidBeforeDueDate: number;
     notPaidBeforeDueDate: number;
   };
+  section43BList: Form3CDSection43BRow[];
   cenvatCredits: number;
   cenvatTreatment: string;
   priorPeriodItems: string;
@@ -174,6 +262,7 @@ export interface Form3CDData {
   }[];
   broughtForwardLoss: number;
   broughtForwardDepreciation: number;
+  lossCarryForwardList: Form3CDLossCarryForwardRow[];
   shareholdingChange: 'Yes' | 'No';
   speculationLoss: 'Yes' | 'No';
   speculationLossAmount: number;
@@ -188,8 +277,10 @@ export interface Form3CDData {
   };
   tdsRequired: 'Yes' | 'No';
   tdsDetails: string;
+  tdsDeductionList: Form3CDTdsDeductionRow[];
   tcsRequired: 'Yes' | 'No';
   tcsDetails: string;
+  tdsStatementList: Form3CDTdsStatementRow[];
   tdsInterest: number;
   tradingDetails: {
     item: string;
@@ -236,6 +327,7 @@ export interface Form3CDData {
   previousGrossProfitRatio: number;
   previousNetProfitRatio: number;
   taxDemandsRefunds: string;
+  taxDemandRefundList: Form3CDTaxDemandRefundRow[];
   form61Required: 'Yes' | 'No';
   form61Details: string;
   reportingEntityId: string;
@@ -382,9 +474,11 @@ export function mapForm3CDData(
     taxRegimeOpted: getVal(s.taxRegimeOpted, 'Section 115BAA'),
 
     partnersDetails: getVal(s.partnersDetails, []),
+    partnerList: getVal(s.partnerList, []),
     partnersChangeDetails: getVal(s.partnersChangeDetails, ''),
 
     natureOfBusiness: getVal(s.natureOfBusiness, []),
+    businessNatureList: getVal(s.businessNatureList, []),
     businessChangeDetails: getVal(s.businessChangeDetails, ''),
 
     booksPrescribed: getVal(s.booksPrescribed, 'Yes'),
@@ -416,6 +510,7 @@ export function mapForm3CDData(
     capitalReceipts: getVal(s.capitalReceipts, 0),
 
     propertyTransferDetails: getVal(s.propertyTransferDetails, ''),
+    propertyTransferList: getVal(s.propertyTransferList, []),
 
     depreciationDetails: getVal(s.depreciationDetails, []),
 
@@ -428,6 +523,7 @@ export function mapForm3CDData(
 
     bonusCommissionDetails: getVal(s.bonusCommissionDetails, ''),
     employeeFundContributions: getVal(s.employeeFundContributions, ''),
+    employeeContributionList: getVal(s.employeeContributionList, []),
 
     capitalPersonalExpenditure: getVal(s.capitalPersonalExpenditure, 0),
     section40aDisallowances: getVal(s.section40aDisallowances, 0),
@@ -445,6 +541,7 @@ export function mapForm3CDData(
     msmeDelayedPayments: getVal(s.msmeDelayedPayments, 0),
 
     relatedPartyPayments: getVal(s.relatedPartyPayments, ''),
+    relatedPartyList: getVal(s.relatedPartyList, []),
 
     deemedProfitsSection32AC: getVal(s.deemedProfitsSection32AC, 0),
     deemedProfitsOther: getVal(s.deemedProfitsOther, 0),
@@ -454,6 +551,7 @@ export function mapForm3CDData(
 
     section43BPreexisting: getVal(s.section43BPreexisting, { paid: 0, notPaid: 0 }),
     section43BCurrentYear: getVal(s.section43BCurrentYear, { paidBeforeDueDate: 0, notPaidBeforeDueDate: 0 }),
+    section43BList: getVal(s.section43BList, []),
 
     cenvatCredits: getVal(s.cenvatCredits, 0),
     cenvatTreatment: getVal(s.cenvatTreatment, ''),
@@ -490,6 +588,7 @@ export function mapForm3CDData(
 
     broughtForwardLoss: getVal(s.broughtForwardLoss, 0),
     broughtForwardDepreciation: getVal(s.broughtForwardDepreciation, 0),
+    lossCarryForwardList: getVal(s.lossCarryForwardList, []),
     shareholdingChange: getVal(s.shareholdingChange, 'No'),
     speculationLoss: getVal(s.speculationLoss, 'No'),
     speculationLossAmount: getVal(s.speculationLossAmount, 0),
@@ -506,8 +605,10 @@ export function mapForm3CDData(
 
     tdsRequired: getVal(s.tdsRequired, 'No'),
     tdsDetails: getVal(s.tdsDetails, ''),
+    tdsDeductionList: getVal(s.tdsDeductionList, []),
     tcsRequired: getVal(s.tcsRequired, 'No'),
     tcsDetails: getVal(s.tcsDetails, ''),
+    tdsStatementList: getVal(s.tdsStatementList, []),
     tdsInterest: getVal(s.tdsInterest, 0),
 
     tradingDetails: getVal(s.tradingDetails, []),
@@ -545,6 +646,7 @@ export function mapForm3CDData(
     previousNetProfitRatio: getVal(s.previousNetProfitRatio, 0),
 
     taxDemandsRefunds: getVal(s.taxDemandsRefunds, ''),
+    taxDemandRefundList: getVal(s.taxDemandRefundList, []),
 
     form61Required: getVal(s.form61Required, 'No'),
     form61Details: getVal(s.form61Details, ''),
