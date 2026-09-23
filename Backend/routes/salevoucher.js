@@ -594,7 +594,7 @@ router.get("/sale-history", async (req, res) => {
   try {
     const { company_id, owner_type, owner_id } = req.query;
 
-    if (!company_id || !owner_type || !owner_id) {
+    if (!company_id) {
       return res.status(400).json({
         success: false,
         message: "Missing required params",
@@ -627,8 +627,6 @@ router.get("/sale-history", async (req, res) => {
     ON CONVERT(sh.itemName USING utf8mb4) COLLATE utf8mb4_general_ci
      = CONVERT(si.name USING utf8mb4) COLLATE utf8mb4_general_ci
      AND CONVERT(si.company_id USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT(sh.companyId USING utf8mb4) COLLATE utf8mb4_general_ci
-     AND CONVERT(si.owner_type USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT(sh.ownerType USING utf8mb4) COLLATE utf8mb4_general_ci
-     AND CONVERT(si.owner_id USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT(sh.ownerId USING utf8mb4) COLLATE utf8mb4_general_ci
 
   LEFT JOIN stock_units su
     ON si.unit = su.id
@@ -637,26 +635,18 @@ router.get("/sale-history", async (req, res) => {
     ON CONVERT(sv.number USING utf8mb4) COLLATE utf8mb4_general_ci
      = CONVERT(sh.voucherNumber USING utf8mb4) COLLATE utf8mb4_general_ci
     AND sv.company_id = ?
-    AND sv.owner_type = ?
-    AND sv.owner_id = ?
 
   LEFT JOIN ledgers l
     ON l.id = sv.partyId
 
   WHERE sh.companyId = ?
-    AND sh.ownerType = ?
-    AND sh.ownerId = ?
 
   ORDER BY sh.movementDate DESC, sh.id DESC
 `;
 
     const [rows] = await db.execute(fetchSql, [
       company_id,
-      owner_type,
-      owner_id,
       company_id,
-      owner_type,
-      owner_id,
     ]);
 
 

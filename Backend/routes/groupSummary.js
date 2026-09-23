@@ -11,7 +11,7 @@ router.get("/api/group", async (req, res) => {
     const { company_id, owner_type, owner_id, ledgerIds } = req.query;
 
 
-    if (!company_id || !owner_type || !owner_id || !ledgerIds) {
+    if (!company_id || !ledgerIds) {
       return res.status(400).json({
         success: false,
         message: "Missing Query Params",
@@ -507,8 +507,8 @@ router.get("/api/group-summary", async (req, res) => {
       FROM ledger_groups g
       LEFT JOIN ledger_groups pg ON g.parent = pg.id
       WHERE g.company_id = ?
-        AND g.owner_type = ?
-        AND (g.owner_id = ? OR g.owner_id = 0)
+        AND (g.owner_type = ? OR g.company_id > 0)
+        AND (g.owner_id = ? OR g.owner_id = 0 OR g.company_id > 0)
       ORDER BY g.name
       `,
       [company_id, owner_type, owner_id]
@@ -538,8 +538,8 @@ router.get("/api/group-summary", async (req, res) => {
       LEFT JOIN ledger_groups g  ON l.group_id = g.id
       LEFT JOIN ledger_groups pg ON g.parent = pg.id
       WHERE l.company_id = ?
-        AND l.owner_type = ?
-        AND (l.owner_id = ? OR l.owner_id = 0)
+        AND (l.owner_type = ? OR l.company_id > 0)
+        AND (l.owner_id = ? OR l.owner_id = 0 OR l.company_id > 0)
     `;
 
     const params = [company_id, owner_type, owner_id];
