@@ -4,6 +4,7 @@ import { useCompany } from '../../context/CompanyContext';
 import { useNavigate } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import { mapForm3CBData, type Form3CBData } from '../../utils/auditFormMapper';
+import { useFinancialYear } from '../../hooks/useFinancialYear';
 import { 
   ArrowLeft, 
   Save, 
@@ -11,19 +12,22 @@ import {
   Printer,
   FileCheck,
   AlertCircle,
-  Loader2
+  Loader2,
+  Calendar,
+  Building2
 } from 'lucide-react';
 
 const Form3CB: React.FC = () => {
   const { theme } = useAppContext();
   const { companyInfo, activeCompanyId } = useCompany();
+  const { selectedFinYear } = useFinancialYear();
   const navigate = useNavigate();
   
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const [formData, setFormData] = useState<Form3CBData>(() => mapForm3CBData(null, companyInfo, null));
+  const [formData, setFormData] = useState<Form3CBData>(() => mapForm3CBData(null, companyInfo, null, null, selectedFinYear));
 
   useEffect(() => {
     let isMounted = true;
@@ -36,12 +40,12 @@ const Form3CB: React.FC = () => {
 
         if (companyId) {
           const res = await fetch(
-            `${import.meta.env.VITE_API_URL}/api/audit/form?company_id=${encodeURIComponent(companyId)}&form_type=3CB&user_id=${encodeURIComponent(userId)}&user_type=${encodeURIComponent(userType)}`
+            `${import.meta.env.VITE_API_URL}/api/audit/form?company_id=${encodeURIComponent(companyId)}&form_type=3CB&user_id=${encodeURIComponent(userId)}&user_type=${encodeURIComponent(userType)}&financialYear=${encodeURIComponent(selectedFinYear || '')}`
           );
           if (res.ok) {
             const data = await res.json();
             if (data.success && isMounted) {
-              const mapped = mapForm3CBData(data.savedData, data.companyInfo || companyInfo, data.caInfo);
+              const mapped = mapForm3CBData(data.savedData, data.companyInfo || companyInfo, data.caInfo, data.financialParticulars, selectedFinYear);
               setFormData(mapped);
             }
           }
@@ -59,7 +63,7 @@ const Form3CB: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [activeCompanyId]);
+  }, [activeCompanyId, selectedFinYear]);
 
   const handleInputChange = (field: keyof Form3CBData, value: string | number) => {
     setFormData(prev => ({
@@ -534,7 +538,22 @@ const Form3CB: React.FC = () => {
         <div className={`rounded-xl border p-6 ${
           theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
         }`}>
-          <h2 className="text-xl font-semibold mb-6 text-orange-600">Part D - Financial Particulars</h2>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-2 border-b pb-3 border-gray-200 dark:border-gray-700">
+            <div>
+              <h2 className="text-xl font-semibold text-orange-600">Part D - Financial Particulars</h2>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                Financial records calculated for the selected company and financial year
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full bg-blue-50 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                <Building2 size={13} /> {companyInfo?.name || "Active Company"}
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                <Calendar size={13} /> FY {selectedFinYear || "Active Period"}
+              </span>
+            </div>
+          </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <div>

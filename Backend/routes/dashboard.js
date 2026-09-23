@@ -72,13 +72,26 @@ router.get('/dashboard-data', async (req, res) => {
 
     if (activeCompanyId) {
       const [ledgerRows] = await db.query('SELECT * FROM ledgers WHERE company_id = ?', [activeCompanyId]);
-      const [voucherRows] = await db.query('SELECT * FROM voucher_main WHERE company_id = ?', [activeCompanyId]);
+      
+      const { financialYear } = req.query; // e.g. "2025-26" or "2025-2026"
+
+      let vQuery = 'SELECT * FROM voucher_main WHERE company_id = ?';
+      let vParams = [activeCompanyId];
+
+      if (financialYear) {
+        const match = financialYear.match(/\d{4}/);
+        const year = match ? parseInt(match[0], 10) : new Date().getFullYear();
+        const startDate = `${year}-04-01`;
+        const endDate = `${year + 1}-03-31`;
+        vQuery += ' AND date >= ? AND date <= ?';
+        vParams.push(startDate, endDate);
+      }
+
+      const [voucherRows] = await db.query(vQuery, vParams);
       ledgers = ledgerRows;
       vouchers = voucherRows;
 
       // Calculate stats based on financialYear
-      const { financialYear } = req.query; // e.g. "2025-26" or ""
-
       let salesQuery = `
         SELECT 
           SUM(total) as totalSales,
@@ -167,6 +180,7 @@ router.get('/companies-by-employee', async (req, res) => {
 // Assuming CA's ID is available as req.query.ca_id
 router.get('/companies-by-ca', async (req, res) => {
   const caId = req.query.ca_id;
+  const { financialYear } = req.query;
   if (!caId) return res.status(400).json({ message: 'Missing ca_id' });
 
   let connection;
@@ -179,14 +193,39 @@ router.get('/companies-by-ca', async (req, res) => {
     const caName = caRows.length > 0 ? caRows[0].fdname.trim() : null;
 
     // 2. Find companies linked to this CA (as accountant or owner)
-    // We search by name (common for CAs) and also by caId as owner
     const [rows] = await connection.query(
-      `SELECT id, name, employee_id, pan_number,
+      `SELECT id, name, assessee_name, company_type, employee_id, pan_number, gst_number, address,
        (SELECT COUNT(*) FROM tbusers u WHERE u.company_id = tbcompanies.id) > 0 as isLocked
        FROM tbcompanies 
        WHERE (fdAccountantName = ?) OR (employee_id = ?) OR id IN (SELECT company_id FROM ca_company WHERE ca_id = ?)`,
       [caName, caId, caId]
     );
+
+    if (financialYear) {
+      const match = financialYear.match(/\d{4}/);
+      const year = match ? parseInt(match[0], 10) : new Date().getFullYear();
+      const startDate = `${year}-04-01`;
+      const endDate = `${year + 1}-03-31`;
+
+      for (let company of rows) {
+        const [salesStats] = await connection.query(
+          `SELECT SUM(total) as totalSales FROM sales_vouchers WHERE company_id = ? AND date >= ? AND date <= ?`,
+          [company.id, startDate, endDate]
+        );
+        const [purchaseStats] = await connection.query(
+          `SELECT SUM(total) as totalPurchases FROM purchase_vouchers WHERE company_id = ? AND date >= ? AND date <= ?`,
+          [company.id, startDate, endDate]
+        );
+        const [voucherStats] = await connection.query(
+          `SELECT COUNT(*) as totalVouchers FROM voucher_main WHERE company_id = ? AND date >= ? AND date <= ?`,
+          [company.id, startDate, endDate]
+        );
+
+        company.fyTotalSales = salesStats[0]?.totalSales || 0;
+        company.fyTotalPurchases = purchaseStats[0]?.totalPurchases || 0;
+        company.fyTotalVouchers = voucherStats[0]?.totalVouchers || 0;
+      }
+    }
 
     res.json({ companies: rows });
   } catch (err) {

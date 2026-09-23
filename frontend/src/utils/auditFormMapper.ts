@@ -357,7 +357,9 @@ function getVal<T>(savedVal: any, defaultVal: T): T {
 export function mapForm3CBData(
   savedData: Partial<Form3CBData> | null,
   companyInfo?: any,
-  caInfo?: any
+  caInfo?: any,
+  financialParticulars?: any,
+  selectedFinYear?: string
 ): Form3CBData {
   const companyName = companyInfo?.name || '';
   const companyPan = companyInfo?.pan_number || companyInfo?.panNumber || '';
@@ -366,7 +368,7 @@ export function mapForm3CBData(
   const companyState = companyInfo?.state || '';
   const companyEmail = companyInfo?.email || '';
   const companyPhone = companyInfo?.phone_number || companyInfo?.phoneNumber || companyInfo?.phone || '';
-  const financialYear = companyInfo?.financial_year || companyInfo?.financialYear || '2023-24';
+  const financialYear = selectedFinYear || companyInfo?.financial_year || companyInfo?.financialYear || '2023-24';
   const booksBeginning = companyInfo?.books_beginning_year || companyInfo?.booksBeginningYear || '2023-04-01';
 
   // Compute assessment year (e.g. 2023-24 -> 2024-25)
@@ -404,13 +406,13 @@ export function mapForm3CBData(
     booksOfAccountToDate: getVal(s.booksOfAccountToDate, ''),
     reasonForNotMaintaining: getVal(s.reasonForNotMaintaining, ''),
 
-    grossReceipts: getVal(s.grossReceipts, 0),
-    totalSales: getVal(s.totalSales, 0),
-    totalPurchases: getVal(s.totalPurchases, 0),
-    grossProfit: getVal(s.grossProfit, 0),
-    totalExpenses: getVal(s.totalExpenses, 0),
-    netProfit: getVal(s.netProfit, 0),
-    depreciationClaimed: getVal(s.depreciationClaimed, 0),
+    grossReceipts: financialParticulars ? (financialParticulars.grossReceipts ?? 0) : getVal(s.grossReceipts, 0),
+    totalSales: financialParticulars ? (financialParticulars.totalSales ?? 0) : getVal(s.totalSales, 0),
+    totalPurchases: financialParticulars ? (financialParticulars.totalPurchases ?? 0) : getVal(s.totalPurchases, 0),
+    grossProfit: financialParticulars ? (financialParticulars.grossProfit ?? 0) : getVal(s.grossProfit, 0),
+    totalExpenses: financialParticulars ? (financialParticulars.totalExpenses ?? 0) : getVal(s.totalExpenses, 0),
+    netProfit: financialParticulars ? (financialParticulars.netProfit ?? 0) : getVal(s.netProfit, 0),
+    depreciationClaimed: financialParticulars ? (financialParticulars.depreciationClaimed ?? 0) : getVal(s.depreciationClaimed, 0),
 
     methodOfAccounting: getVal(s.methodOfAccounting, 'Mercantile'),
     inventoryValuationMethod: getVal(s.inventoryValuationMethod, 'Cost or Net Realizable Value whichever is lower'),

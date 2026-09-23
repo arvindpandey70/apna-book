@@ -241,12 +241,12 @@ const Dashboard: React.FC = () => {
       }
     }
 
-    if (employeeId) {
+    if (employeeId || caId) {
       fetchData();
     } else {
       setLoading(false);
     }
-  }, [employeeId, selectedFinYear]);
+  }, [employeeId, caId, selectedFinYear]);
 
   useEffect(() => {
     const employeeId = localStorage.getItem("employee_id");
@@ -290,11 +290,16 @@ const Dashboard: React.FC = () => {
     const caId = localStorage.getItem("user_id");
     if (!caId) return;
 
-    fetch(`${import.meta.env.VITE_API_URL}/api/companies-by-ca?ca_id=${caId}`)
+    let url = `${import.meta.env.VITE_API_URL}/api/companies-by-ca?ca_id=${caId}`;
+    if (selectedFinYear) {
+      url += `&financialYear=${selectedFinYear}`;
+    }
+
+    fetch(url)
       .then((res) => res.json())
       .then((data) => setCaAllCompanies(data.companies || []))
       .catch((err) => console.error("Error fetching CA companies:", err));
-  }, []);
+  }, [selectedFinYear]);
 
   const handleCreateCompany = () => {
     navigate("/app/company");
@@ -1254,61 +1259,159 @@ const Dashboard: React.FC = () => {
           <div className={`p-6 rounded-2xl border shadow-xs transition-colors ${
             isDark ? "bg-slate-800/90 border-slate-700/80" : "bg-white border-slate-200/80"
           }`}>
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
               <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60">
+                    CA Portal
+                  </span>
+                  {selectedFinYear && (
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60">
+                      Active Filter: FY {selectedFinYear}
+                    </span>
+                  )}
+                </div>
                 <h1 className="text-2xl font-extrabold tracking-tight">CA Portal Dashboard</h1>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Manage assigned companies, staff accountants, and access permissions.</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Manage assigned companies, staff accountants, and access permissions.</p>
               </div>
 
-              {caAllCompanies.length > 0 && (
-                <div className="w-full sm:w-auto">
+              <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+                {/* Financial Year Selector */}
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                    <Calendar size={13} className="text-indigo-500" /> Financial Year:
+                  </label>
                   <select
-                    value={selectedCaCompany}
-                    onChange={(e) => {
-                      const companyId = e.target.value;
-                      if (!companyId) return;
-                      localStorage.setItem("company_id", companyId);
-                      setSelectedCaCompany(companyId);
-                      window.location.reload();
-                    }}
-                    className={`text-xs font-semibold px-3 py-2 rounded-xl border outline-none cursor-pointer w-full sm:w-[220px] ${
+                    value={selectedFinYear}
+                    onChange={(e) => setSelectedFinYear(e.target.value)}
+                    className={`text-xs font-semibold px-3 py-2 rounded-xl border outline-none transition-all cursor-pointer ${
                       isDark 
-                        ? "bg-slate-700 border-slate-600 text-slate-100" 
-                        : "bg-slate-50 border-slate-300 text-slate-800"
+                        ? "bg-slate-700 border-slate-600 text-slate-100 focus:border-indigo-500" 
+                        : "bg-slate-50 border-slate-300 text-slate-800 focus:border-indigo-500"
                     }`}
                   >
-                    <option value="">Select Company</option>
-                    {caAllCompanies.map((c) => (
-                      <option key={c.id} value={c.id.toString()}>
-                        {c.name}
-                      </option>
+                    {availableFinYears.map((fy) => (
+                      <option key={fy} value={fy}>FY {fy}</option>
                     ))}
                   </select>
                 </div>
-              )}
+
+                {/* Company Selector */}
+                {caAllCompanies.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={selectedCaCompany}
+                      onChange={(e) => {
+                        const companyId = e.target.value;
+                        if (!companyId) return;
+                        localStorage.setItem("company_id", companyId);
+                        setSelectedCaCompany(companyId);
+                        window.location.reload();
+                      }}
+                      className={`text-xs font-semibold px-3 py-2 rounded-xl border outline-none cursor-pointer w-full sm:w-[200px] ${
+                        isDark 
+                          ? "bg-slate-700 border-slate-600 text-slate-100" 
+                          : "bg-slate-50 border-slate-300 text-slate-800"
+                      }`}
+                    >
+                      <option value="">Select Company</option>
+                      {caAllCompanies.map((c) => (
+                        <option key={c.id} value={c.id.toString()}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Company Details Table */}
+          {/* Assigned Companies Table */}
           <div className={`p-6 rounded-2xl border shadow-xs overflow-hidden ${
             isDark ? "bg-slate-800/90 border-slate-700/80" : "bg-white border-slate-200/80"
           }`}>
-            <h2 className="text-base font-bold mb-4">Assigned Companies</h2>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-base font-bold">Assigned Companies</h2>
+                <p className="text-xs text-slate-400 dark:text-slate-500">
+                  Data restricted to FY {selectedFinYear || "Active Period"}
+                </p>
+              </div>
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                {caAllCompanies.length} Companies Linked
+              </span>
+            </div>
+
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className={`border-b ${isDark ? "border-slate-700 text-slate-400" : "border-slate-200 text-slate-500"}`}>
                     <th className="p-3 font-semibold">Company Name</th>
+                    <th className="p-3 font-semibold">Assessee Name</th>
+                    <th className="p-3 font-semibold">Company Type</th>
                     <th className="p-3 font-semibold">PAN Number</th>
+                    <th className="p-3 font-semibold text-right">FY Sales</th>
+                    <th className="p-3 font-semibold text-right">FY Purchases</th>
+                    <th className="p-3 font-semibold text-center">FY Vouchers</th>
+                    <th className="p-3 font-semibold text-center">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-700/60">
-                  {caAllCompanies.map((company) => (
-                    <tr key={company.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/30">
-                      <td className="p-3 font-semibold">{company.name}</td>
-                      <td className="p-3 font-mono">{company.pan_number || "—"}</td>
+                  {caAllCompanies.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="p-4 text-center text-slate-400">
+                        No assigned companies found for this CA account.
+                      </td>
                     </tr>
-                  ))}
+                  ) : (
+                    caAllCompanies.map((company: any) => {
+                      const isSelected = String(company.id) === selectedCaCompany;
+                      return (
+                        <tr key={company.id} className={`hover:bg-slate-50/50 dark:hover:bg-slate-700/30 ${isSelected ? "bg-indigo-50/40 dark:bg-indigo-950/30" : ""}`}>
+                          <td className="p-3 font-semibold flex items-center gap-2">
+                            <Building2 size={15} className="text-indigo-500" />
+                            {company.name}
+                            {isSelected && (
+                              <span className="px-1.5 py-0.5 text-[10px] font-bold bg-indigo-600 text-white rounded-md">
+                                Selected
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3 font-medium text-slate-700 dark:text-slate-300">
+                            {company.assessee_name || "—"}
+                          </td>
+                          <td className="p-3 font-medium">
+                            <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-300 font-semibold text-[11px] border border-slate-200 dark:border-slate-600">
+                              {company.company_type || "—"}
+                            </span>
+                          </td>
+                          <td className="p-3 font-mono">{company.pan_number || "—"}</td>
+                          <td className="p-3 font-mono text-right font-medium text-emerald-600 dark:text-emerald-400">
+                            ₹ {Number(company.fyTotalSales || 0).toLocaleString()}
+                          </td>
+                          <td className="p-3 font-mono text-right font-medium text-indigo-600 dark:text-indigo-400">
+                            ₹ {Number(company.fyTotalPurchases || 0).toLocaleString()}
+                          </td>
+                          <td className="p-3 text-center font-medium">
+                            {company.fyTotalVouchers !== undefined ? company.fyTotalVouchers : "—"}
+                          </td>
+                          <td className="p-3 text-center">
+                            <button
+                              onClick={() => {
+                                localStorage.setItem("company_id", String(company.id));
+                                setSelectedCaCompany(String(company.id));
+                                window.location.reload();
+                              }}
+                              className="px-2.5 py-1 text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900 rounded-lg border border-indigo-200 dark:border-indigo-800 transition-colors cursor-pointer"
+                            >
+                              Select & View
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>

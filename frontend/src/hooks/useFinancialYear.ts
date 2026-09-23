@@ -46,8 +46,8 @@ export const getAvailableFinYears = (startYear: string | number = 2020) => {
     const start = typeof startYear === 'string' ? parseInt(startYear.match(/\d{4}/)?.[0] || '2020', 10) : startYear;
 
     const years = [];
-    for (let y = start; y <= endFinYear + 2; y++) {
-        years.push(`${y}-${(y + 1).toString().slice(2)}`);
+    for (let y = endFinYear + 2; y >= start; y--) {
+        years.push(`${y}-${y + 1}`);
     }
     return years;
 };
