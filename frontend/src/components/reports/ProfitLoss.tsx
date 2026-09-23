@@ -3,7 +3,11 @@ import { useAppContext } from "../../context/AppContext";
 import { useNavigate, Link } from "react-router-dom";
 import { ArrowLeft, Printer, Download, Filter, Settings } from "lucide-react";
 
-const ProfitLoss: React.FC = () => {
+interface ProfitLossProps {
+  showHeader?: boolean;
+}
+
+const ProfitLoss: React.FC<ProfitLossProps> = ({ showHeader = true }) => {
   const { theme, ledgers, ledgerGroups } = useAppContext();
   const navigate = useNavigate();
   const [showFilterPanel, setShowFilterPanel] = useState(false);
@@ -34,12 +38,18 @@ const ProfitLoss: React.FC = () => {
 
 
 
-  const companyId = localStorage.getItem("company_id");
-  const ownerType = localStorage.getItem("supplier");
-  const ownerId =
-    localStorage.getItem(
-      ownerType === "employee" ? "employee_id" : "user_id"
-    ) || "";
+  const companyId = localStorage.getItem("company_id") || localStorage.getItem("active_company_id") || "";
+  const rawOwnerType = localStorage.getItem("supplier") || "";
+  const employeeId = localStorage.getItem("employee_id");
+  const userId = localStorage.getItem("user_id") || "";
+
+  const ownerType = (rawOwnerType === "ca" || rawOwnerType === "ca_employee" || rawOwnerType === "new_ca" || rawOwnerType === "employee" || employeeId)
+    ? "employee"
+    : (rawOwnerType || "employee");
+
+  const ownerId = (rawOwnerType === "ca" || rawOwnerType === "ca_employee" || rawOwnerType === "new_ca" || rawOwnerType === "employee" || employeeId)
+    ? (employeeId || userId)
+    : userId;
 
   // Navigation handlers
   const handleStockClick = () => {
@@ -739,60 +749,135 @@ const ProfitLoss: React.FC = () => {
 
 
   return (
-    <div className="pt-[56px] px-4 ">
-      <div className="flex items-center mb-6 relative">
-        <button
-          title="Back to Reports"
-          type="button"
-          onClick={() => navigate("/app/reports")}
-          className={`mr-4 p-2 rounded-full ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"
-            }`}
-        >
-          <ArrowLeft size={20} />
-        </button>
+    <div className={showHeader ? "pt-[56px] px-4 " : ""}>
+      {showHeader && (
+        <div className="flex items-center mb-6 relative">
+          <button
+            title="Back to Reports"
+            type="button"
+            onClick={() => navigate("/app/reports")}
+            className={`mr-4 p-2 rounded-full ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"
+              }`}
+          >
+            <ArrowLeft size={20} />
+          </button>
 
-        <h1 className="text-2xl font-bold">Profit & Loss Statement</h1>
+          <h1 className="text-2xl font-bold">Profit & Loss Statement</h1>
 
-        <div className="ml-auto flex space-x-2 relative">
-          {/* ⚙️ Settings Button */}
-          <div className="relative">
+          <div className="ml-auto flex space-x-2 relative">
+            {/* ⚙️ Settings Button */}
+            <div className="relative">
+              <button
+                title="Settings"
+                type="button"
+                onClick={() => setShowFullData((prev) => !prev)}
+                className={`p-2 rounded-md ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"
+                  }`}
+              >
+                <Settings size={18} />
+              </button>
+
+              {/* 🔽 Settings Dropdown */}
+              {showFullData && (
+                <div
+                  className="absolute right-0 mt-2 w-52 rounded-md shadow-lg z-50 bg-white border border-gray-300 text-gray-800"
+                >
+                  {/* Detailed */}
+                  <label
+                    htmlFor="detailedView"
+                    className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-gray-100"
+                  >
+                    <input
+                      type="checkbox"
+                      id="detailedView"
+                      checked={showDetailed}
+                      onChange={(e) => setShowDetailed(e.target.checked)}
+                    />
+                    Detailed
+                  </label>
+
+                  {/* Item wise */}
+                  <label
+                    htmlFor="itemWise"
+                    className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-gray-100 border-t border-gray-200"
+                  >
+                    <input
+                      type="checkbox"
+                      id="itemWise"
+                      checked={showItemWise}
+                      onChange={(e) => {
+                        setShowItemWise(e.target.checked);
+                        setShowInventoryBreakup(e.target.checked);
+                      }}
+                    />
+                    Item wise
+                  </label>
+                </div>
+              )}
+            </div>
+
+            {/* Filter Button */}
+            <button
+              title="Toggle Filters"
+              type="button"
+              onClick={() => setShowFilterPanel(!showFilterPanel)}
+              className={`p-2 rounded-md  ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"
+                }`}
+            >
+              <Filter size={18} />
+            </button>
+
+            {/* Print Button */}
+            <button
+              title="Print Report"
+              className={`p-2 rounded-md ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"
+                }`}
+            >
+              <Printer size={18} />
+            </button>
+
+            {/* Download Button */}
+            <button
+              title="Download Report"
+              type="button"
+              className={`p-2 rounded-md ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"
+                }`}
+            >
+              <Download size={18} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!showHeader && (
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold">Trading & Profit & Loss Statement</h2>
+          <div className="flex space-x-2 relative">
             <button
               title="Settings"
               type="button"
               onClick={() => setShowFullData((prev) => !prev)}
-              className={`p-2 rounded-md ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"
-                }`}
+              className={`p-2 rounded-md transition-all text-xs flex items-center gap-1.5 border font-medium ${theme === "dark" ? "hover:bg-gray-700 border-gray-700 text-gray-300" : "hover:bg-gray-100 border-gray-300 text-gray-700"}`}
             >
-              <Settings size={18} />
+              <Settings size={14} />
+              <span>View Options</span>
             </button>
 
-            {/* 🔽 Settings Dropdown */}
             {showFullData && (
-              <div
-                className="absolute right-0 mt-2 w-52 rounded-md shadow-lg z-50 bg-white border border-gray-300"
-              >
-                {/* Detailed */}
-                <label
-                  htmlFor="detailedView"
-                  className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-gray-100"
-                >
+              <div className="absolute right-0 mt-8 w-52 rounded-md shadow-lg z-50 bg-white border border-gray-300 text-gray-800">
+                <label htmlFor="detailedViewE" className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-gray-100">
                   <input
                     type="checkbox"
-                    id="detailedView"
+                    id="detailedViewE"
                     checked={showDetailed}
                     onChange={(e) => setShowDetailed(e.target.checked)}
                   />
                   Detailed
                 </label>
-
-                {/* Item wise */}
-                <label
-                  htmlFor="itemWise"
-                  className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-gray-100 border-t border-gray-200"
-                >
+                <label htmlFor="itemWiseE" className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-gray-100 border-t border-gray-200">
                   <input
                     type="checkbox"
-                    id="itemWise"
+                    id="itemWiseE"
                     checked={showItemWise}
                     onChange={(e) => {
                       setShowItemWise(e.target.checked);
@@ -804,38 +889,8 @@ const ProfitLoss: React.FC = () => {
               </div>
             )}
           </div>
-
-          {/* Filter Button */}
-          <button
-            title="Toggle Filters"
-            type="button"
-            onClick={() => setShowFilterPanel(!showFilterPanel)}
-            className={`p-2 rounded-md  ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"
-              }`}
-          >
-            <Filter size={18} />
-          </button>
-
-          {/* Print Button */}
-          <button
-            title="Print Report"
-            className={`p-2 rounded-md ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"
-              }`}
-          >
-            <Printer size={18} />
-          </button>
-
-          {/* Download Button */}
-          <button
-            title="Download Report"
-            type="button"
-            className={`p-2 rounded-md ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"
-              }`}
-          >
-            <Download size={18} />
-          </button>
         </div>
-      </div>
+      )}
 
       {showFilterPanel && (
         <div

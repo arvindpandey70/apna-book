@@ -10,10 +10,10 @@ router.get("/purchase-history", async (req, res) => {
   try {
     const { company_id, owner_type, owner_id } = req.query;
 
-    if (!company_id || !owner_type || !owner_id) {
+    if (!company_id) {
       return res.status(401).json({
         success: false,
-        message: "Unauthorized: company or owner missing",
+        message: "Unauthorized: company missing",
       });
     }
 
@@ -82,8 +82,6 @@ router.get("/purchase-history", async (req, res) => {
     ON CONVERT(pv.number USING utf8mb4) COLLATE utf8mb4_general_ci
      = CONVERT(ph.voucherNumber USING utf8mb4) COLLATE utf8mb4_general_ci
     AND pv.company_id = ?
-    AND pv.owner_type = ?
-    AND pv.owner_id = ?
 
   LEFT JOIN ledgers l
     ON l.id = pv.partyId
@@ -96,22 +94,11 @@ router.get("/purchase-history", async (req, res) => {
     ON si.unit = su.id
 
   WHERE ph.companyId = ?
-    AND ph.ownerType = ?
-    AND ph.ownerId = ?
 
   ORDER BY ph.purchaseDate DESC, ph.id DESC
 `;
 
-
-    const [rows] = await db.execute(selectSql, [
-      company_id,
-      owner_type,
-      owner_id,
-      company_id,
-      company_id,
-      owner_type,
-      owner_id,
-    ]);
+    const [rows] = await db.execute(selectSql, [company_id, company_id, company_id]);
 
 
     return res.status(200).json({

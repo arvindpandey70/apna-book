@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
-import { Moon, Sun, Menu } from 'lucide-react';
+import { Moon, Sun, Menu, Calendar } from 'lucide-react';
 import { useAuth } from '../../home/context/AuthContext';
+import { useFinancialYear, getAvailableFinYears } from '../../hooks/useFinancialYear';
 
 interface HeaderProps {
   toggleSidebar: () => void;
@@ -18,6 +19,8 @@ const Header: React.FC<HeaderProps> = ({ toggleSidebar }) => {
   const { user } = useAuth();
   const storedCompanyId = localStorage.getItem("company_id");
   const [companyData, setCompanyData] = useState<CompanyData | null>(null);
+  const { selectedFinYear, setSelectedFinYear } = useFinancialYear();
+  const availableFinYears = getAvailableFinYears();
 
   useEffect(() => {
     const storedCompanyId = localStorage.getItem("company_id");
@@ -110,6 +113,23 @@ const Header: React.FC<HeaderProps> = ({ toggleSidebar }) => {
       </div>
 
       <div className="flex items-center space-x-2 md:space-x-3 flex-shrink-0">
+        {/* Global Financial Year Selector */}
+        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-white/10 dark:bg-slate-800/80 rounded-xl border border-white/20 dark:border-slate-700 text-xs">
+          <Calendar size={13} className="text-amber-300" />
+          <span className="font-semibold text-xs text-indigo-200 dark:text-indigo-300">FY:</span>
+          <select
+            value={selectedFinYear}
+            onChange={(e) => setSelectedFinYear(e.target.value)}
+            className="bg-transparent text-white dark:text-slate-100 font-bold text-xs outline-none cursor-pointer"
+          >
+            {availableFinYears.map((fy) => (
+              <option key={fy} value={fy} className="bg-slate-900 text-slate-100">
+                FY {fy}
+              </option>
+            ))}
+          </select>
+        </div>
+
         <span className="text-[11px] opacity-75 hidden xl:inline-block font-mono bg-white/10 px-2 py-1 rounded-md">
           F1: Help | F2: Period | Alt+F1: Company
         </span>

@@ -24,7 +24,11 @@ interface LedgerGroup {
   parent: number | null;
 }
 
-const BalanceSheet: React.FC = () => {
+interface BalanceSheetProps {
+  showHeader?: boolean;
+}
+
+const BalanceSheet: React.FC<BalanceSheetProps> = ({ showHeader = true }) => {
   const { theme } = useAppContext();
   const navigate = useNavigate();
 
@@ -43,12 +47,18 @@ const BalanceSheet: React.FC = () => {
     Record<number, { debit: number; credit: number }>
   >({});
 
-  const companyId = localStorage.getItem("company_id") || "";
-  const ownerType = localStorage.getItem("supplier") || "";
-  const ownerId =
-    localStorage.getItem(
-      ownerType === "employee" ? "employee_id" : "user_id"
-    ) || "";
+  const companyId = localStorage.getItem("company_id") || localStorage.getItem("active_company_id") || "";
+  const rawOwnerType = localStorage.getItem("supplier") || "";
+  const employeeId = localStorage.getItem("employee_id");
+  const userId = localStorage.getItem("user_id") || "";
+
+  const ownerType = (rawOwnerType === "ca" || rawOwnerType === "ca_employee" || rawOwnerType === "new_ca" || rawOwnerType === "employee" || employeeId)
+    ? "employee"
+    : (rawOwnerType || "employee");
+
+  const ownerId = (rawOwnerType === "ca" || rawOwnerType === "ca_employee" || rawOwnerType === "new_ca" || rawOwnerType === "employee" || employeeId)
+    ? (employeeId || userId)
+    : userId;
 
   useEffect(() => {
     const fetchData = async () => {
@@ -301,31 +311,50 @@ const BalanceSheet: React.FC = () => {
   };
 
   return (
-    <div className="pt-[56px] px-4">
-      <div className="flex items-center mb-6">
-        <button
-          title="Back to Reports"
-          type="button"
-          onClick={() => navigate("/app/reports")}
-          className={`mr-4 p-2 rounded-full ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"}`}
-          disabled={loading}
-        >
-          <ArrowLeft size={20} />
-        </button>
-        <h1 className="text-2xl font-bold">Balance Sheet</h1>
-        <div className="ml-auto flex space-x-2">
+    <div className={showHeader ? "pt-[56px] px-4" : ""}>
+      {showHeader && (
+        <div className="flex items-center mb-6">
           <button
-            title="Toggle Detailed Mode"
+            title="Back to Reports"
             type="button"
-            onClick={() => setIsDetailedView(!isDetailedView)}
-            className={`p-2 rounded-md transition-all ${isDetailedView ? "bg-indigo-600 text-white shadow-lg" : theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"}`}
+            onClick={() => navigate("/app/reports")}
+            className={`mr-4 p-2 rounded-full ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"}`}
+            disabled={loading}
           >
-            <Settings size={18} className={isDetailedView ? "animate-spin-slow text-white" : ""} />
+            <ArrowLeft size={20} />
           </button>
-          <button title="Print" className={`p-2 rounded-md ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"}`}><Printer size={18} /></button>
-          <button title="Download" className={`p-2 rounded-md ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"}`}><Download size={18} /></button>
+          <h1 className="text-2xl font-bold">Balance Sheet</h1>
+          <div className="ml-auto flex space-x-2">
+            <button
+              title="Toggle Detailed Mode"
+              type="button"
+              onClick={() => setIsDetailedView(!isDetailedView)}
+              className={`p-2 rounded-md transition-all ${isDetailedView ? "bg-indigo-600 text-white shadow-lg" : theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"}`}
+            >
+              <Settings size={18} className={isDetailedView ? "animate-spin-slow text-white" : ""} />
+            </button>
+            <button title="Print" className={`p-2 rounded-md ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"}`}><Printer size={18} /></button>
+            <button title="Download" className={`p-2 rounded-md ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"}`}><Download size={18} /></button>
+          </div>
         </div>
-      </div>
+      )}
+
+      {!showHeader && (
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold">Balance Sheet</h2>
+          <div className="flex space-x-2">
+            <button
+              title="Toggle Detailed Mode"
+              type="button"
+              onClick={() => setIsDetailedView(!isDetailedView)}
+              className={`p-2 rounded-md transition-all text-xs flex items-center gap-1.5 border font-medium ${isDetailedView ? "bg-indigo-600 text-white border-indigo-600 shadow" : theme === "dark" ? "hover:bg-gray-700 border-gray-700 text-gray-300" : "hover:bg-gray-100 border-gray-300 text-gray-700"}`}
+            >
+              <Settings size={14} className={isDetailedView ? "animate-spin-slow text-white" : ""} />
+              <span>{isDetailedView ? "Detailed View" : "Condensed View"}</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {loading && <p>Loading...</p>}
       {error && <p className="text-red-600">{error}</p>}

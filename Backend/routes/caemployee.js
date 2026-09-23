@@ -77,7 +77,7 @@ router.get('/ca-employee-companies', async (req, res) => {
   try {
     connection = await db.getConnection();
     const [rows] = await connection.query(
-      `SELECT c.id, c.name
+      `SELECT c.*
        FROM tbcompanies c
        INNER JOIN tbcaemployeecompanies a ON c.id = a.company_id
        WHERE a.ca_employee_id = ?`,

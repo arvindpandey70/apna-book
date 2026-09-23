@@ -28,6 +28,8 @@ import {
   Plus,
   Trash2
 } from 'lucide-react';
+import BalanceSheet from '../../reports/BalanceSheet';
+import ProfitLoss from '../../reports/ProfitLoss';
 
 const Form3CD: React.FC = () => {
   const { theme } = useAppContext();
@@ -38,7 +40,7 @@ const Form3CD: React.FC = () => {
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const [activeTab, setActiveTab] = useState<'partA' | 'partB' | 'partC' | 'partD'>('partA');
+  const [activeTab, setActiveTab] = useState<'partA' | 'partB' | 'partC' | 'partD' | 'partE'>('partA');
   const [formData, setFormData] = useState<Form3CDData>(() => mapForm3CDData(null, companyInfo, null));
 
   useEffect(() => {
@@ -375,6 +377,16 @@ const Form3CD: React.FC = () => {
           }`}
         >
           Part D: Ratios, Audits & GST (Clauses 35–44)
+        </button>
+        <button
+          onClick={() => setActiveTab('partE')}
+          className={`py-3 px-6 font-semibold text-sm border-b-2 whitespace-nowrap transition-colors ${
+            activeTab === 'partE'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+          }`}
+        >
+          Part E: Financial Statements (BS & P&L)
         </button>
       </div>
 
@@ -1570,6 +1582,24 @@ const Form3CD: React.FC = () => {
             </div>
             <FormInput label="Auditor Address" field="auditorAddress" type="textarea" required />
           </div>
+        </div>
+      )}
+
+      {/* PART E */}
+      {activeTab === 'partE' && (
+        <div className="space-y-8">
+          <div className={`rounded-xl border p-6 ${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+            <h2 className="text-xl font-semibold text-blue-600 mb-2">Part E: Financial Statements</h2>
+            <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-600'}`}>
+              Balance Sheet, Trading Account, and Profit & Loss Account derived from books of account for Audit Form 3CD.
+            </p>
+          </div>
+
+          {/* Section 1: Balance Sheet */}
+          <BalanceSheet showHeader={false} />
+
+          {/* Section 2 & 3: Trading Account, Profit & Loss Account, Summary */}
+          <ProfitLoss showHeader={false} />
         </div>
       )}
 

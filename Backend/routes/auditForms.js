@@ -33,7 +33,7 @@ router.get('/form', async (req, res) => {
   try {
     await ensureAuditFormsTable();
 
-    const { company_id, form_type, user_id, user_type } = req.query;
+    const { company_id, form_type, user_id, user_type, financialYear } = req.query;
 
     if (!company_id || !form_type) {
       return res.status(400).json({ success: false, message: 'company_id and form_type are required' });
@@ -99,13 +99,82 @@ router.get('/form', async (req, res) => {
       }
     }
 
+    // 4. Calculate Part D Financial Particulars for company_id & financialYear
+    let financialParticulars = {
+      grossReceipts: 0,
+      totalSales: 0,
+      totalPurchases: 0,
+      grossProfit: 0,
+      totalExpenses: 0,
+      netProfit: 0,
+      depreciationClaimed: 0
+    };
+
+    if (company_id) {
+      const targetFy = financialYear || companyInfo?.financial_year || companyInfo?.financialYear;
+      const match = targetFy ? targetFy.match(/\d{4}/) : null;
+      const year = match ? parseInt(match[0], 10) : (new Date().getMonth() >= 3 ? new Date().getFullYear() : new Date().getFullYear() - 1);
+      const startDate = `${year}-04-01`;
+      const endDate = `${year + 1}-03-31`;
+
+      const [salesRows] = await db.query(
+        `SELECT SUM(total) as totalSales, SUM(subtotal) as grossReceipts FROM sales_vouchers WHERE company_id = ? AND date >= ? AND date <= ?`,
+        [company_id, startDate, endDate]
+      );
+      const totalSales = Number(salesRows[0]?.totalSales || 0);
+      const grossReceipts = Number(salesRows[0]?.grossReceipts || totalSales);
+
+      const [purchaseRows] = await db.query(
+        `SELECT SUM(total) as totalPurchases FROM purchase_vouchers WHERE company_id = ? AND date >= ? AND date <= ?`,
+        [company_id, startDate, endDate]
+      );
+      const totalPurchases = Number(purchaseRows[0]?.totalPurchases || 0);
+
+      const [expenseRows] = await db.query(
+        `SELECT SUM(ve.amount) as totalOtherExpenses
+         FROM voucher_main vm
+         JOIN voucher_entries ve ON vm.id = ve.voucher_id
+         WHERE vm.company_id = ? AND vm.date >= ? AND vm.date <= ?
+           AND vm.voucher_type IN ('payment', 'journal')
+           AND ve.entry_type = 'debit'`,
+        [company_id, startDate, endDate]
+      );
+      const otherExpenses = Number(expenseRows[0]?.totalOtherExpenses || 0);
+
+      const grossProfit = totalSales - totalPurchases;
+      const totalExpenses = totalPurchases + otherExpenses;
+      const netProfit = totalSales - totalExpenses;
+
+      const [depRows] = await db.query(
+        `SELECT SUM(ve.amount) as depreciation
+         FROM voucher_main vm
+         JOIN voucher_entries ve ON vm.id = ve.voucher_id
+         JOIN ledgers l ON ve.ledger_id = l.id
+         WHERE vm.company_id = ? AND vm.date >= ? AND vm.date <= ?
+           AND LOWER(l.name) LIKE '%depreciation%'`,
+        [company_id, startDate, endDate]
+      );
+      const depreciationClaimed = Number(depRows[0]?.depreciation || 0);
+
+      financialParticulars = {
+        grossReceipts,
+        totalSales,
+        totalPurchases,
+        grossProfit,
+        totalExpenses,
+        netProfit,
+        depreciationClaimed
+      };
+    }
+
     res.json({
       success: true,
       savedData,
       status,
       assessmentYear,
       companyInfo,
-      caInfo
+      caInfo,
+      financialParticulars
     });
   } catch (error) {
     console.error('Error fetching audit form data:', error);

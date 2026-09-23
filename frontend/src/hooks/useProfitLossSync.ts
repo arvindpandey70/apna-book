@@ -3,9 +3,18 @@ import { useAppContext } from "../context/AppContext";
 
 export const useProfitLossSync = () => {
     const { ledgerGroups } = useAppContext();
-    const companyId = localStorage.getItem("company_id");
-    const ownerType = localStorage.getItem("supplier");
-    const ownerId = localStorage.getItem(ownerType === "employee" ? "employee_id" : "user_id") || "";
+    const companyId = localStorage.getItem("company_id") || localStorage.getItem("active_company_id") || "";
+    const rawOwnerType = localStorage.getItem("supplier") || "";
+    const employeeId = localStorage.getItem("employee_id");
+    const userId = localStorage.getItem("user_id") || "";
+
+    const ownerType = (rawOwnerType === "ca" || rawOwnerType === "ca_employee" || rawOwnerType === "new_ca" || rawOwnerType === "employee" || employeeId)
+        ? "employee"
+        : (rawOwnerType || "employee");
+
+    const ownerId = (rawOwnerType === "ca" || rawOwnerType === "ca_employee" || rawOwnerType === "new_ca" || rawOwnerType === "employee" || employeeId)
+        ? (employeeId || userId)
+        : userId;
 
     const [stockItems, setStockItems] = useState<any[]>([]);
     const [purchaseData, setPurchaseData] = useState<any[]>([]);
@@ -50,7 +59,8 @@ export const useProfitLossSync = () => {
                 const isDescendant = (childId: number | string, targetParentId: number | string): boolean => {
                     if (String(childId) === String(targetParentId)) return true;
                     const group = allGroups.find(g => String(g.id) === String(childId));
-                    if (group && group.parent_id) return isDescendant(group.parent_id, targetParentId);
+                    const parent = group ? (group.parent !== undefined ? group.parent : (group as any).parent_id) : null;
+                    if (group && parent) return isDescendant(parent, targetParentId);
                     return false;
                 };
 

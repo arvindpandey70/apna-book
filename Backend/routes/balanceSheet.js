@@ -11,13 +11,15 @@ router.get("/api/balance-sheet", async (req, res) => {
 
   try {
     // Fetch only groups for this tenant (if groups are tenant-specific)
+    // Fetch only groups for this tenant (if groups are tenant-specific)
     const [ledgerGroups] = await pool.query(
       `
       SELECT id, name, type, parent 
       FROM ledger_groups 
       WHERE (company_id = ? AND owner_type = ? AND owner_id = ?)
+      OR (company_id = ? AND company_id > 0)
       OR (company_id = 0 AND owner_type = 'employee' AND owner_id = 0)`,
-      [company_id, owner_type, owner_id]
+      [company_id, owner_type, owner_id, company_id]
     );
 
     // Fetch only ledgers for this tenant
@@ -35,18 +37,19 @@ router.get("/api/balance-sheet", async (req, res) => {
       FROM ledgers l
       LEFT JOIN ledger_groups g
         ON l.group_id = g.id
-      WHERE l.company_id = ? AND ((l.owner_type = ? AND l.owner_id = ?) OR l.owner_id = 0)
+      WHERE (l.company_id = ? AND ((l.owner_type = ? AND l.owner_id = ?) OR l.owner_id = 0))
+         OR (l.company_id = ? AND l.company_id > 0)
       ORDER BY g.type, g.name, l.name
     `,
-      [company_id, owner_type, owner_id]
+      [company_id, owner_type, owner_id, company_id]
     );
 
     // Fetch transferred Profit/Loss from voucher_entries narration
     const [transferredEntries] = await pool.query(
       `SELECT narration FROM voucher_entries 
        WHERE (narration LIKE 'PROFIT_TR:%' OR narration LIKE 'LOSS_TR:%')
-       AND voucher_id IN (SELECT id FROM voucher_main WHERE company_id = ? AND owner_type = ? AND owner_id = ?)`,
-      [company_id, owner_type, owner_id]
+       AND voucher_id IN (SELECT id FROM voucher_main WHERE company_id = ?)`,
+      [company_id]
     );
 
     let transferredProfit = 0;

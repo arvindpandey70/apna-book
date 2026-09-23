@@ -75,16 +75,15 @@ router.get("/", async (req, res) => {
     if (company_id) {
       query += " AND s.company_id = ?";
       params.push(company_id);
-    }
-
-    if (owner_type) {
-      query += " AND s.owner_type = ?";
-      params.push(owner_type);
-    }
-
-    if (owner_id) {
-      query += " AND s.owner_id = ?";
-      params.push(owner_id);
+    } else {
+      if (owner_type) {
+        query += " AND s.owner_type = ?";
+        params.push(owner_type);
+      }
+      if (owner_id) {
+        query += " AND s.owner_id = ?";
+        params.push(owner_id);
+      }
     }
 
     if (search && search.trim() !== "") {
