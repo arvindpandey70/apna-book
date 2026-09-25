@@ -334,6 +334,12 @@ app.use("/api/purchase-report", purchaseVouchersRouter);
 // ✅ Start Server
 const PORT = process.env.PORT || 5000;
 
+app.get('/',(req, res)=>{
+  res.json({
+    message:"Server is running..."
+  })
+})
+
 app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
 
