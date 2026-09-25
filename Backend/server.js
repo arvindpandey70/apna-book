@@ -10,6 +10,7 @@ const app = express();
 app.use(
   cors({
     origin: [
+      "https://apna-book.vercel.app",
       "https://apnabook.com",
       "https://www.apnabook.com",
       "https://admin.apnabook.com",
