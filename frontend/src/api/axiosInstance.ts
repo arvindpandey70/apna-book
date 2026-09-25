@@ -1,7 +1,9 @@
 import axios from 'axios';
 
+const baseUrl = import.meta.env.VITE_API_URL || 'https://apna-book.onrender.com';
+
 const axiosInstance = axios.create({
-  baseURL: `${import.meta.env.VITE_API_URL}/api`, // your API base URL
+  baseURL: `${baseUrl}/api`, // your API base URL
   headers: {
     'Content-Type': 'application/json',
   },

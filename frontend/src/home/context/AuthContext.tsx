@@ -151,8 +151,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const login = async (email: string, password: string): Promise<boolean> => {
     setIsLoading(true);
     try {
+      const baseUrl = import.meta.env.VITE_API_URL || 'https://apna-book.onrender.com';
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/login`,
+        `${baseUrl}/api/login`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
