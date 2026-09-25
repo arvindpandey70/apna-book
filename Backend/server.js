@@ -341,6 +341,24 @@ app.get('/',(req, res)=>{
   })
 })
 
+app.get('/ping', (req, res) => {
+  res.status(200).send("pong");
+});
+
+// 🔄 Keep-Alive Self Ping (Prevents Render Free Tier from Sleeping)
+const https = require("https");
+const SERVER_URL = process.env.RENDER_EXTERNAL_URL || "https://apna-book.onrender.com";
+
+setInterval(() => {
+  if (SERVER_URL && SERVER_URL.startsWith("https://")) {
+    https.get(`${SERVER_URL}/ping`, (res) => {
+      console.log(`[Keep-Alive Heartbeat] Pinged ${SERVER_URL}/ping - Status: ${res.statusCode}`);
+    }).on("error", (err) => {
+      console.error("[Keep-Alive Heartbeat Error]:", err.message);
+    });
+  }
+}, 10 * 60 * 1000); // Pings every 10 minutes
+
 app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
 
