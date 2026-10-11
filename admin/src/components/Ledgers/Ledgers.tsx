@@ -4,7 +4,7 @@ import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
 import { Plus, X, Edit, Trash2 } from 'lucide-react';
 import Swal from 'sweetalert2';
-import { allSystemGroups } from '../../constants/ledgerGroups';
+import { allSystemGroups, buildGroupHierarchy, type HierarchicalGroup } from '../../constants/ledgerGroups';
 
 interface Ledger {
   id: number;
@@ -18,16 +18,10 @@ interface Ledger {
   group_id: string | number;
 }
 
-interface LedgerGroup {
-  id: number;
-  name: string;
-  type?: string;
-}
-
 const Ledgers: React.FC = () => {
   const { theme } = useTheme();
   const [ledgers, setLedgers] = useState<Ledger[]>([]);
-  const [ledgerGroups, setLedgerGroups] = useState<LedgerGroup[]>([]);
+  const [ledgerGroups, setLedgerGroups] = useState<HierarchicalGroup[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -58,9 +52,11 @@ const Ledgers: React.FC = () => {
     try {
       const response = await api.get('/api/ledger-dropdown');
       const dbGroups = response.data;
-      setLedgerGroups([...allSystemGroups, ...dbGroups]);
+      const combined = [...allSystemGroups, ...(Array.isArray(dbGroups) ? dbGroups : [])];
+      setLedgerGroups(buildGroupHierarchy(combined));
     } catch (error) {
       console.error('Failed to fetch ledger groups:', error);
+      setLedgerGroups(buildGroupHierarchy(allSystemGroups));
     }
   };
 

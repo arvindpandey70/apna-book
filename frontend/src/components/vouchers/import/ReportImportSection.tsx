@@ -36,6 +36,8 @@ const REPORT_ICONS: Record<string, React.ReactNode> = {
   "gstr2a-vs-gstr2b": <PieChart className="text-red-600 dark:text-red-400" size={20} />,
   "books-vs-2a": <BookOpen className="text-red-600 dark:text-red-400" size={20} />,
   "books-vs-gstr1": <FileText className="text-red-600 dark:text-red-400" size={20} />,
+  "books-vs-gstr3b": <FileText className="text-red-600 dark:text-red-400" size={20} />,
+  "books-vs-2b": <BookOpen className="text-red-600 dark:text-red-400" size={20} />,
 };
 
 export const ReportImportSection: React.FC<ReportImportSectionProps> = ({
@@ -51,6 +53,8 @@ export const ReportImportSection: React.FC<ReportImportSectionProps> = ({
     "gstr2a-vs-gstr2b",
     "books-vs-2a",
     "books-vs-gstr1",
+    "books-vs-gstr3b",
+    "books-vs-2b",
   ];
 
   const isValidReportType = (t?: string): t is ReportType =>

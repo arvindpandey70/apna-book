@@ -131,7 +131,9 @@ import Form26ASReport from "./components/reports/Form26ASReport";
 import Gstr1VsGstr3bReport from "./components/reports/Gstr1VsGstr3bReport";
 import Gstr2aVsGstr2bReport from "./components/reports/Gstr2aVsGstr2bReport";
 import BooksVs2aReport from "./components/reports/BooksVs2aReport";
+import BooksVs2bReport from "./components/reports/BooksVs2bReport";
 import BooksVsGstr1Report from "./components/reports/BooksVsGstr1Report";
+import BooksVsGstr3bReport from "./components/reports/BooksVsGstr3bReport";
 import RCMReport from "./components/reports/RCMReport";
 import ReceiptPaymentAccount from "./components/reports/ReceiptPaymentAccount";
 import TaxStatusReport from "./components/reports/TaxStatusReport";
@@ -1063,6 +1065,22 @@ function App() {
                   }
                 />
                 <Route
+                  path="vouchers/import/books-vs-gstr3b"
+                  element={
+                    <RequireCompany>
+                      <SingleReportImportPage reportType="books-vs-gstr3b" />
+                    </RequireCompany>
+                  }
+                />
+                <Route
+                  path="vouchers/import/books-vs-2b"
+                  element={
+                    <RequireCompany>
+                      <SingleReportImportPage reportType="books-vs-2b" />
+                    </RequireCompany>
+                  }
+                />
+                <Route
                   path="vouchers/import-report/:reportType"
                   element={
                     <RequireCompany>
@@ -1841,7 +1859,7 @@ function App() {
                   element={
                     <RequireCompany>
                       <RequireSubscription>
-                        <ReportComingSoon title="Books vs GSTR3B" category="Sales Reports" />
+                        <BooksVsGstr3bReport />
                       </RequireSubscription>
                     </RequireCompany>
                   }
@@ -1891,7 +1909,7 @@ function App() {
                   element={
                     <RequireCompany>
                       <RequireSubscription>
-                        <ReportComingSoon title="Books vs 2B" category="Purchase Reports" />
+                        <BooksVs2bReport />
                       </RequireSubscription>
                     </RequireCompany>
                   }
