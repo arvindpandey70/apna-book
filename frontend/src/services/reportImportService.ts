@@ -6,7 +6,9 @@ export type ReportType =
   | "gstr1-vs-gstr3b"
   | "gstr2a-vs-gstr2b"
   | "books-vs-2a"
-  | "books-vs-gstr1";
+  | "books-vs-gstr1"
+  | "books-vs-gstr3b"
+  | "books-vs-2b";
 
 export interface ReportMeta {
   id: ReportType;
@@ -231,6 +233,93 @@ export const REPORT_META_MAP: Record<ReportType, ReportMeta> = {
         "GSTR1 Taxable Value": 85000,
         "Book Tax Amount": 16200,
         "GSTR1 Tax Amount": 15300,
+        "Match Status": "Mismatched",
+      },
+    ],
+  },
+  "books-vs-gstr3b": {
+    id: "books-vs-gstr3b",
+    name: "Books vs GSTR3B",
+    reportPath: "/app/reports/books-vs-gstr3b",
+    category: "Sales Reports",
+    description: "Import Books Sales Register vs Filed GSTR-3B return comparison data",
+    fields: [
+      "Return Period",
+      "Supply Type",
+      "GSTR3B Taxable Value",
+      "GSTR3B IGST",
+      "GSTR3B CGST",
+      "GSTR3B SGST",
+      "GSTR3B Total Tax",
+      "Variance Status",
+    ],
+    sampleData: [
+      {
+        "Return Period": "April 2026",
+        "Supply Type": "3.1(a) Outward Taxable Supplies",
+        "GSTR3B Taxable Value": 500000,
+        "GSTR3B IGST": 45000,
+        "GSTR3B CGST": 22500,
+        "GSTR3B SGST": 22500,
+        "GSTR3B Total Tax": 90000,
+        "Variance Status": "Matched",
+      },
+      {
+        "Return Period": "May 2026",
+        "Supply Type": "3.1(a) Outward Taxable Supplies",
+        "GSTR3B Taxable Value": 650000,
+        "GSTR3B IGST": 58500,
+        "GSTR3B CGST": 29250,
+        "GSTR3B SGST": 29250,
+        "GSTR3B Total Tax": 117000,
+        "Variance Status": "Matched",
+      },
+    ],
+  },
+  "books-vs-2b": {
+    id: "books-vs-2b",
+    name: "Books vs GSTR2B",
+    reportPath: "/app/reports/books-vs-2b",
+    category: "Purchase Reports",
+    description: "Import Books Purchase Register vs Static GSTR-2B ITC statement matching data",
+    fields: [
+      "Supplier GSTIN",
+      "Supplier Name",
+      "Book Invoice No",
+      "2B Invoice No",
+      "Invoice Date",
+      "Book Taxable Value",
+      "2B Taxable Value",
+      "Book Tax Amount",
+      "2B Tax Amount",
+      "ITC Availability",
+      "Match Status",
+    ],
+    sampleData: [
+      {
+        "Supplier GSTIN": "27AAAAA0000A1Z5",
+        "Supplier Name": "Zenith Steel Corp",
+        "Book Invoice No": "PUR-2026-001",
+        "2B Invoice No": "PUR-2026-001",
+        "Invoice Date": "2026-04-05",
+        "Book Taxable Value": 100000,
+        "2B Taxable Value": 100000,
+        "Book Tax Amount": 18000,
+        "2B Tax Amount": 18000,
+        "ITC Availability": "Yes",
+        "Match Status": "Matched",
+      },
+      {
+        "Supplier GSTIN": "27BBBBB1111B2Z6",
+        "Supplier Name": "Prime Logistics Ltd",
+        "Book Invoice No": "PUR-2026-005",
+        "2B Invoice No": "PUR-2026-005",
+        "Invoice Date": "2026-04-12",
+        "Book Taxable Value": 50000,
+        "2B Taxable Value": 45000,
+        "Book Tax Amount": 9000,
+        "2B Tax Amount": 8100,
+        "ITC Availability": "Yes",
         "Match Status": "Mismatched",
       },
     ],
