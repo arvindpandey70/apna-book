@@ -5,7 +5,7 @@ const db = require('../db');
 // ✅ GET all ledger groups
 router.get("/", async (req, res) => {
   try {
-    const sql = "SELECT id, name, type FROM ledger_groups";
+    const sql = "SELECT id, name, type, parent FROM ledger_groups";
     const [rows] = await db.query(sql); // ✅ No callback
     res.json(rows);
   } catch (err) {
