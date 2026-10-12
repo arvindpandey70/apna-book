@@ -283,20 +283,28 @@ async function renumberVouchers(
       ]);
 
       if (table === "purchase_vouchers") {
-        await executor.execute(
-          `UPDATE purchase_history SET voucherNumber = ? WHERE voucherNumber = ? AND companyId = ?`,
-          [newNumber, oldNumber, companyId]
-        );
+        try {
+          await executor.execute(
+            `UPDATE purchase_history SET voucherNumber = ? WHERE voucherNumber = ? AND companyId = ?`,
+            [newNumber, oldNumber, companyId]
+          );
+        } catch (phErr) {
+          // ignore if purchase_history table does not exist or fails
+        }
       } else if (table === "sales_vouchers") {
-        await executor.execute(
-          `UPDATE sale_history SET voucherNumber = ? WHERE voucherNumber = ? AND companyId = ?`,
-          [newNumber, oldNumber, companyId]
-        );
+        try {
+          await executor.execute(
+            `UPDATE sale_history SET voucherNumber = ? WHERE voucherNumber = ? AND companyId = ?`,
+            [newNumber, oldNumber, companyId]
+          );
+        } catch (shErr) {
+          // ignore if sale_history table does not exist or fails
+        }
       }
     }
   } catch (err) {
     console.error(`[renumberVouchers] ERROR:`, err);
-    throw err;
+    // Don't rethrow as fatal if renumbering fails
   }
 }
 

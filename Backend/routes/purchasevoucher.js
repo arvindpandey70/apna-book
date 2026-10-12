@@ -650,20 +650,24 @@ router.post("/", async (req, res) => {
     // ================= SUCCESS =================
 
     // ================= CHRONOLOGICAL RENUMBERING =================
-    const isRcmModeRenumber = Boolean(
-      isRcm ||
-      req.body.isRcm ||
-      req.body.rcmApplicable ||
-      req.body.taxType === "RCM" ||
-      req.body.voucherMode === "rcm"
-    );
-    await renumberVouchers({
-      companyId: finalCompanyId,
-      ownerType: finalOwnerType,
-      ownerId: finalOwnerId,
-      voucherType: isRcmModeRenumber ? "purchase_rcm" : "purchase",
-      date,
-    });
+    try {
+      const isRcmModeRenumber = Boolean(
+        isRcm ||
+        req.body.isRcm ||
+        req.body.rcmApplicable ||
+        req.body.taxType === "RCM" ||
+        req.body.voucherMode === "rcm"
+      );
+      await renumberVouchers({
+        companyId: finalCompanyId,
+        ownerType: finalOwnerType,
+        ownerId: finalOwnerId,
+        voucherType: isRcmModeRenumber ? "purchase_rcm" : "purchase",
+        date,
+      });
+    } catch (renumberErr) {
+      console.warn("⚠️ Warning: renumberVouchers failed but voucher was saved:", renumberErr);
+    }
 
     return res.status(200).json({
       success: true,
@@ -1698,13 +1702,23 @@ router.put("/:id", async (req, res) => {
     }
 
     // ================= CHRONOLOGICAL RENUMBERING =================
-    await renumberVouchers({
-      companyId: finalCompanyId,
-      ownerType: finalOwnerType,
-      ownerId: finalOwnerId,
-      voucherType: "purchase",
-      date,
-    });
+    try {
+      const isRcmModeRenumber = Boolean(
+        req.body.isRcm ||
+        req.body.rcmApplicable ||
+        req.body.taxType === "RCM" ||
+        req.body.voucherMode === "rcm"
+      );
+      await renumberVouchers({
+        companyId: finalCompanyId,
+        ownerType: finalOwnerType,
+        ownerId: finalOwnerId,
+        voucherType: isRcmModeRenumber ? "purchase_rcm" : "purchase",
+        date,
+      });
+    } catch (renumberErr) {
+      console.warn("⚠️ Warning: renumberVouchers failed in PUT (non-fatal):", renumberErr);
+    }
 
     return res.json({
       success: true,
@@ -1830,6 +1844,13 @@ router.post("/purchase-history", async (req, res) => {
     /* ================================
        7️⃣ BASIC SECURITY CHECK
     ================================= */
+    if (values.length === 0) {
+      return res.json({
+        success: true,
+        message: "No history data to insert",
+      });
+    }
+
     if (values.some((v) => !v[7] || !v[8] || !v[9])) {
       return res.status(401).json({
         success: false,

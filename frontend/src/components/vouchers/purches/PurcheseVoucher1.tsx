@@ -3051,15 +3051,17 @@ const PurchaseVoucher: React.FC = () => {
           }));
 
 
-        await fetch(
-          `${import.meta.env.VITE_API_URL
-          }/api/purchase-vouchers/purchase-history`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(historyData),
-          }
-        );
+        if (historyData.length > 0) {
+          await fetch(
+            `${import.meta.env.VITE_API_URL
+            }/api/purchase-vouchers/purchase-history`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(historyData),
+            }
+          ).catch((err) => console.warn("Purchase history save warning:", err));
+        }
       }
       if (!isEditMode) {
         localStorage.removeItem(DRAFT_KEY);

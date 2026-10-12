@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useAppContext } from "../../context/AppContext";
+import { useCompany } from "../../context/CompanyContext";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -10,6 +11,7 @@ import {
   Download,
   Printer,
   Search,
+  Loader2,
 } from "lucide-react";
 
 export interface RCMEntry {
@@ -27,49 +29,191 @@ export interface RCMEntry {
   sgst: number;
   totalRcmTax: number;
   itcEligibility: "Eligible" | "Ineligible" | "Blocked";
+  gstType: "b2b" | "b2c";
 }
 
 const RCMReport: React.FC = () => {
   const { theme, vouchers = [], ledgers = [] } = useAppContext();
+  const { activeCompanyId } = useCompany();
   const navigate = useNavigate();
+
+  const companyId = activeCompanyId ?? localStorage.getItem("company_id") ?? "";
+  const ownerType = localStorage.getItem("supplier") || "";
+  const ownerId =
+    localStorage.getItem(
+      ownerType === "employee" ? "employee_id" : "user_id"
+    ) || "";
+
+  const [dbPurchaseVouchers, setDbPurchaseVouchers] = useState<any[]>([]);
+  const [dbGeneralVouchers, setDbGeneralVouchers] = useState<any[]>([]);
+  const [dbLedgers, setDbLedgers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
 
   const [activeTab, setActiveTab] = useState<"all" | "purchase" | "direct_expense" | "indirect_expense">("all");
   const [searchTerm, setSearchTerm] = useState("");
+  const [gstFilter, setGstFilter] = useState<"all" | "b2b" | "b2c" | "rcm">("all");
 
-  // Map real vouchers from AppContext if RCM flag or voucher type is set
+  const formatDate = (dateStr: string) => {
+    if (!dateStr) return "";
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return dateStr;
+      const day = String(d.getDate()).padStart(2, "0");
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const year = d.getFullYear();
+      return `${day}-${month}-${year}`;
+    } catch {
+      return dateStr;
+    }
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchData = async () => {
+      if (!companyId || !ownerType || !ownerId) return;
+      setLoading(true);
+      try {
+        const query = `company_id=${companyId}&owner_type=${ownerType}&owner_id=${ownerId}`;
+
+        // 1. Fetch ledgers
+        const ledgerRes = await fetch(`${import.meta.env.VITE_API_URL}/api/ledger?${query}`);
+        if (ledgerRes.ok) {
+          const lData = await ledgerRes.json();
+          if (isMounted) {
+            setDbLedgers(lData.data || (Array.isArray(lData) ? lData : []));
+          }
+        }
+
+        // 2. Fetch purchase vouchers
+        const purchaseRes = await fetch(`${import.meta.env.VITE_API_URL}/api/purchase-vouchers?${query}`);
+        if (purchaseRes.ok) {
+          const pData = await purchaseRes.json();
+          if (isMounted) {
+            setDbPurchaseVouchers(pData.data || (Array.isArray(pData) ? pData : []));
+          }
+        }
+
+        // 3. Fetch general vouchers (for expense/journal/payment RCM)
+        try {
+          const vouchersRes = await fetch(`${import.meta.env.VITE_API_URL}/api/vouchers?${query}`);
+          if (vouchersRes.ok) {
+            const vData = await vouchersRes.json();
+            if (isMounted) {
+              setDbGeneralVouchers(vData.data || (Array.isArray(vData) ? vData : []));
+            }
+          }
+        } catch {
+          // ignore optional endpoint error
+        }
+      } catch (err) {
+        console.error("Failed to load RCM report data:", err);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    fetchData();
+    return () => {
+      isMounted = false;
+    };
+  }, [companyId, ownerType, ownerId]);
+
+  const allLedgers = useMemo(() => {
+    return [...dbLedgers, ...ledgers];
+  }, [dbLedgers, ledgers]);
+
+  // Map real vouchers from backend + AppContext if RCM flag or voucher type is set
   const realRcmData: RCMEntry[] = useMemo(() => {
     const list: RCMEntry[] = [];
-    vouchers.forEach((v: any) => {
-      const isRcm = v.isRcm || v.rcmApplicable || v.taxType === "RCM" || v.rcm;
+    const combinedVouchers = [
+      ...dbPurchaseVouchers.map((v) => ({ ...v, voucherType: "purchase" })),
+      ...dbGeneralVouchers,
+      ...vouchers,
+    ];
+
+    const seen = new Set<string>();
+
+    combinedVouchers.forEach((v: any) => {
+      const vId = String(v.id || v._id || Math.random());
+      if (seen.has(vId)) return;
+      seen.add(vId);
+
+      const voucherNumberStr = String(v.number || v.voucherNo || v.voucherNumber || "");
+      const isRcm = Boolean(
+        v.isRcm ||
+        v.rcmApplicable ||
+        v.taxType === "RCM" ||
+        v.rcm ||
+        v.voucherMode === "rcm" ||
+        voucherNumberStr.toUpperCase().startsWith("RCM")
+      );
       if (!isRcm) return;
 
-      const party = ledgers.find((l: any) => l.id === v.partyLedgerId || l.name === v.partyName);
-      const partyName = party?.name || v.partyName || "Unknown Party";
-      const partyGstin = party?.gstin || v.gstin || "Unregistered";
+      const partyId = v.partyId || v.partyLedgerId;
+      const party = allLedgers.find(
+        (l: any) =>
+          (partyId && String(l.id) === String(partyId)) ||
+          (l.name && (l.name === v.partyName || l.name === v.party))
+      );
+      const partyName = party?.name || v.partyName || v.party || `Party (${partyId || "Unknown"})`;
+      const rawGstin =
+        party?.gstNumber ||
+        party?.gst_number ||
+        party?.gstin ||
+        party?.gst_no ||
+        v.partyGstin ||
+        v.gstin ||
+        "";
+      const hasGstin = Boolean(
+        rawGstin &&
+        String(rawGstin).trim() &&
+        String(rawGstin).trim().toUpperCase() !== "UNREGISTERED"
+      );
+      const partyGstin = hasGstin ? String(rawGstin).trim() : "Unregistered";
+      const gstType: "b2b" | "b2c" = hasGstin ? "b2b" : "b2c";
 
       let category: "purchase" | "direct_expense" | "indirect_expense" = "purchase";
-      if (v.voucherType === "purchase" || v.type === "purchase") {
+      const vType = (v.voucherType || v.type || "").toLowerCase();
+      if (
+        vType === "purchase" ||
+        v.purchaseLedgerId ||
+        v.supplierInvoiceDate ||
+        v.mode?.includes("invoice")
+      ) {
         category = "purchase";
-      } else if (v.expenseCategory === "direct" || v.particulars?.toLowerCase().includes("freight") || v.particulars?.toLowerCase().includes("labour")) {
+      } else if (
+        v.expenseCategory === "direct" ||
+        v.particulars?.toLowerCase().includes("freight") ||
+        v.particulars?.toLowerCase().includes("labour")
+      ) {
         category = "direct_expense";
       } else {
         category = "indirect_expense";
       }
 
-      const taxableAmount = parseFloat(v.taxableAmount || v.amount || 0) || 0;
-      const rcmRate = parseFloat(v.rcmRate || v.gstRate || 18) || 18;
-      const igst = parseFloat(v.igst || 0) || (v.isInterstate ? (taxableAmount * rcmRate) / 100 : 0);
-      const cgst = parseFloat(v.cgst || 0) || (!v.isInterstate ? (taxableAmount * rcmRate) / 200 : 0);
-      const sgst = parseFloat(v.sgst || 0) || (!v.isInterstate ? (taxableAmount * rcmRate) / 200 : 0);
-      const totalRcmTax = igst + cgst + sgst || (taxableAmount * rcmRate) / 100;
+      const taxableAmount = parseFloat(v.taxableAmount || v.subtotal || v.amount || 0) || 0;
+      const igst = parseFloat(v.igst || v.igstTotal || 0) || 0;
+      const cgst = parseFloat(v.cgst || v.cgstTotal || 0) || 0;
+      const sgst = parseFloat(v.sgst || v.sgstTotal || 0) || 0;
+      const totalRcmTax =
+        parseFloat(v.totalRcmTax || 0) ||
+        (igst + cgst + sgst > 0 ? igst + cgst + sgst : (taxableAmount * 18) / 100);
+
+      const rcmRate =
+        taxableAmount > 0 && totalRcmTax > 0
+          ? Math.round((totalRcmTax / taxableAmount) * 100)
+          : parseFloat(v.rcmRate || v.gstRate || 18) || 18;
 
       list.push({
-        id: v.id || Math.random().toString(),
+        id: vId,
         date: v.date || new Date().toISOString().split("T")[0],
-        voucherNo: v.voucherNumber || v.voucherNo || "VOUCH-001",
+        voucherNo: voucherNumberStr || "RCM-001",
         partyName,
         partyGstin,
-        particulars: v.particulars || v.narration || `${category.replace("_", " ").toUpperCase()} RCM Entry`,
+        particulars:
+          v.particulars ||
+          v.narration ||
+          `${category.replace("_", " ").toUpperCase()} RCM Entry`,
         category,
         taxableAmount,
         rcmRate,
@@ -78,15 +222,41 @@ const RCMReport: React.FC = () => {
         sgst,
         totalRcmTax,
         itcEligibility: v.itcEligibility || "Eligible",
+        gstType,
       });
     });
 
     return list;
-  }, [vouchers, ledgers]);
+  }, [dbPurchaseVouchers, dbGeneralVouchers, vouchers, allLedgers]);
 
-  const purchaseEntries = useMemo(() => realRcmData.filter((d) => d.category === "purchase"), [realRcmData]);
-  const directExpenseEntries = useMemo(() => realRcmData.filter((d) => d.category === "direct_expense"), [realRcmData]);
-  const indirectExpenseEntries = useMemo(() => realRcmData.filter((d) => d.category === "indirect_expense"), [realRcmData]);
+  // Apply GST Filter across categories
+  const purchaseEntries = useMemo(
+    () =>
+      realRcmData.filter(
+        (d) =>
+          d.category === "purchase" &&
+          (gstFilter === "all" || gstFilter === "rcm" || d.gstType === gstFilter)
+      ),
+    [realRcmData, gstFilter]
+  );
+  const directExpenseEntries = useMemo(
+    () =>
+      realRcmData.filter(
+        (d) =>
+          d.category === "direct_expense" &&
+          (gstFilter === "all" || gstFilter === "rcm" || d.gstType === gstFilter)
+      ),
+    [realRcmData, gstFilter]
+  );
+  const indirectExpenseEntries = useMemo(
+    () =>
+      realRcmData.filter(
+        (d) =>
+          d.category === "indirect_expense" &&
+          (gstFilter === "all" || gstFilter === "rcm" || d.gstType === gstFilter)
+      ),
+    [realRcmData, gstFilter]
+  );
 
   const calcTotalTax = (entries: RCMEntry[]) =>
     entries.reduce((sum, item) => sum + item.totalRcmTax, 0);
@@ -110,10 +280,72 @@ const RCMReport: React.FC = () => {
     );
   };
 
+  const handleExport = () => {
+    const currentList = (
+      activeTab === "all"
+        ? [...purchaseEntries, ...directExpenseEntries, ...indirectExpenseEntries]
+        : activeTab === "purchase"
+        ? purchaseEntries
+        : activeTab === "direct_expense"
+        ? directExpenseEntries
+        : indirectExpenseEntries
+    );
+
+    const filtered = filterEntries(currentList);
+    if (filtered.length === 0) {
+      alert("No data to export");
+      return;
+    }
+
+    const headers = [
+      "Date",
+      "Voucher No",
+      "GST Type",
+      "Party / Vendor Name",
+      "GSTIN / Status",
+      "Partition / Category",
+      "Particulars",
+      "Taxable Amt",
+      "RCM %",
+      "IGST",
+      "CGST",
+      "SGST",
+      "Total RCM Tax",
+      "ITC Credit",
+    ];
+
+    const rows = filtered.map((r) => [
+      `"${formatDate(r.date)}"`,
+      `"${r.voucherNo}"`,
+      `"${r.gstType.toUpperCase()}"`,
+      `"${r.partyName.replace(/"/g, '""')}"`,
+      `"${r.partyGstin}"`,
+      `"${r.category}"`,
+      `"${r.particulars.replace(/"/g, '""')}"`,
+      r.taxableAmount.toFixed(2),
+      r.rcmRate,
+      r.igst.toFixed(2),
+      r.cgst.toFixed(2),
+      r.sgst.toFixed(2),
+      r.totalRcmTax.toFixed(2),
+      `"${r.itcEligibility}"`,
+    ]);
+
+    const csvContent = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `RCM_Report_${new Date().toISOString().split("T")[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const renderRcmTable = (entries: RCMEntry[], partitionTitle: string, themeColor: string) => {
     const list = filterEntries(entries);
-    const partitionTaxable = calcTotalTaxable(entries);
-    const partitionTax = calcTotalTax(entries);
+    const partitionTaxable = calcTotalTaxable(list);
+    const partitionTax = calcTotalTax(list);
 
     return (
       <div
@@ -133,7 +365,7 @@ const RCMReport: React.FC = () => {
               {partitionTitle}
             </h3>
             <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 border border-red-200 dark:border-red-900">
-              {entries.length} Vouchers
+              {list.length} Vouchers
             </span>
           </div>
 
@@ -170,13 +402,20 @@ const RCMReport: React.FC = () => {
               {list.length === 0 ? (
                 <tr>
                   <td colSpan={12} className="px-4 py-8 text-center text-gray-500">
-                    No RCM vouchers found in {partitionTitle}.
+                    {loading ? (
+                      <div className="flex items-center justify-center gap-2">
+                        <Loader2 className="animate-spin text-red-600" size={18} />
+                        <span>Loading RCM vouchers...</span>
+                      </div>
+                    ) : (
+                      `No RCM vouchers found in ${partitionTitle}.`
+                    )}
                   </td>
                 </tr>
               ) : (
                 list.map((r) => (
                   <tr key={r.id} className="hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors">
-                    <td className="px-3.5 py-3 font-medium text-gray-500">{r.date}</td>
+                    <td className="px-3.5 py-3 font-medium text-gray-500">{formatDate(r.date)}</td>
                     <td className="px-3.5 py-3 font-mono font-bold text-blue-600 dark:text-blue-400">{r.voucherNo}</td>
                     <td className="px-3.5 py-3 font-bold text-gray-900 dark:text-gray-100">{r.partyName}</td>
                     <td className="px-3.5 py-3 font-mono text-gray-600 dark:text-gray-400">{r.partyGstin}</td>
@@ -206,9 +445,9 @@ const RCMReport: React.FC = () => {
                 </td>
                 <td className="px-3.5 py-3 text-right">₹{partitionTaxable.toLocaleString("en-IN")}</td>
                 <td></td>
-                <td className="px-3.5 py-3 text-right">₹{entries.reduce((a, b) => a + b.igst, 0).toLocaleString("en-IN")}</td>
-                <td className="px-3.5 py-3 text-right">₹{entries.reduce((a, b) => a + b.cgst, 0).toLocaleString("en-IN")}</td>
-                <td className="px-3.5 py-3 text-right">₹{entries.reduce((a, b) => a + b.sgst, 0).toLocaleString("en-IN")}</td>
+                <td className="px-3.5 py-3 text-right">₹{list.reduce((a, b) => a + b.igst, 0).toLocaleString("en-IN")}</td>
+                <td className="px-3.5 py-3 text-right">₹{list.reduce((a, b) => a + b.cgst, 0).toLocaleString("en-IN")}</td>
+                <td className="px-3.5 py-3 text-right">₹{list.reduce((a, b) => a + b.sgst, 0).toLocaleString("en-IN")}</td>
                 <td className="px-3.5 py-3 text-right text-red-600 dark:text-red-400 font-extrabold text-sm">
                   ₹{partitionTax.toLocaleString("en-IN")}
                 </td>
@@ -253,6 +492,22 @@ const RCMReport: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Corner GST Type Filter Dropdown */}
+          <div className="flex items-center">
+            <select
+              id="gst-filter"
+              value={gstFilter}
+              onChange={(e) => setGstFilter(e.target.value as "all" | "b2b" | "b2c" | "rcm")}
+              className="px-3 py-1.5 border border-gray-300 dark:border-gray-700 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-red-500 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 shadow-sm cursor-pointer hover:border-gray-400 transition-colors"
+              title="Filter by GST Type"
+            >
+              <option value="all">All Vouchers</option>
+              <option value="b2b">B2B</option>
+              <option value="b2c">B2C</option>
+              <option value="rcm">RCM</option>
+            </select>
+          </div>
+
           <button
             onClick={() => window.print()}
             className="px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-xs font-medium hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors flex items-center gap-1.5"
@@ -260,7 +515,7 @@ const RCMReport: React.FC = () => {
             <Printer size={15} /> Print
           </button>
           <button
-            onClick={() => alert("Exporting RCM Report Excel...")}
+            onClick={handleExport}
             className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-medium transition-colors shadow-sm flex items-center gap-1.5"
           >
             <Download size={15} /> Export Report
@@ -369,7 +624,7 @@ const RCMReport: React.FC = () => {
                 : "bg-white text-gray-700 border hover:bg-gray-100"
             }`}
           >
-            1. RCM on Purchase
+            1. RCM on Purchase ({purchaseEntries.length})
           </button>
           <button
             onClick={() => setActiveTab("direct_expense")}
@@ -381,7 +636,7 @@ const RCMReport: React.FC = () => {
                 : "bg-white text-gray-700 border hover:bg-gray-100"
             }`}
           >
-            2. RCM on Direct Expense
+            2. RCM on Direct Expense ({directExpenseEntries.length})
           </button>
           <button
             onClick={() => setActiveTab("indirect_expense")}
@@ -393,7 +648,7 @@ const RCMReport: React.FC = () => {
                 : "bg-white text-gray-700 border hover:bg-gray-100"
             }`}
           >
-            3. RCM on Indirect Expense
+            3. RCM on Indirect Expense ({indirectExpenseEntries.length})
           </button>
         </div>
 
