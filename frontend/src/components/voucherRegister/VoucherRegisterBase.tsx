@@ -146,7 +146,7 @@ const VoucherRegisterBase: React.FC<VoucherRegisterBaseProps> = ({
   const [searchTerm, setSearchTerm] = useState("");
   const [dateFilter, setDateFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
-  const [gstFilter, setGstFilter] = useState<"all" | "b2b" | "b2c">("all");
+  const [gstFilter, setGstFilter] = useState<"all" | "b2b" | "b2c" | "rcm">("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(itemsPerPageProp);
   const [selectedVoucherIds, setSelectedVoucherIds] = useState<Set<string>>(new Set());
@@ -892,6 +892,29 @@ const VoucherRegisterBase: React.FC<VoucherRegisterBaseProps> = ({
     return new Date(dateStr);
   };
 
+  const getVoucherClassification = (voucher: any): "rcm" | "b2b" | "b2c" => {
+    const isRcm = Boolean(
+      voucher.isRcm ||
+      voucher.rcmApplicable ||
+      voucher.taxType === "RCM" ||
+      voucher.rcm ||
+      voucher.voucherMode === "rcm" ||
+      (voucher.number && String(voucher.number).toUpperCase().startsWith("RCM"))
+    );
+    if (isRcm) return "rcm";
+
+    const partyEntryType = voucherType === "sales" || voucherType === "quotation" ? "debit" : "credit";
+    const partyId =
+      voucher.partyId ||
+      voucher.entries?.find((e: any) => e.type === partyEntryType)?.ledgerId ||
+      voucher.entries?.[0]?.ledgerId;
+
+    const party = ledgerList.find((l: any) => String(l.id) === String(partyId));
+    const hasGst = party && Boolean(party.gstNumber || party.gst_number || party.gstin || party.gst_no);
+
+    return hasGst ? "b2b" : "b2c";
+  };
+
   // ---- FINAL FILTERING LOGIC ----
   const { filteredVouchers, groupOptions } = (() => {
     try {
@@ -935,18 +958,11 @@ const VoucherRegisterBase: React.FC<VoucherRegisterBaseProps> = ({
         const status = getVoucherStatus(voucher);
         const statusMatch = !statusFilter || status === statusFilter;
 
-        // GST Filter (B2B/B2C)
+        // GST Filter (B2B/B2C/RCM)
         let gstMatch = true;
         if (gstFilter !== "all" && (voucherType === "sales" || voucherType === "purchase" || voucherType === "quotation")) {
-          const partyId = voucher.entries.find(e =>
-            voucherType === "sales" || voucherType === "quotation" ? e.type === "debit" : e.type === "credit"
-          )?.ledgerId;
-
-          const party = ledgerList.find(l => String(l.id) === String(partyId));
-          const hasGst = party && (party.gstNumber || party.gst_number || party.gstin || party.gst_no);
-
-          if (gstFilter === "b2b") gstMatch = !!hasGst;
-          else if (gstFilter === "b2c") gstMatch = !hasGst;
+          const classification = getVoucherClassification(voucher);
+          gstMatch = classification === gstFilter;
         }
 
         // Period filter logic
@@ -1256,7 +1272,7 @@ const VoucherRegisterBase: React.FC<VoucherRegisterBaseProps> = ({
               <tfoot>
                 ${voucherType === "sales" || voucherType === "purchase" ? `
                 <tr class="font-bold">
-                  <td colspan="5" class="text-right">Total (${filteredVouchers.length} vouchers)</td>
+                  <td colspan="4" class="text-right">Total (${filteredVouchers.length} vouchers)</td>
                   <td class="text-right">${formatCurrency(filteredVouchers.reduce((s, v) => s + Number(v.subtotal || 0), 0))}</td>
                   <td class="text-right">${formatCurrency(filteredVouchers.reduce((s, v) => s + Number(v.igstTotal || 0), 0))}</td>
                   <td class="text-right">${formatCurrency(filteredVouchers.reduce((s, v) => s + Number(v.cgstTotal || 0), 0))}</td>
@@ -1658,8 +1674,9 @@ const VoucherRegisterBase: React.FC<VoucherRegisterBaseProps> = ({
                   title="Filter by GST Type"
                 >
                   <option value="all">All Vouchers</option>
-                  <option value="b2b">B2B (GST)</option>
-                  <option value="b2c">B2C (Non-GST)</option>
+                  <option value="b2b">B2B</option>
+                  <option value="b2c">B2C</option>
+                  <option value="rcm">RCM</option>
                 </select>
               </div>
             )}
