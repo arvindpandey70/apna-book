@@ -136,6 +136,7 @@ import BooksVsGstr1Report from "./components/reports/BooksVsGstr1Report";
 import BooksVsGstr3bReport from "./components/reports/BooksVsGstr3bReport";
 import RCMReport from "./components/reports/RCMReport";
 import ReceiptPaymentAccount from "./components/reports/ReceiptPaymentAccount";
+import CapitalAccount from "./components/reports/CapitalAccount";
 import TaxStatusReport from "./components/reports/TaxStatusReport";
 import ReportComingSoon from "./components/reports/ReportComingSoon";
 import LedgerCaraction from "./components/reports/LedgerCaraction";
@@ -1959,7 +1960,7 @@ function App() {
                   element={
                     <RequireCompany>
                       <RequireSubscription>
-                        <ReportComingSoon title="Capital Account" category="Accounting Reports" />
+                        <CapitalAccount />
                       </RequireSubscription>
                     </RequireCompany>
                   }
