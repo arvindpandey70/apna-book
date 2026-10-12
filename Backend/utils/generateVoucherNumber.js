@@ -10,6 +10,8 @@ const CONFIG_MAP = {
   contra: { prefix: "CV", table: "voucher_main", column: "voucher_number", typeCol: "voucher_type" },
   journal: { prefix: "JV", table: "voucher_main", column: "voucher_number", typeCol: "voucher_type" },
   purchase: { prefix: "PRV", table: "purchase_vouchers", column: "number" },
+  purchase_rcm: { prefix: "RCM", table: "purchase_vouchers", column: "number" },
+  rcm: { prefix: "RCM", table: "purchase_vouchers", column: "number" },
   sales: { prefix: "SLV", table: "sales_vouchers", column: "number" },
   purchase_order: { prefix: "PO", table: "purchase_orders", column: "number" },
   sales_order: { prefix: "SO", table: "sales_orders", column: "number" },
@@ -281,20 +283,28 @@ async function renumberVouchers(
       ]);
 
       if (table === "purchase_vouchers") {
-        await executor.execute(
-          `UPDATE purchase_history SET voucherNumber = ? WHERE voucherNumber = ? AND companyId = ?`,
-          [newNumber, oldNumber, companyId]
-        );
+        try {
+          await executor.execute(
+            `UPDATE purchase_history SET voucherNumber = ? WHERE voucherNumber = ? AND companyId = ?`,
+            [newNumber, oldNumber, companyId]
+          );
+        } catch (phErr) {
+          // ignore if purchase_history table does not exist or fails
+        }
       } else if (table === "sales_vouchers") {
-        await executor.execute(
-          `UPDATE sale_history SET voucherNumber = ? WHERE voucherNumber = ? AND companyId = ?`,
-          [newNumber, oldNumber, companyId]
-        );
+        try {
+          await executor.execute(
+            `UPDATE sale_history SET voucherNumber = ? WHERE voucherNumber = ? AND companyId = ?`,
+            [newNumber, oldNumber, companyId]
+          );
+        } catch (shErr) {
+          // ignore if sale_history table does not exist or fails
+        }
       }
     }
   } catch (err) {
     console.error(`[renumberVouchers] ERROR:`, err);
-    throw err;
+    // Don't rethrow as fatal if renumbering fails
   }
 }
 
