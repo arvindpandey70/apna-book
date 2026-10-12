@@ -140,17 +140,24 @@ router.get("/items", async (req, res) => {
 // next voucher count
 router.get("/next-number", async (req, res) => {
   try {
-    const { company_id, owner_type, owner_id, date } = req.query;
+    const { company_id, owner_type, owner_id, date, isRcm, voucherType } = req.query;
 
     if (!company_id || !owner_type || !owner_id || !date) {
       return res.status(400).json({ success: false, message: "Missing required params" });
     }
 
+    const isRcmMode =
+      isRcm === "true" ||
+      isRcm === true ||
+      voucherType === "purchase_rcm" ||
+      voucherType === "rcm" ||
+      voucherType === "RCM";
+
     const voucherNumber = await generateVoucherNumber({
       companyId: company_id,
       ownerType: owner_type,
       ownerId: owner_id,
-      voucherType: 'purchase',
+      voucherType: isRcmMode ? 'purchase_rcm' : 'purchase',
       date
     });
 
@@ -458,11 +465,18 @@ router.post("/", async (req, res) => {
     let voucherNumber = number; // ✅ Use frontend number if exists
 
     if (!voucherNumber) {
+      const isRcmMode = Boolean(
+        isRcm ||
+        req.body.isRcm ||
+        req.body.rcmApplicable ||
+        req.body.taxType === "RCM" ||
+        req.body.voucherMode === "rcm"
+      );
       voucherNumber = await generateVoucherNumber({
         companyId: finalCompanyId,
         ownerType: finalOwnerType,
         ownerId: finalOwnerId,
-        voucherType: "purchase",
+        voucherType: isRcmMode ? "purchase_rcm" : "purchase",
         date,
       });
     }
@@ -636,11 +650,18 @@ router.post("/", async (req, res) => {
     // ================= SUCCESS =================
 
     // ================= CHRONOLOGICAL RENUMBERING =================
+    const isRcmModeRenumber = Boolean(
+      isRcm ||
+      req.body.isRcm ||
+      req.body.rcmApplicable ||
+      req.body.taxType === "RCM" ||
+      req.body.voucherMode === "rcm"
+    );
     await renumberVouchers({
       companyId: finalCompanyId,
       ownerType: finalOwnerType,
       ownerId: finalOwnerId,
-      voucherType: "purchase",
+      voucherType: isRcmModeRenumber ? "purchase_rcm" : "purchase",
       date,
     });
 

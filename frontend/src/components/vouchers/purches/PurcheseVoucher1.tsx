@@ -440,7 +440,7 @@ const PurchaseVoucher: React.FC = () => {
   );
 
   const [isReadyToSave, setIsReadyToSave] = useState(false);
-  const [voucherMode, setVoucherMode] = useState<"auto" | "custom">("auto");
+  const [voucherMode, setVoucherMode] = useState<"auto" | "rcm" | "custom">("auto");
 
   // Barcode State
   const [barcodeInput, setBarcodeInput] = useState("");
@@ -1383,6 +1383,10 @@ const PurchaseVoucher: React.FC = () => {
           setVisibleColumns(prev => ({ ...prev, enableTdsCredit: false }));
         }
 
+        if (data.isRcm || data.rcmApplicable || data.taxType === "RCM") {
+          setVoucherMode("rcm");
+        }
+
       })
       .catch((err) => console.error("Single voucher fetch error:", err));
   }, [id, copyId, stockItems]); // dependency on copyId added
@@ -1662,11 +1666,11 @@ const PurchaseVoucher: React.FC = () => {
   }, [formData.number, voucherMode, companyId, isEditMode]);
 
   useEffect(() => {
-    if (voucherMode === "auto" && !isEditMode && formData.date && !formData.number) {
+    if (voucherMode !== "custom" && !isEditMode && formData.date && !formData.number) {
       const fetchNextNumber = async () => {
         try {
           const res = await fetch(
-            `${import.meta.env.VITE_API_URL}/api/purchase-vouchers/next-number?company_id=${companyId}&owner_type=${ownerType}&owner_id=${ownerId}&voucherType=PRV&date=${formData.date}`
+            `${import.meta.env.VITE_API_URL}/api/purchase-vouchers/next-number?company_id=${companyId}&owner_type=${ownerType}&owner_id=${ownerId}&voucherType=${voucherMode === "rcm" ? "purchase_rcm" : "purchase"}&isRcm=${voucherMode === "rcm"}&date=${formData.date}`
           );
           const data = await res.json();
           if (data.success) {
@@ -2532,7 +2536,8 @@ const PurchaseVoucher: React.FC = () => {
           `?company_id=${companyId}` +
           `&owner_type=${ownerType}` +
           `&owner_id=${ownerId}` +
-          `&voucherType=PRV` +
+          `&voucherType=${voucherMode === "rcm" ? "purchase_rcm" : "purchase"}` +
+          `&isRcm=${voucherMode === "rcm"}` +
           `&date=${formData.date}`
         );
 
@@ -2550,7 +2555,7 @@ const PurchaseVoucher: React.FC = () => {
     };
 
     fetchNextVoucherNumber();
-  }, [formData.date, voucherMode]);
+  }, [formData.date, voucherMode, companyId, ownerType, ownerId, isEditMode]);
 
   const removeEntry = (index: number) => {
     if (formData.entries.length <= 1) return;
@@ -2853,6 +2858,9 @@ const PurchaseVoucher: React.FC = () => {
       // 🔥 1. Voucher payload
       const payload = {
         ...formData,
+        isRcm: voucherMode === "rcm",
+        rcmApplicable: voucherMode === "rcm",
+        taxType: voucherMode === "rcm" ? "RCM" : "Regular",
         partyId: finalPartyId,
         ...totals,
         // ✅ Map entries to include TDS Ledger ID as tdsRate (as requested by user)
@@ -3446,8 +3454,12 @@ const PurchaseVoucher: React.FC = () => {
 
   // 🔹 GST Charge Type
   const isRegularCharge =
-    selectedPartyLedger?.gstNumber &&
-    String(selectedPartyLedger.gstNumber).trim() !== "";
+    voucherMode === "rcm"
+      ? false
+      : Boolean(
+          selectedPartyLedger?.gstNumber &&
+            String(selectedPartyLedger.gstNumber).trim() !== ""
+        );
 
 
 
@@ -3494,15 +3506,14 @@ const PurchaseVoucher: React.FC = () => {
           <select
             value={voucherMode}
             onChange={(e) => {
-              const newMode = e.target.value as "auto" | "custom";
+              const newMode = e.target.value as "auto" | "rcm" | "custom";
               setVoucherMode(newMode);
-              if (newMode === "custom") {
-                setFormData((prev) => ({ ...prev, number: "" }));
-              }
+              setFormData((prev) => ({ ...prev, number: "" }));
             }}
             className={`${getSelectClasses(theme)} min-w-[150px] text-sm font-semibold border-2 border-blue-100 dark:border-blue-900 focus:border-blue-500`}
           >
-            <option value="auto">Auto Numbering</option>
+            <option value="auto">Regular Invoice</option>
+            <option value="rcm">RCM Invoice</option>
             <option value="custom">Custom Number</option>
           </select>
 
@@ -3650,9 +3661,9 @@ const PurchaseVoucher: React.FC = () => {
                   name="number"
                   value={formData.number}
                   onChange={handleChange}
-                  readOnly={voucherMode === "auto"}
-                  placeholder={voucherMode === "auto" ? "Auto-Generated" : "Enter Number"}
-                  className={`${getInputClasses(theme, !!errors.number || isDuplicateVoucher)} ${voucherMode === "auto" ? "opacity-70 cursor-not-allowed" : ""
+                  readOnly={voucherMode !== "custom"}
+                  placeholder={voucherMode !== "custom" ? "Auto-Generated" : "Enter Number"}
+                  className={`${getInputClasses(theme, !!errors.number || isDuplicateVoucher)} ${voucherMode !== "custom" ? "opacity-70 cursor-not-allowed" : ""
                     } ${isDuplicateVoucher ? "border-red-500 text-red-500" : ""} font-mono font-bold`}
                 />
                 {isDuplicateVoucher && (
