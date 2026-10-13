@@ -352,8 +352,6 @@ if (require.main === module) {
     try {
       const { runMigration } = require("./scripts/migrate_auth_security");
       await runMigration();
-      const { runUnifiedUsersMigration } = require("./scripts/migrate_to_unified_users");
-      await runUnifiedUsersMigration();
     } catch (migErr) {
       console.error("Migration check failed:", migErr.message);
     }

@@ -20,10 +20,16 @@ router.post('/', loginLimiter, async (req, res) => {
     // =========================================================================
     // 1. UNIFIED ARCHITECTURE: Authenticate via central `users` table
     // =========================================================================
-    const [authUsers] = await db.query(
-      'SELECT id, email, password_hash, role, source_table, source_id, status FROM users WHERE LOWER(email) = ?',
-      [normalizedEmail]
-    );
+    let authUsers = [];
+    try {
+      const [rows] = await db.query(
+        'SELECT id, email, password_hash, role, source_table, source_id, status FROM users WHERE LOWER(email) = ?',
+        [normalizedEmail]
+      );
+      authUsers = rows;
+    } catch (err) {
+      authUsers = [];
+    }
 
     if (authUsers.length > 0) {
       const authUser = authUsers[0];
