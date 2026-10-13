@@ -1,103 +1,156 @@
-require("dotenv").config(); // Load env variables
-const express = require("express");
+const express = require('express');
 const router = express.Router();
-const db = require("../db"); // already a promise-based pool
-const jwt = require("jsonwebtoken");
-const bcrypt = require("bcryptjs");
+const db = require('../db');
+const bcrypt = require('bcryptjs');
+const { signToken } = require('../utils/jwt');
+const { registerLimiter } = require('../middlewares/rateLimiter');
 
-const JWT_SECRET = process.env.JWT_SECRET || "8fbd@hG35kd93JK!hG2c90MZ";
+// POST /api/SignUp/register
+router.post('/register', registerLimiter, async (req, res) => {
+  const { firstName, lastName, email, phoneNumber, pan, password, userLimit, address } = req.body;
 
-router.post("/register", async (req, res) => {
-  // ✅ Ensure 'address' column exists in all relevant user tables when route is hit
-  const userTables = [
-    { name: "tbemployees", after: "pan" },
-    { name: "tbca", after: "fdpan" },
-    { name: "tbcaemployees", after: "adhar" }
-  ];
-
-  for (const table of userTables) {
-    try {
-      const [cols] = await db.query(`SHOW COLUMNS FROM ${table.name} LIKE 'address'`);
-      if (cols.length === 0) {
-        await db.query(`ALTER TABLE ${table.name} ADD COLUMN address TEXT AFTER ${table.after}`);
-      }
-    } catch (err) {
-      console.error(`Error ensuring address column in ${table.name}:`, err.message);
-    }
+  // 1. Mandatory field checks
+  if (!firstName || !lastName || !email || !password || !phoneNumber || !pan) {
+    return res.status(400).json({ success: false, message: 'All fields are required' });
   }
 
-  const { firstName, lastName, email, phoneNumber, pan, password, userLimit, address } =
-    req.body;
+  // 2. Normalize and sanitize inputs
+  const trimmedFirstName = String(firstName).trim();
+  const trimmedLastName = String(lastName).trim();
+  const normalizedEmail = String(email).trim().toLowerCase();
+  const normalizedPan = String(pan).trim().toUpperCase();
+  const trimmedPhone = String(phoneNumber).trim();
+  const trimmedPassword = String(password).trim();
+  const parsedUserLimit = parseInt(userLimit, 10) > 0 ? parseInt(userLimit, 10) : 1;
+  const trimmedAddress = address ? String(address).trim() : null;
 
-  if (
-    !firstName ||
-    !lastName ||
-    !email ||
-    !password ||
-    !phoneNumber ||
-    !pan ||
-    !userLimit
-  ) {
-    return res.status(400).json({ message: "All fields are required" });
+  // 3. Server-side validations
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(normalizedEmail)) {
+    return res.status(400).json({ success: false, message: 'Invalid email address format' });
   }
 
-  console.log(firstName, !lastName, email, password, phoneNumber, pan, userLimit, address);
+  const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
+  if (!panRegex.test(normalizedPan)) {
+    return res.status(400).json({ success: false, message: 'Invalid PAN number format (e.g. ABCDE1234F)' });
+  }
+
+  if (trimmedPassword.length < 6) {
+    return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+  }
+
+  if (trimmedPhone.length < 7 || !/^[0-9+\-\s()]+$/.test(trimmedPhone)) {
+    return res.status(400).json({ success: false, message: 'Invalid phone number format' });
+  }
 
   try {
-    // 🔍 Check if email already exists
-    const [existing] = await db.query(
-      `SELECT id FROM tbemployees WHERE email = ?`,
-      [email]
-    );
-    if (existing.length > 0) {
-      return res.status(409).json({ message: "Email already registered" }); // 409 = Conflict
+    // 4. Pre-check email uniqueness across central users table and legacy tables
+    const [existingUsers] = await db.query('SELECT id FROM users WHERE LOWER(email) = ?', [normalizedEmail]);
+    if (existingUsers.length > 0) {
+      return res.status(409).json({ success: false, message: 'Email already registered' });
     }
 
-    // 🔍 Check if PAN already exists
-    const [existingPan] = await db.query(
-      `SELECT id FROM tbemployees WHERE pan = ?`,
-      [pan]
-    );
+    const [existingEmp] = await db.query('SELECT id FROM tbemployees WHERE LOWER(email) = ?', [normalizedEmail]);
+    if (existingEmp.length > 0) {
+      return res.status(409).json({ success: false, message: 'Email already registered' });
+    }
+
+    const [existingPan] = await db.query('SELECT id FROM tbemployees WHERE pan = ?', [normalizedPan]);
     if (existingPan.length > 0) {
-      return res.status(409).json({ message: "PAN number already exist" }); // 409 = Conflict
+      return res.status(409).json({ success: false, message: 'PAN number already registered' });
     }
 
-    // 🔒 Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // Check tbca, tbcaemployees, ca_users, tbadmin
+    const [existingCa] = await db.query('SELECT fdSiNo FROM tbca WHERE LOWER(email) = ?', [normalizedEmail]);
+    if (existingCa.length > 0) {
+      return res.status(409).json({ success: false, message: 'Email already registered' });
+    }
 
-    // 📌 Generate JWT token
-    const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "7d" });
+    const [existingCaEmp] = await db.query('SELECT id FROM tbcaemployees WHERE LOWER(email) = ?', [normalizedEmail]);
+    if (existingCaEmp.length > 0) {
+      return res.status(409).json({ success: false, message: 'Email already registered' });
+    }
 
-    // 📥 Insert into DB
-    const sql = `
+    const [existingCaUser] = await db.query('SELECT id FROM ca_users WHERE LOWER(email) = ?', [normalizedEmail]);
+    if (existingCaUser.length > 0) {
+      return res.status(409).json({ success: false, message: 'Email already registered' });
+    }
+
+    const [existingAdmin] = await db.query('SELECT id FROM tbadmin WHERE LOWER(email) = ?', [normalizedEmail]);
+    if (existingAdmin.length > 0) {
+      return res.status(409).json({ success: false, message: 'Email already registered' });
+    }
+
+    // 5. Hash password with bcrypt
+    const hashedPassword = await bcrypt.hash(trimmedPassword, 10);
+
+    // 6. Insert user record into tbemployees
+    const insertSql = `
       INSERT INTO tbemployees (firstName, lastName, email, phoneNumber, pan, password, userLimit, token, address)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, '', ?)
     `;
 
-    const [result] = await db.query(sql, [
-      firstName,
-      lastName,
-      email,
-      phoneNumber,
-      pan,
+    const [result] = await db.query(insertSql, [
+      trimmedFirstName,
+      trimmedLastName,
+      normalizedEmail,
+      trimmedPhone,
+      normalizedPan,
       hashedPassword,
-      userLimit,
-      token,
-      address || null,
+      parsedUserLimit,
+      trimmedAddress,
     ]);
 
-    console.log("✅ User inserted:", result.insertId);
+    const newUserId = result.insertId;
 
-    return res.status(200).json({
-      message: "User registered successfully",
-      userId: result.insertId,
-      token,
+    // 6b. Automatically sync to central users table
+    await db.query(`
+      INSERT INTO users (email, password_hash, role, source_table, source_id)
+      VALUES (?, ?, 'employee', 'tbemployees', ?)
+      ON DUPLICATE KEY UPDATE
+        password_hash = VALUES(password_hash),
+        source_id = VALUES(source_id)
+    `, [normalizedEmail, hashedPassword, newUserId]);
+
+    // 7. Generate verified JWT token
+    const token = signToken({
+      id: newUserId,
+      email: normalizedEmail,
+      role: 'employee',
+      userType: 'employee'
     });
+
+    // Optionally update token field in database
+    await db.query('UPDATE tbemployees SET token = ? WHERE id = ?', [token, newUserId]).catch(() => {});
+
+    return res.status(201).json({
+      success: true,
+      message: 'User registered successfully',
+      userId: newUserId,
+      token,
+      user: {
+        id: newUserId,
+        email: normalizedEmail,
+        firstName: trimmedFirstName,
+        lastName: trimmedLastName,
+        phoneNumber: trimmedPhone,
+        pan: normalizedPan,
+        userLimit: parsedUserLimit,
+        userType: 'employee'
+      }
+    });
+
   } catch (err) {
-    console.error("❌ DB Error:", err.message);
-    return res
-      .status(500)
-      .json({ message: "Database error", error: err.message });
+    if (err.code === 'ER_DUP_ENTRY') {
+      const isPan = err.message && err.message.toLowerCase().includes('pan');
+      return res.status(409).json({
+        success: false,
+        message: isPan ? 'PAN number already registered' : 'Email already registered'
+      });
+    }
+
+    console.error('❌ Registration error:', err);
+    return res.status(500).json({ success: false, message: 'Registration failed due to a server error' });
   }
 });
 

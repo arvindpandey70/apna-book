@@ -2,8 +2,10 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
+const { signToken } = require('../utils/jwt');
 const authMiddleware = require('../middlewares/authMiddleware');
+const { loginLimiter } = require('../middlewares/rateLimiter');
+
 // ✅ Admin Signup (For Super Admin)
 router.post('/signup', async (req, res) => {
   const { email, password } = req.body;
@@ -13,24 +15,24 @@ router.post('/signup', async (req, res) => {
   }
 
   try {
+    const normalizedEmail = email.trim().toLowerCase();
     // Check if tbadmin has this email
-    const [adminRows] = await db.query('SELECT id FROM tbadmin WHERE email = ?', [email]);
+    const [adminRows] = await db.query('SELECT id FROM tbadmin WHERE LOWER(email) = ?', [normalizedEmail]);
     if (adminRows.length > 0) {
       return res.status(400).json({ message: 'Email already exists in super admin' });
     }
 
     // Hash the password
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(password.trim(), 10);
 
     const [result] = await db.query(
       'INSERT INTO tbadmin (email, password) VALUES (?, ?)',
-      [email, hashedPassword]
+      [normalizedEmail, hashedPassword]
     );
 
     // Generate token so they can log in immediately
-    const token = jwt.sign(
-      { id: result.insertId, email, role: 'super_admin' },
-      process.env.JWT_SECRET,
+    const token = signToken(
+      { id: result.insertId, email: normalizedEmail, role: 'super_admin', userType: 'super_admin' },
       { expiresIn: '24h' }
     );
 
@@ -39,7 +41,7 @@ router.post('/signup', async (req, res) => {
       token,
       user: {
         id: result.insertId,
-        email,
+        email: normalizedEmail,
         name: 'Admin',
         role: 'super_admin'
       }
@@ -52,7 +54,7 @@ router.post('/signup', async (req, res) => {
 });
 
 // ✅ Admin Login
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
@@ -60,34 +62,24 @@ router.post('/login', async (req, res) => {
   }
 
   try {
+    const normalizedEmail = email.trim().toLowerCase();
     // Find user - checking tbadmin (super admin)
-    const [rows] = await db.query('SELECT * FROM tbadmin WHERE email = ?', [email]);
+    const [rows] = await db.query('SELECT * FROM tbadmin WHERE LOWER(email) = ?', [normalizedEmail]);
     const user = rows[0];
 
-    console.log('Login attempt for:', email);
-    console.log('User found in tbadmin:', user ? 'Yes' : 'No');
-
-    if (!user) {
+    if (!user || !user.password) {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
-    // Compare passwords - try bcrypt first
-    const isMatch = await bcrypt.compare(password, user.password);
-    console.log('Bcrypt match:', isMatch);
-
+    // Strictly verify password using bcrypt
+    const isMatch = await bcrypt.compare(password.trim(), user.password);
     if (!isMatch) {
-      // Fallback for plain-text password for Super Admin compatibility
-      const plainMatch = (password === user.password);
-      console.log('Plain text match:', plainMatch);
-      if (!plainMatch) {
-        return res.status(401).json({ message: 'Invalid email or password' });
-      }
+      return res.status(401).json({ message: 'Invalid email or password' });
     }
 
     // Generate JWT - Role is strictly super_admin
-    const token = jwt.sign(
-      { id: user.id, email: user.email, role: 'super_admin' },
-      process.env.JWT_SECRET,
+    const token = signToken(
+      { id: user.id, email: user.email, role: 'super_admin', userType: 'super_admin' },
       { expiresIn: '24h' }
     );
 

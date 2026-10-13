@@ -71,14 +71,15 @@ const LoginPage: React.FC = () => {
         const hasCompanyRaw = localStorage.getItem('company');
         const hasCompany = hasCompanyRaw === 'true' || hasCompanyRaw === '1' || hasCompanyRaw === 'True';
 
-        if (hasCompany) {
+        if (userType === 'ca' || userType === 'new_ca') {
+          // CA always lands on the CA Portal Dashboard (/app)
           navigate('/app');
+        } else if (hasCompany) {
+          navigate('/app');
+        } else if (userType === 'employee') {
+          navigate('/app/company');
         } else {
-          if (userType === 'employee' || userType === 'new_ca') {
-            navigate('/app/company');
-          } else {
-            navigate('/app/no-company');
-          }
+          navigate('/app/no-company');
         }
       } else {
         setErrors({ submit: 'Invalid email or password' });

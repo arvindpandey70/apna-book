@@ -418,7 +418,7 @@ const Dashboard: React.FC = () => {
   ];
 
   const companyCount = companies.length;
-  const canCreateCompany = companyCount < userLimit && (userType === "employee" || userType === "new_ca");
+  const canCreateCompany = companyCount < userLimit && userType === "employee";
 
   const handleAddEmployee = () => {
     if (!newEmployee.name || !newEmployee.adhar || !newEmployee.phone) return;

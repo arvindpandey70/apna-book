@@ -345,36 +345,49 @@ app.get('/',(req, res)=>{
 })
 
 
-app.listen(PORT, async () => {
-  console.log(`Server running on port ${PORT}`);
+if (require.main === module) {
+  app.listen(PORT, async () => {
+    console.log(`Server running on port ${PORT}`);
 
-  // 🛠️ ONE-TIME REPAIR: Renumber all vouchers to fix chronological issues
-  try {
-    const { renumberVouchers } = require("./utils/generateVoucherNumber");
-    const db = require("./db");
+    try {
+      const { runMigration } = require("./scripts/migrate_auth_security");
+      await runMigration();
+      const { runUnifiedUsersMigration } = require("./scripts/migrate_to_unified_users");
+      await runUnifiedUsersMigration();
+    } catch (migErr) {
+      console.error("Migration check failed:", migErr.message);
+    }
 
-    console.log("🛠️ Starting automatic chronological repair...");
+    // 🛠️ ONE-TIME REPAIR: Renumber all vouchers to fix chronological issues
+    try {
+      const { renumberVouchers } = require("./utils/generateVoucherNumber");
+      const db = require("./db");
 
-    const [combos] = await db.execute("SELECT DISTINCT company_id, owner_type, owner_id FROM purchase_vouchers");
-    for (const combo of combos) {
-      // Renumber for current and previous FY
-      const datesToFix = [new Date(), new Date(new Date().getFullYear() - 1, 11, 31)];
-      for (const d of datesToFix) {
-        const types = ["purchase", "sales", "payment", "receipt", "contra", "journal", "bank"];
-        for (const t of types) {
-          await renumberVouchers({
-            companyId: combo.company_id,
-            ownerType: combo.owner_type,
-            ownerId: combo.owner_id,
-            voucherType: t,
-            date: d
-          }).catch(err => console.error(`Failed to renumber ${t}:`, err.message));
+      console.log("🛠️ Starting automatic chronological repair...");
+
+      const [combos] = await db.execute("SELECT DISTINCT company_id, owner_type, owner_id FROM purchase_vouchers");
+      for (const combo of combos) {
+        // Renumber for current and previous FY
+        const datesToFix = [new Date(), new Date(new Date().getFullYear() - 1, 11, 31)];
+        for (const d of datesToFix) {
+          const types = ["purchase", "sales", "payment", "receipt", "contra", "journal", "bank"];
+          for (const t of types) {
+            await renumberVouchers({
+              companyId: combo.company_id,
+              ownerType: combo.owner_type,
+              ownerId: combo.owner_id,
+              voucherType: t,
+              date: d
+            }).catch(err => console.error(`Failed to renumber ${t}:`, err.message));
+          }
         }
       }
+      console.log("✅ Chronological repair completed.");
+    } catch (err) {
+      console.error("❌ Repair failed:", err.message);
     }
-    console.log("✅ Chronological repair completed.");
-  } catch (err) {
-    console.error("❌ Repair failed:", err.message);
-  }
-});
+  });
+}
+
+module.exports = app;
 

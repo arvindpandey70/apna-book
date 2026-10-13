@@ -126,6 +126,8 @@ const Register: React.FC = () => {
       console.log("✅ Response Body:", data);
 
       if (res.ok) {
+        localStorage.clear();
+        sessionStorage.clear();
         Swal.fire({
           icon: 'success',
           title: 'Success',
