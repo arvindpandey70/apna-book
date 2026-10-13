@@ -69,7 +69,18 @@ router.post('/', upload.single('stamp_image'), async (req, res) => {
         `;
         
         const [results] = await db.query(query, [name, email, phone, firmName, registrationNumber, designation || null, membershipNumber || null, panNumber || null, udin || null, stampUrl, hashedPassword, status || 'active']);
-        res.status(201).json({ message: 'CA created successfully', id: results.insertId });
+        const caId = results.insertId;
+
+        // Sync with central users table
+        await db.query(`
+            INSERT INTO users (email, password_hash, role, source_table, source_id, status)
+            VALUES (?, ?, 'new_ca', 'ca_users', ?, ?)
+            ON DUPLICATE KEY UPDATE
+                password_hash = VALUES(password_hash),
+                status = VALUES(status)
+        `, [email.trim().toLowerCase(), hashedPassword, caId, status || 'active']).catch(() => {});
+
+        res.status(201).json({ message: 'CA created successfully', id: caId });
     } catch (error) {
         console.error('Server error creating CA:', error);
         if (error.code === 'ER_DUP_ENTRY') {
@@ -193,6 +204,8 @@ router.delete('/:id', async (req, res) => {
             return res.status(404).json({ error: 'CA not found' });
         }
         
+        await db.query('DELETE FROM users WHERE source_table = "ca_users" AND source_id = ?', [id]).catch(() => {});
+
         res.status(200).json({ message: 'CA deleted successfully' });
     } catch (error) {
         console.error('Server error deleting CA:', error);

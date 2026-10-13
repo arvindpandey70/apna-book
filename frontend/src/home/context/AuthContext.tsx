@@ -210,26 +210,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
       setUser(newUser);
 
-
       try {
+        // Clear previous user-specific keys to guarantee complete user isolation
+        const keysToClear = [
+          "token", "user", "userType", "company", "company_id", "active_company_id",
+          "companyInfo", "employee_id", "user_id", "supplier", "companies"
+        ];
+        keysToClear.forEach(k => localStorage.removeItem(k));
+
         if (data.token) localStorage.setItem("token", data.token);
         localStorage.setItem("user", JSON.stringify(newUser));
         if (data.role) localStorage.setItem("userType", data.role);
-        if (data.hasCompany !== undefined)
-          localStorage.setItem("company", String(data.hasCompany));
+        localStorage.setItem("company", String(Boolean(data.hasCompany)));
         if (data.companyId) {
           localStorage.setItem("company_id", String(data.companyId));
           localStorage.setItem("active_company_id", String(data.companyId));
-        } else {
-          localStorage.removeItem("company_id");
-          localStorage.removeItem("active_company_id");
         }
-        if (data.companyInfo)
+        if (data.companyInfo) {
           localStorage.setItem("companyInfo", JSON.stringify(data.companyInfo));
-        if (data.employee_id !== undefined)
+        }
+        if (data.employee_id !== undefined && data.employee_id !== null) {
           localStorage.setItem("employee_id", String(data.employee_id));
-        if (data.user_id !== undefined)
+        }
+        if (data.user_id !== undefined && data.user_id !== null) {
           localStorage.setItem("user_id", String(data.user_id));
+        }
         if (data.supplier !== undefined)
           localStorage.setItem("supplier", String(data.supplier));
         if (data.companies !== undefined)
@@ -239,12 +244,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       // Ensure React state reflects backend-provided company info immediately
-      if (data.hasCompany !== undefined) setHasCompany(Boolean(data.hasCompany));
-      if (data.companyId !== undefined) setCompanyId(data.companyId ? String(data.companyId) : null);
-      if ((data as any).company_id !== undefined) {
-        setCompanyId((data as any).company_id ? String((data as any).company_id) : null);
-        setHasCompany(true);
-      }
+      setHasCompany(Boolean(data.hasCompany));
+      setCompanyId(data.companyId ? String(data.companyId) : null);
 
       if (data.role === "ca_employee" && data.user_id) {
         fetch(`${import.meta.env.VITE_API_URL}/api/ca-employee-permissions?ca_employee_id=${data.user_id}`)
@@ -284,24 +285,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         throw new Error("Registration failed");
       }
 
-      // Set user data from form (or response if backend returns it)
-      const newUser: User = {
-        id: Date.now().toString(), // Ideally, get this from backend response
-        email: userData.email,
-        firstName: userData.firstName,
-        lastName: userData.lastName,
-        companyName: userData.companyName,
-        phoneNumber: userData.phoneNumber,
-        pan: userData.pan || "",
-        userLimit: 1,
-        hasSubscription: false,
-        createdAt: new Date().toISOString(),
-        lastLoginAt: new Date().toISOString(),
-        address: (userData as any).address || "",
-      };
-
-      setUser(newUser);
-      localStorage.setItem("user", JSON.stringify(newUser));
+      // Clear any old auth state so registration does not retain previous user data
+      localStorage.clear();
+      setUser(null);
+      setHasCompany(false);
+      setCompanyId(null);
       return true;
     } catch (error) {
       console.error("Registration error:", error);
@@ -314,11 +302,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const logout = () => {
     try {
       setUser(null);
+      setHasCompany(false);
+      setCompanyId(null);
+      setPermissions({});
       localStorage.clear();
+      sessionStorage.clear();
       window.location.href = "/";
     } catch (error) {
       console.error("Error during logout:", error);
       setUser(null);
+      setHasCompany(false);
+      setCompanyId(null);
+      setPermissions({});
       window.location.href = "/";
     }
   };

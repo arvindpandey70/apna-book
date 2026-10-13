@@ -30,10 +30,18 @@ const MainLayout: React.FC = () => {
       return;
     }
 
+    const isCa = user?.userType === 'ca' || user?.userType === 'new_ca';
+    const isOwner = user?.userType === 'employee';
+
     // If authenticated but no company, handle routing based on role
     if (!isLoading && isAuthenticated && !hasCompany) {
-      const isOwner = user?.userType === 'employee' || user?.userType === 'new_ca';
-      if (isOwner) {
+      if (isCa) {
+        // CAs land on /app (CA Portal Dashboard) even if 0 companies are linked yet
+        if (location.pathname.startsWith('/app/company') || location.pathname.startsWith('/app/no-company')) {
+          navigate('/app');
+          return;
+        }
+      } else if (isOwner) {
         if (!location.pathname.startsWith('/app/company')) {
           navigate('/app/company');
           return;
@@ -48,13 +56,11 @@ const MainLayout: React.FC = () => {
 
     // Role-based route protection
     if (!isLoading && isAuthenticated) {
-      const isOwner = user?.userType === 'employee' || user?.userType === 'new_ca';
-      
-      // Block accountants from owner-only routes
+      // Block non-owners from owner-only routes (company creation, company config)
       if (!isOwner) {
         if (location.pathname.startsWith('/app/company') || location.pathname.startsWith('/app/config')) {
           console.warn(`Access denied to ${location.pathname} for non-owner role`);
-          if (hasCompany) {
+          if (isCa || hasCompany) {
             navigate('/app');
           } else {
             navigate('/app/no-company');

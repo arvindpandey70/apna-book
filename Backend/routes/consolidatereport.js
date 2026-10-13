@@ -30,8 +30,8 @@ router.get('/employee-financial-report', async (req, res) => {
       const fetchId = employee_id || ca_id || ca_employee_id;
       if (fetchId) {
         const [rows] = await connection.query(
-          `SELECT id, name FROM tbcompanies WHERE employee_id = ? OR id = ?`,
-          [fetchId, fetchId]
+          `SELECT id, name FROM tbcompanies WHERE employee_id = ?`,
+          [fetchId]
         );
         companies = rows;
       }
@@ -202,8 +202,8 @@ router.get('/employee-financial-report-consolidated', async (req, res) => {
       const fetchId = employee_id || ca_id || ca_employee_id;
       if (fetchId) {
         const [rows] = await connection.query(
-          `SELECT id, name FROM tbcompanies WHERE employee_id = ? OR id = ?`,
-          [fetchId, fetchId]
+          `SELECT id, name FROM tbcompanies WHERE employee_id = ?`,
+          [fetchId]
         );
         companies = rows;
       }
@@ -319,8 +319,8 @@ router.get('/consolidated-balance-sheet', async (req, res) => {
       const fetchId = employee_id || ca_id || ca_employee_id;
       if (fetchId) {
         const [rows] = await connection.query(
-          `SELECT id, name FROM tbcompanies WHERE employee_id = ? OR id = ?`,
-          [fetchId, fetchId]
+          `SELECT id, name FROM tbcompanies WHERE employee_id = ?`,
+          [fetchId]
         );
         companies = rows;
       }

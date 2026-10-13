@@ -15,8 +15,8 @@ router.get('/dashboard-data', async (req, res) => {
       companyInfoQuery = `SELECT c.* FROM tbcompanies c INNER JOIN ca_company cc ON c.id = cc.company_id WHERE cc.ca_id = ?`;
       queryParams = [user_id];
     } else {
-      companyInfoQuery = 'SELECT * FROM tbcompanies WHERE employee_id = ? OR id = ?';
-      queryParams = [employee_id, employee_id];
+      companyInfoQuery = 'SELECT * FROM tbcompanies WHERE employee_id = ?';
+      queryParams = [employee_id];
     }
 
     let companiesQuery;
@@ -32,8 +32,8 @@ router.get('/dashboard-data', async (req, res) => {
     } else {
       companiesQuery = `SELECT c.*, 
         (SELECT COUNT(*) FROM tbusers u WHERE u.company_id = c.id) > 0 as isLocked 
-        FROM tbcompanies c WHERE c.employee_id = ? OR c.id = ?`;
-      companiesQueryParams = [employee_id, employee_id];
+        FROM tbcompanies c WHERE c.employee_id = ?`;
+      companiesQueryParams = [employee_id];
     }
 
     if (company_id) {
@@ -167,8 +167,8 @@ router.get('/companies-by-employee', async (req, res) => {
     const [companies] = await db.query(
       `SELECT c.id, c.name, 
        (SELECT COUNT(*) FROM tbusers u WHERE u.company_id = c.id) > 0 as isLocked 
-       FROM tbcompanies c WHERE c.employee_id = ? OR c.id = ?`,
-      [employee_id, employee_id]
+       FROM tbcompanies c WHERE c.employee_id = ?`,
+      [employee_id]
     );
 
     res.json({ success: true, companies });
@@ -192,13 +192,14 @@ router.get('/companies-by-ca', async (req, res) => {
 
     const caName = caRows.length > 0 ? caRows[0].fdname.trim() : null;
 
-    // 2. Find companies linked to this CA (as accountant or owner)
+    // 2. Find companies linked to this CA (via accountant name or ca_company)
     const [rows] = await connection.query(
       `SELECT id, name, assessee_name, company_type, employee_id, pan_number, gst_number, address,
        (SELECT COUNT(*) FROM tbusers u WHERE u.company_id = tbcompanies.id) > 0 as isLocked
        FROM tbcompanies 
-       WHERE (fdAccountantName = ?) OR (employee_id = ?) OR id IN (SELECT company_id FROM ca_company WHERE ca_id = ?)`,
-      [caName, caId, caId]
+       WHERE (fdAccountantName = ? AND fdAccountantName IS NOT NULL AND fdAccountantName != '') 
+          OR id IN (SELECT company_id FROM ca_company WHERE ca_id = ?)`,
+      [caName, caId]
     );
 
     if (financialYear) {

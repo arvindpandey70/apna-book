@@ -18,7 +18,12 @@ const RequireCompany: React.FC<RequireCompanyProps> = ({ children }) => {
   React.useEffect(() => {
     if (!isLoading && isAuthenticated) {
       if (!hasCompany) {
-        const isOwner = user?.userType === 'employee' || user?.userType === 'new_ca';
+        const isCa = user?.userType === 'ca' || user?.userType === 'new_ca';
+        if (isCa) {
+          navigate('/app');
+          return;
+        }
+        const isOwner = user?.userType === 'employee';
         if (isOwner) {
           navigate('/app/company');
         } else {
@@ -43,7 +48,25 @@ const RequireCompany: React.FC<RequireCompanyProps> = ({ children }) => {
 
   // If no company, show message
   if (!hasCompany) {
-    const isOwner = user?.userType === 'employee' || user?.userType === 'new_ca';
+    const isCa = user?.userType === 'ca' || user?.userType === 'new_ca';
+    if (isCa) {
+      return (
+        <div className="min-h-screen flex items-center justify-center p-4">
+          <div className="text-center">
+            <h2 className="text-xl font-semibold mb-2">Company Selection Required</h2>
+            <p className="text-gray-600 mb-4">Please select an assigned company from the CA Dashboard first.</p>
+            <button
+              onClick={() => navigate('/app')}
+              className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700"
+            >
+              Go to CA Dashboard
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    const isOwner = user?.userType === 'employee';
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <div className="text-center">
