@@ -34,11 +34,8 @@ router.post('/', loginLimiter, async (req, res) => {
     if (authUsers.length > 0) {
       const authUser = authUsers[0];
       const match = await bcrypt.compare(passwordTrimmed, authUser.password_hash);
-      if (!match) {
-        return res.status(401).json({ success: false, message: 'Invalid email or password' });
-      }
-
-      // Exact credential match found via unified identity!
+      if (match) {
+        // Exact credential match found via unified identity!
       const role = authUser.role;
       const supplier = (role === 'ca' || role === 'new_ca') ? 'ca' : 'employee';
       let companyRow = null;
@@ -188,6 +185,7 @@ router.post('/', loginLimiter, async (req, res) => {
           userType: authUser.role,
         }
       });
+      }
     }
 
     // =========================================================================
@@ -262,6 +260,18 @@ router.post('/', loginLimiter, async (req, res) => {
         }
 
         // Exact credential match found!
+        // Auto-heal / synchronize central users table
+        await db.query(`
+          INSERT INTO users (email, password_hash, role, source_table, source_id, status)
+          VALUES (?, ?, ?, ?, ?, 'active')
+          ON DUPLICATE KEY UPDATE
+            password_hash = VALUES(password_hash),
+            role = VALUES(role),
+            source_table = VALUES(source_table),
+            source_id = VALUES(source_id),
+            status = 'active'
+        `, [normalizedEmail, user[passwordField], role, table, user[idField]]).catch(() => {});
+
         let employeeId = user[idField];
         let companyRow = null;
         let assignedCompanies = [];
