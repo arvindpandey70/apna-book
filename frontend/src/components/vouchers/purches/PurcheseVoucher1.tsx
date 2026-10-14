@@ -2438,7 +2438,7 @@ const PurchaseVoucher: React.FC = () => {
       } else if (name === "amount") {
         updatedEntries[index] = {
           ...entry,
-          amount: Number(value) || 0,
+          amount: value === "" ? "" : (value.includes(".") ? value : (isNaN(Number(value)) ? value : Number(value))),
         };
       } else {
         updatedEntries[index] = {
@@ -2596,18 +2596,18 @@ const PurchaseVoucher: React.FC = () => {
       formData.entries.forEach((entry, index) => {
         if (!entry.ledgerId)
           newErrors[`entry${index}.ledgerId`] = "Ledger is required";
-        if ((entry.amount ?? 0) <= 0)
+        if ((Number(entry.amount) || 0) <= 0)
           newErrors[`entry${index}.amount`] = "Amount must be greater than 0";
       });
 
       if (formData.mode === "accounting-invoice") {
         const debitTotal = formData.entries
           .filter((e) => e.type === "debit")
-          .reduce((sum, e) => sum + (e.amount ?? 0), 0);
+          .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
 
         const creditTotal = formData.entries
           .filter((e) => e.type === "credit")
-          .reduce((sum, e) => sum + (e.amount ?? 0), 0);
+          .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
 
         if (Math.abs(debitTotal - creditTotal) > 0.01) {
           newErrors.entries = "Debit and credit amounts must balance";
@@ -2866,6 +2866,7 @@ const PurchaseVoucher: React.FC = () => {
         // ✅ Map entries to include TDS Ledger ID as tdsRate (as requested by user)
         entries: formData.entries.map(e => ({
           ...e,
+          amount: Number(e.amount) || 0,
           tdsRate: formData.tdsLedgerId || 0
         })),
         companyId,
@@ -4898,7 +4899,7 @@ const PurchaseVoucher: React.FC = () => {
                             title="Enter Amount"
                             type="number"
                             name="amount"
-                            value={Math.round(entry.amount ?? 0) || ""}
+                            value={entry.amount ?? ""}
                             onChange={(e) =>
                               handleEntryChange(
                                 formData.entries.indexOf(entry),
@@ -4907,7 +4908,7 @@ const PurchaseVoucher: React.FC = () => {
                             }
                             required
                             min="0"
-                            step="0.01"
+                            step="any"
                             className={getInputClasses(
                               theme,
                               !!errors[
@@ -4977,7 +4978,10 @@ const PurchaseVoucher: React.FC = () => {
                     >
                       <td className="px-4 py-2 text-right">Debit Total:</td>
                       <td className="px-4 py-2 text-right">
-                        {Math.round(debitTotal).toLocaleString()}
+                        {Number(debitTotal).toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
                       </td>
                       <td className="px-4 py-2"></td>
                       <td className="px-4 py-2"></td>
@@ -4990,7 +4994,10 @@ const PurchaseVoucher: React.FC = () => {
                     >
                       <td className="px-4 py-2 text-right">Credit Total:</td>
                       <td className="px-4 py-2 text-right">
-                        {Math.round(creditTotal).toLocaleString()}
+                        {Number(creditTotal).toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
                       </td>
                       <td className="px-4 py-2"></td>
                       <td className="px-4 py-2"></td>
@@ -5006,7 +5013,10 @@ const PurchaseVoucher: React.FC = () => {
                     >
                       <td className="px-4 py-2 text-right">Grand Total:</td>
                       <td className="px-4 py-2 text-right font-bold text-green-600">
-                        {total.toLocaleString()}
+                        {Number(total).toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
                       </td>
                       <td className="px-4 py-2"></td>
                       <td className="px-4 py-2"></td>
