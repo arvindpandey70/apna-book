@@ -12,14 +12,15 @@ import Sidebar from './components/Layout/Sidebar';
 import Header from './components/Layout/Header';
 import Dashboard from './components/Dashboard/Dashboard';
 import Ledgers from './components/Ledgers/Ledgers';
+import Groups from './components/Groups/Groups';
 import UserManagement from './components/Users/UserManagement';
 import CAManagement from './components/Users/CAManagement';
+import Traders from './components/Trader/Traders'
+import TraderDetail from './components/Trader/TraderDetail';
 import SubscriptionManagement from './components/Subscriptions/SubscriptionManagement';
 import PaymentHistory from './components/Payments/PaymentHistory';
 import Settings from './components/Settings/Settings';
 import ProtectedRoute from './routes/ProtectedRoute';
-import Traders from './components/Trader/Traders'
-import TraderDetail from './components/Trader/TraderDetail';
 
 const PageContent: React.FC = () => {
   const contentRef = useRef<HTMLDivElement>(null);
@@ -42,6 +43,7 @@ const PageContent: React.FC = () => {
           <Route element={<ProtectedRoute />}>
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/ledgers" element={<Ledgers />} />
+            <Route path="/groups" element={<Groups />} />
             <Route path="/users" element={<UserManagement />} />
             <Route path="/ca-management" element={<CAManagement />} />
             <Route path="/trader" element={< Traders />} />

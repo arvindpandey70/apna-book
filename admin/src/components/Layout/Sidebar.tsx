@@ -6,6 +6,7 @@ import { gsap } from 'gsap';
 import {
   LayoutDashboard,
   BookOpen,
+  Layers,
   Users,
   Building2,
   CreditCard,
@@ -39,6 +40,7 @@ const Sidebar: React.FC = () => {
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
     { id: 'ledgers', label: 'Ledgers', icon: BookOpen, path: '/ledgers' },
+    { id: 'groups', label: 'Groups', icon: Layers, path: '/groups' },
     { id: 'users', label: 'Accountant Management', icon: Users, path: '/users' },
     { id: 'ca-management', label: 'CA Management', icon: Users, path: '/ca-management' },
     { id: 'trader', label: 'Trader Management', icon: Building2, path: '/trader' },
