@@ -1352,7 +1352,7 @@ const SalesImport: React.FC = () => {
             }
 
             const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, "Sales_Accounting_Invoice_Template");
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Sales_Accounting_Template");
             XLSX.writeFile(workbook, `Sales_Accounting_Invoice_Template.xlsx`);
         }
     };
