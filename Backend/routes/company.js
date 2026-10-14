@@ -214,7 +214,42 @@ router.post('/company', async (req, res) => {
       `, [companyId, username, hashedPassword, employeeId, email, roleId]);
     }
 
-    // Admin ledgers will be imported by user via /app/masters/ledger import UI
+    // --- Automatically copy Admin template groups to the new company ---
+    const [adminGroups] = await connection.execute(
+      `SELECT name, parent, nature FROM ledger_groups WHERE company_id = 0 AND owner_type = 'admin'`
+    );
+    for (const grp of adminGroups) {
+      const [existingGrp] = await connection.execute(
+        `SELECT id FROM ledger_groups WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND company_id = ? AND owner_type = 'employee' AND owner_id = 0`,
+        [grp.name, companyId]
+      );
+      if (existingGrp.length === 0) {
+        await connection.execute(
+          `INSERT INTO ledger_groups (name, parent, nature, company_id, owner_type, owner_id)
+           VALUES (?, ?, ?, ?, 'employee', 0)`,
+          [grp.name, grp.parent, grp.nature, companyId]
+        );
+      }
+    }
+
+    // --- Automatically copy Admin template ledgers to the new company ---
+    const [adminLedgers] = await connection.execute(
+      `SELECT name, group_id, opening_balance, balance_type FROM ledgers WHERE company_id = 0 AND owner_type = 'admin'`
+    );
+    for (const ldg of adminLedgers) {
+      const [existingLdg] = await connection.execute(
+        `SELECT id FROM ledgers WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND company_id = ? AND owner_type = 'employee' AND owner_id = 0`,
+        [ldg.name, companyId]
+      );
+      if (existingLdg.length === 0) {
+        await connection.execute(
+          `INSERT INTO ledgers (name, group_id, opening_balance, balance_type, company_id, owner_type, owner_id)
+           VALUES (?, ?, ?, ?, ?, 'employee', 0)`,
+          [ldg.name, ldg.group_id, ldg.opening_balance || 0, ldg.balance_type || 'debit', companyId]
+        );
+      }
+    }
+
     await connection.commit();
     connection.release();
 

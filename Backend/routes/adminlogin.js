@@ -357,4 +357,192 @@ router.delete('/global-ledger/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// ✅ Admin All Groups
+router.get('/all-groups', authMiddleware, async (req, res) => {
+  try {
+    const [groups] = await db.query(`
+      SELECT g.id, g.name, g.parent, g.nature, g.created_at, g.company_id, g.owner_type, 'Global Admin' as company_name
+      FROM ledger_groups g
+      WHERE g.company_id = 0 AND g.owner_type = 'admin'
+      ORDER BY g.created_at DESC
+    `);
+    
+    res.json(groups);
+  } catch (err) {
+    console.error('Groups fetch error:', err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+});
+
+// ✅ Admin Create Global Group
+router.post('/create-global-group', authMiddleware, async (req, res) => {
+  const { name, parent, nature } = req.body;
+
+  if (!name || !name.trim()) {
+    return res.status(400).json({ message: 'Group Name is required' });
+  }
+
+  const trimmedName = name.trim();
+  const parentVal = parent !== undefined && parent !== null && parent !== '' ? Number(parent) : null;
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    // 1. Check if Admin template already exists
+    const [adminTemplate] = await connection.execute(
+      `SELECT id FROM ledger_groups WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND company_id = 0 AND owner_type = 'admin'`,
+      [trimmedName]
+    );
+
+    if (adminTemplate.length > 0) {
+      await connection.rollback();
+      return res.status(400).json({ message: 'Global group with this name already exists' });
+    }
+
+    // 2. Insert Admin Template
+    await connection.execute(
+      `INSERT INTO ledger_groups (name, parent, nature, company_id, owner_type, owner_id)
+       VALUES (?, ?, ?, 0, 'admin', 0)`,
+      [trimmedName, parentVal, nature || null]
+    );
+
+    // 3. Fetch all companies
+    const [companies] = await connection.execute(`SELECT id FROM tbcompanies`);
+
+    // 4. Insert into all companies (if not already exists)
+    for (const company of companies) {
+      const [existing] = await connection.execute(
+        `SELECT id FROM ledger_groups WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND company_id = ? AND owner_type = 'employee' AND owner_id = 0`,
+        [trimmedName, company.id]
+      );
+
+      if (existing.length === 0) {
+        await connection.execute(
+          `INSERT INTO ledger_groups (name, parent, nature, company_id, owner_type, owner_id)
+           VALUES (?, ?, ?, ?, 'employee', 0)`,
+          [trimmedName, parentVal, nature || null, company.id]
+        );
+      }
+    }
+
+    await connection.commit();
+    res.status(201).json({ message: 'Global group created successfully and copied to all companies' });
+  } catch (err) {
+    await connection.rollback();
+    console.error('Global group creation error:', err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  } finally {
+    connection.release();
+  }
+});
+
+// ✅ Admin Edit Global Group
+router.put('/global-group/:id', authMiddleware, async (req, res) => {
+  const groupId = req.params.id;
+  const { name, parent, nature } = req.body;
+
+  if (!name || !name.trim()) {
+    return res.status(400).json({ message: 'Group Name is required' });
+  }
+
+  const trimmedName = name.trim();
+  const parentVal = parent !== undefined && parent !== null && parent !== '' ? Number(parent) : null;
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    // 1. Fetch old name
+    const [oldGroup] = await connection.execute(
+      `SELECT name FROM ledger_groups WHERE id = ? AND company_id = 0 AND owner_type = 'admin'`,
+      [groupId]
+    );
+
+    if (oldGroup.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ message: 'Global group template not found' });
+    }
+    const oldName = oldGroup[0].name;
+
+    // Check if new name conflicts with another global group
+    if (trimmedName.toLowerCase() !== oldName.toLowerCase()) {
+      const [nameConflict] = await connection.execute(
+        `SELECT id FROM ledger_groups WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND company_id = 0 AND owner_type = 'admin' AND id != ?`,
+        [trimmedName, groupId]
+      );
+      if (nameConflict.length > 0) {
+        await connection.rollback();
+        return res.status(400).json({ message: 'Another global group with this name already exists' });
+      }
+    }
+
+    // 2. Update Admin Template
+    await connection.execute(
+      `UPDATE ledger_groups SET name = ?, parent = ?, nature = ? 
+       WHERE id = ? AND company_id = 0 AND owner_type = 'admin'`,
+      [trimmedName, parentVal, nature || null, groupId]
+    );
+
+    // 3. Update copies in all companies (matching by old name and employee owner_type)
+    await connection.execute(
+      `UPDATE ledger_groups SET name = ?, parent = ?, nature = ? 
+       WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND company_id > 0 AND owner_type = 'employee' AND owner_id = 0`,
+      [trimmedName, parentVal, nature || null, oldName]
+    );
+
+    await connection.commit();
+    res.json({ message: 'Global group updated successfully across all companies' });
+  } catch (err) {
+    await connection.rollback();
+    console.error('Global group update error:', err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  } finally {
+    connection.release();
+  }
+});
+
+// ✅ Admin Delete Global Group
+router.delete('/global-group/:id', authMiddleware, async (req, res) => {
+  const groupId = req.params.id;
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    // 1. Fetch old name
+    const [oldGroup] = await connection.execute(
+      `SELECT name FROM ledger_groups WHERE id = ? AND company_id = 0 AND owner_type = 'admin'`,
+      [groupId]
+    );
+
+    if (oldGroup.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ message: 'Global group template not found' });
+    }
+    const oldName = oldGroup[0].name;
+
+    // 2. Delete copies from all companies (using IGNORE to prevent crashing if foreign keys block deletion)
+    await connection.execute(
+      `DELETE IGNORE FROM ledger_groups WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND company_id > 0 AND owner_type = 'employee' AND owner_id = 0`,
+      [oldName]
+    );
+
+    // 3. Delete Admin Template
+    await connection.execute(
+      `DELETE FROM ledger_groups WHERE id = ? AND company_id = 0 AND owner_type = 'admin'`,
+      [groupId]
+    );
+
+    await connection.commit();
+    res.json({ message: 'Global group deleted successfully' });
+  } catch (err) {
+    await connection.rollback();
+    console.error('Global group deletion error:', err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  } finally {
+    connection.release();
+  }
+});
+
 module.exports = router;
