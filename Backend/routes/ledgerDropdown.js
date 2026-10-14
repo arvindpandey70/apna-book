@@ -5,8 +5,19 @@ const db = require('../db');
 // ✅ GET all ledger groups
 router.get("/", async (req, res) => {
   try {
-    const sql = "SELECT id, name, type, parent FROM ledger_groups";
-    const [rows] = await db.query(sql); // ✅ No callback
+    const sql = `
+      SELECT id, name, type, parent, nature FROM ledger_groups
+      WHERE (company_id = 0 AND owner_type = 'admin')
+         OR (id IN (
+           SELECT MIN(id) FROM ledger_groups
+           WHERE LOWER(TRIM(name)) NOT IN (
+             SELECT LOWER(TRIM(name)) FROM ledger_groups WHERE company_id = 0 AND owner_type = 'admin'
+           )
+           GROUP BY LOWER(TRIM(name))
+         ))
+      ORDER BY name
+    `;
+    const [rows] = await db.query(sql);
     res.json(rows);
   } catch (err) {
     console.error("Error fetching ledger groups:", err);

@@ -20,10 +20,12 @@ router.get("/", async (req, res) => {
     const [rows] = await db.execute(
       `SELECT *
        FROM ledger_groups
-       WHERE (company_id = ? AND owner_type = ? AND owner_id = ?) 
-       OR (company_id = 0 AND owner_type = 'employee' AND owner_id = 0)
+       WHERE (company_id = ? AND ((owner_type = ? AND owner_id = ?) OR owner_id = 0)) 
+       OR (company_id = 0 AND owner_type = 'admin' AND LOWER(TRIM(name)) NOT IN (
+           SELECT LOWER(TRIM(name)) FROM ledger_groups WHERE company_id = ?
+       ))
        ORDER BY name`,
-      [company_id, owner_type, owner_id]
+      [company_id, owner_type, owner_id, company_id]
     );
 
     console.log('rows', rows.length)

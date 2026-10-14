@@ -222,7 +222,7 @@ const CreditNoteVoucher: React.FC = () => {
       if (name === "amount") {
         updatedEntries[index] = {
           ...updatedEntries[index],
-          amount: Number(value) || 0,
+          amount: value === "" ? "" : (value.includes(".") ? value : (isNaN(Number(value)) ? value : Number(value))),
         };
       }
 
@@ -583,11 +583,11 @@ const CreditNoteVoucher: React.FC = () => {
                             title="Amount"
                             type="number"
                             name="amount"
-                            value={Math.round(entry.amount || 0) || ""}
+                            value={entry.amount ?? ""}
                             onChange={(e) => handleEntryChange(index, e)}
                             required
                             min="0"
-                            step="0.01"
+                            step="any"
                             className={`w-full p-2 rounded border text-right ${theme === "dark"
                               ? "bg-gray-700 border-gray-600 focus:border-blue-500"
                               : "bg-white border-gray-300 focus:border-blue-500"
@@ -643,8 +643,8 @@ const CreditNoteVoucher: React.FC = () => {
                     </td>
                     <td className="px-4 py-2 text-right">
                       <div className="flex flex-col">
-                        <span>Dr: ₹{Math.round(totalDebit || 0).toLocaleString()}</span>
-                        <span>Cr: ₹{Math.round(totalCredit || 0).toLocaleString()}</span>
+                        <span>Dr: ₹{Number(totalDebit || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        <span>Cr: ₹{Number(totalCredit || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                       </div>
                     </td>
                     <td className="px-4 py-2 text-center">
