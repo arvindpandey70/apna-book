@@ -88,10 +88,11 @@ router.get("/api/balance-sheet/group", async (req, res) => {
       WHERE parent = ?
       AND (
         (company_id = ? AND owner_type = ? AND owner_id = ?)
+        OR (company_id = ? AND company_id > 0)
         OR (company_id = 0 AND owner_type = 'employee' AND owner_id = 0)
       )
       `,
-      [id, company_id, owner_type, owner_id]
+      [id, company_id, owner_type, owner_id, company_id]
     );
 
     // 2️⃣ Direct ledgers under parent group
@@ -109,10 +110,12 @@ router.get("/api/balance-sheet/group", async (req, res) => {
       LEFT JOIN ledger_groups g ON l.group_id = g.id
       WHERE 
         l.group_id = ?
-        AND l.company_id = ?
-        AND ((l.owner_type = ? AND l.owner_id = ?) OR l.owner_id = 0)
+        AND (
+          (l.company_id = ? AND ((l.owner_type = ? AND l.owner_id = ?) OR l.owner_id = 0))
+          OR (l.company_id = ? AND l.company_id > 0)
+        )
       `,
-      [id, company_id, owner_type, owner_id]
+      [id, company_id, owner_type, owner_id, company_id]
     );
 
     // 3️⃣ Ledgers under child groups
@@ -137,10 +140,12 @@ router.get("/api/balance-sheet/group", async (req, res) => {
         LEFT JOIN ledger_groups g ON l.group_id = g.id
         WHERE 
           l.group_id IN (${placeholders})
-          AND l.company_id = ?
-          AND ((l.owner_type = ? AND l.owner_id = ?) OR l.owner_id = 0)
+          AND (
+            (l.company_id = ? AND ((l.owner_type = ? AND l.owner_id = ?) OR l.owner_id = 0))
+            OR (l.company_id = ? AND l.company_id > 0)
+          )
         `,
-        [...groupIds, company_id, owner_type, owner_id]
+        [...groupIds, company_id, owner_type, owner_id, company_id]
       );
 
       ledgers = [...ledgers, ...rows];

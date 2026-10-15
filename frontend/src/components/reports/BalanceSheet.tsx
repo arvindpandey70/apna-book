@@ -77,16 +77,28 @@ const BalanceSheet: React.FC<BalanceSheetProps> = ({ showHeader = true, isYearWi
         if (!res.ok) throw new Error("Failed to load balance sheet data");
         const data = await res.json();
 
-        const normalizedLedgers = data.ledgers.map((l: any) => ({
-          id: l.id,
-          name: l.name,
-          groupId: Number(l.group_id || l.groupId),
-          openingBalance: parseFloat(l.opening_balance || l.openingBalance) || 0,
-          balanceType: l.balance_type || l.balanceType,
-          closingBalance: parseFloat(l.closing_balance || l.closingBalance) || 0,
-          groupName: l.group_name || l.groupName,
-          groupType: l.group_type || l.groupType,
-        }));
+        const normalizedLedgers = data.ledgers.map((l: any) => {
+          const gid = Number(l.group_id || l.groupId);
+          const bg = allSystemGroups.find((g) => g.id === gid);
+          const rawClosing = l.closing_balance !== undefined && l.closing_balance !== null
+            ? parseFloat(l.closing_balance)
+            : (l.closingBalance !== undefined && l.closingBalance !== null ? parseFloat(l.closingBalance) : NaN);
+          const rawOpening = parseFloat(l.opening_balance || l.openingBalance) || 0;
+          const closingBalance = !isNaN(rawClosing) && rawClosing !== 0
+            ? rawClosing
+            : (!isNaN(rawClosing) && rawClosing === 0 && rawOpening !== 0 ? rawOpening : (!isNaN(rawClosing) ? rawClosing : rawOpening));
+
+          return {
+            id: l.id,
+            name: l.name,
+            groupId: gid,
+            openingBalance: rawOpening,
+            balanceType: l.balance_type || l.balanceType || "debit",
+            closingBalance: closingBalance,
+            groupName: l.group_name || l.groupName || bg?.name || "",
+            groupType: l.group_type || l.groupType,
+          };
+        });
         setLedgers(normalizedLedgers);
 
         const normalizedGroups = data.ledgerGroups.map((g: any) => ({
@@ -226,30 +238,54 @@ const BalanceSheet: React.FC<BalanceSheetProps> = ({ showHeader = true, isYearWi
     fetchDebitCreditData();
   }, [ledgers, companyId, ownerType, ownerId]);
 
+  const isStockInHandLedger = (ledger: Ledger) => {
+    if (Number(ledger.groupId) === -108) return true;
+    const gName = (ledger.groupName || "").toLowerCase().replace(/[\s-_]/g, "");
+    if (gName === "stockinhand" || gName.includes("stockinhand")) return true;
+
+    const isDescendant = (grpId: number, visited = new Set<number>()): boolean => {
+      if (visited.has(grpId)) return false;
+      visited.add(grpId);
+      if (grpId === -108) return true;
+      const grp = ledgerGroups.find((g) => Number(g.id) === grpId);
+      if (grp) {
+        const cleanName = (grp.name || "").toLowerCase().replace(/[\s-_]/g, "");
+        if (cleanName === "stockinhand" || cleanName.includes("stockinhand")) return true;
+        if (grp.parent !== null && grp.parent !== undefined) {
+          return isDescendant(Number(grp.parent), visited);
+        }
+      }
+      return false;
+    };
+    return isDescendant(Number(ledger.groupId));
+  };
+
   const getLedgerBalances = (ledger: Ledger) => {
+    const isStock = isStockInHandLedger(ledger);
+
+    if (isStock) {
+      const rawClosing = Number(ledger.closingBalance);
+      const rawOpening = Number(ledger.openingBalance);
+      const closingVal = !isNaN(rawClosing) && rawClosing !== 0
+        ? rawClosing
+        : (!isNaN(rawOpening) ? rawOpening : 0);
+      const closingSigned = ledger.balanceType === "credit" ? -closingVal : closingVal;
+
+      return {
+        openingSigned: 0,
+        debit: 0,
+        credit: 0,
+        closingSigned,
+      };
+    }
+
     const o = Number(ledger.openingBalance) || 0;
     const debit = debitCreditData[ledger.id]?.debit || 0;
     const credit = debitCreditData[ledger.id]?.credit || 0;
 
     // Signed value (Relative to Debit)
     const openingSigned = ledger.balanceType === "debit" ? o : -o;
-
-    let closingSigned;
-    if (ledger.groupName?.toLowerCase() === "stock-in-hand") {
-      // Use synced closing stock for stock-in-hand
-      const stockLedgers = ledgers.filter(l => l.groupName?.toLowerCase() === "stock-in-hand");
-      const dbTotal = stockLedgers.reduce((sum, l) => sum + (Number(l.closingBalance) || 0), 0);
-
-      if (dbTotal !== 0) {
-        closingSigned = (Number(ledger.closingBalance) / dbTotal) * closingStock;
-      } else {
-        // If DB is 0, we can't distribute by proportion.
-        // Assign total to first ledger only to avoid duplication.
-        closingSigned = stockLedgers[0]?.id === ledger.id ? closingStock : 0;
-      }
-    } else {
-      closingSigned = openingSigned + debit - credit;
-    }
+    const closingSigned = openingSigned + debit - credit;
 
     return { openingSigned, debit, credit, closingSigned };
   };
