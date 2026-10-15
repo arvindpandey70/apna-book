@@ -43,12 +43,18 @@ const TrialBalance: React.FC = () => {
     Record<number, { debit: number; credit: number }>
   >({});
 
-  const companyId = localStorage.getItem("company_id") || "";
-  const ownerType = localStorage.getItem("supplier") || "";
-  const ownerId =
-    localStorage.getItem(
-      ownerType === "employee" ? "employee_id" : "user_id"
-    ) || "";
+  const companyId = localStorage.getItem("company_id") || localStorage.getItem("active_company_id") || "";
+  const rawOwnerType = localStorage.getItem("supplier") || "";
+  const employeeId = localStorage.getItem("employee_id");
+  const userId = localStorage.getItem("user_id") || "";
+
+  const ownerType = (rawOwnerType === "ca" || rawOwnerType === "ca_employee" || rawOwnerType === "new_ca" || rawOwnerType === "employee" || employeeId)
+    ? "employee"
+    : (rawOwnerType || "employee");
+
+  const ownerId = (rawOwnerType === "ca" || rawOwnerType === "ca_employee" || rawOwnerType === "new_ca" || rawOwnerType === "employee" || employeeId)
+    ? (employeeId || userId)
+    : userId;
 
   useEffect(() => {
     const fetchData = async () => {
@@ -67,6 +73,7 @@ const TrialBalance: React.FC = () => {
           groupId: Number(l.group_id || l.groupId),
           group_id: Number(l.group_id || l.groupId),
           openingBalance: parseFloat(l.opening_balance || l.openingBalance) || 0,
+          closingBalance: parseFloat(l.closing_balance || l.closingBalance) || 0,
           balanceType: l.balance_type || l.balanceType,
           groupName: l.group_name || l.groupName,
           groupType: l.group_type || l.groupType,
@@ -156,8 +163,21 @@ const TrialBalance: React.FC = () => {
     let netClosing = (totalOpDr + totalTransDr) - (totalOpCr + totalTransCr);
 
     // Sync stock-in-hand
-    if (ledgerGroups.find(g => g.id === groupId)?.name?.toLowerCase() === "stock-in-hand") {
-      netClosing = closingStock; // +ve is Dr
+    const isStockGroup = groupId === -108 || ledgerGroups.find(g => g.id === groupId)?.name?.toLowerCase() === "stock-in-hand";
+    if (isStockGroup) {
+      const stockManualClosing = recursiveLedgers.reduce((sum, l) => {
+        const rawClosing = parseFloat(l.closingBalance || l.closing_balance);
+        const rawOpening = parseFloat(l.openingBalance || l.opening_balance) || 0;
+        const val = !isNaN(rawClosing) && rawClosing !== 0 ? rawClosing : rawOpening;
+        return sum + (l.balanceType === 'credit' ? -val : val);
+      }, 0);
+      netClosing = stockManualClosing !== 0 ? stockManualClosing : closingStock;
+      return {
+        opening: 0,
+        debit: 0,
+        credit: 0,
+        closing: netClosing
+      };
     }
 
     return {

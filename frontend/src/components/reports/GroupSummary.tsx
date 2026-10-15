@@ -46,12 +46,18 @@ const GroupSummary: React.FC = () => {
     credit: true,
     closing: true
   });
-  const companyId = localStorage.getItem("company_id") || "";
-  const ownerType = localStorage.getItem("supplier") || "";
-  const ownerId =
-    localStorage.getItem(
-      ownerType === "employee" ? "employee_id" : "user_id"
-    ) || "";
+  const companyId = localStorage.getItem("company_id") || localStorage.getItem("active_company_id") || "";
+  const rawOwnerType = localStorage.getItem("supplier") || "";
+  const employeeId = localStorage.getItem("employee_id");
+  const userId = localStorage.getItem("user_id") || "";
+
+  const ownerType = (rawOwnerType === "ca" || rawOwnerType === "ca_employee" || rawOwnerType === "new_ca" || rawOwnerType === "employee" || employeeId)
+    ? "employee"
+    : (rawOwnerType || "employee");
+
+  const ownerId = (rawOwnerType === "ca" || rawOwnerType === "ca_employee" || rawOwnerType === "new_ca" || rawOwnerType === "employee" || employeeId)
+    ? (employeeId || userId)
+    : userId;
 
   // Base groups as per original logic
 
@@ -350,8 +356,16 @@ const GroupSummary: React.FC = () => {
     });
   };
 
+  const isStockInHand = (idOrName: any) => {
+    if (idOrName === -108 || idOrName === "-108" || Number(idOrName) === -108) return true;
+    const str = String(idOrName || "").toLowerCase().replace(/[\s-_]/g, "");
+    return str === "stockinhand" || str.includes("stockinhand");
+  };
+
   // Recursive Balance Calculation
   const calculateRecursiveBalance = (groupId: number) => {
+    const isTargetStock = isStockInHand(groupId);
+
     const getGroupLedgers = (gid: number): any[] => {
       const direct = allLedgers.filter((l) => Number(l.groupId || l.group_id) === Number(gid));
       const children = groups.filter((g) => Number(g.parent) === Number(gid));
@@ -369,6 +383,21 @@ const GroupSummary: React.FC = () => {
     let netBalance = 0;
 
     targetLedgers.forEach((l) => {
+      const isStock = isTargetStock || isStockInHand(l.groupId || l.group_id) || isStockInHand(l.groupName);
+      if (isStock) {
+        const rawClosing = l.closingBalance !== undefined && l.closingBalance !== null
+          ? parseFloat(l.closingBalance)
+          : (l.closing_balance !== undefined && l.closing_balance !== null ? parseFloat(l.closing_balance) : NaN);
+        const rawOpening = parseFloat(l.openingBalance || l.opening_balance) || 0;
+        const val = !isNaN(rawClosing) && rawClosing !== 0
+          ? rawClosing
+          : (!isNaN(rawOpening) ? rawOpening : 0);
+        const type = (l.balanceType || l.balance_type || "debit").toLowerCase();
+        const signed = (type === "credit" || type === "cr") ? -val : val;
+        netBalance += signed;
+        return;
+      }
+
       const op = Number(l.openingBalance || l.opening_balance) || 0;
       const td = taxData[Number(l.id)] || { debit: 0, credit: 0 };
       const type = (l.balanceType || l.balance_type || "debit").toLowerCase();
@@ -384,25 +413,37 @@ const GroupSummary: React.FC = () => {
       }
     });
 
-    return { opening, debit, credit, netBalance };
+    return { opening, debit, credit, netBalance, isStock: isTargetStock };
   };
 
   const totals = ledgers.reduce(
     (acc, item) => {
-      let b;
+      let b: { opening: number; debit: number; credit: number; netBalance: number; isStock?: boolean };
       if (item.isGroup) {
         b = calculateRecursiveBalance(item.id);
       } else {
-        const op = Number(item.openingBalance || item.opening_balance) || 0;
-        const td = taxData[Number(item.id)] || { debit: 0, credit: 0 };
-        const type = (item.balanceType || item.balance_type || "debit").toLowerCase();
-        let net = 0;
-        if (type === "debit" || type === "dr") {
-          net = (op + td.debit - td.credit);
+        const isStock = isStockInHand(groupIdFromUrl) || isStockInHand(item.groupId || item.group_id) || isStockInHand(item.groupName);
+        if (isStock) {
+          const rawClosing = item.closingBalance !== undefined && item.closingBalance !== null
+            ? parseFloat(item.closingBalance)
+            : (item.closing_balance !== undefined && item.closing_balance !== null ? parseFloat(item.closing_balance) : NaN);
+          const rawOpening = parseFloat(item.openingBalance || item.opening_balance) || 0;
+          const val = !isNaN(rawClosing) && rawClosing !== 0 ? rawClosing : (!isNaN(rawOpening) ? rawOpening : 0);
+          const type = (item.balanceType || item.balance_type || "debit").toLowerCase();
+          const net = (type === "credit" || type === "cr") ? -val : val;
+          b = { opening: 0, debit: 0, credit: 0, netBalance: net, isStock: true };
         } else {
-          net = -(op + td.credit - td.debit);
+          const op = Number(item.openingBalance || item.opening_balance) || 0;
+          const td = taxData[Number(item.id)] || { debit: 0, credit: 0 };
+          const type = (item.balanceType || item.balance_type || "debit").toLowerCase();
+          let net = 0;
+          if (type === "debit" || type === "dr") {
+            net = (op + td.debit - td.credit);
+          } else {
+            net = -(op + td.credit - td.debit);
+          }
+          b = { opening: op, debit: td.debit, credit: td.credit, netBalance: net, isStock: false };
         }
-        b = { opening: op, debit: td.debit, credit: td.credit, netBalance: net };
       }
 
       acc.opening += b.opening;
@@ -659,6 +700,10 @@ const GroupSummary: React.FC = () => {
               <tbody>
                 {ledgers.map((item) => {
                   const isGroup = item.isGroup;
+                  const isStock = isGroup
+                    ? isStockInHand(item.id) || isStockInHand(item.name)
+                    : (isStockInHand(groupIdFromUrl) || isStockInHand(item.groupId || item.group_id) || isStockInHand(item.groupName));
+
                   const balance = isGroup
                     ? calculateRecursiveBalance(item.id)
                     : {
@@ -670,7 +715,15 @@ const GroupSummary: React.FC = () => {
 
                   let netClosing = 0;
                   if (!isGroup) {
-                    if (balance.type === 'debit' || balance.type === 'dr') {
+                    if (isStock) {
+                      const rawClosing = item.closingBalance !== undefined && item.closingBalance !== null
+                        ? parseFloat(item.closingBalance)
+                        : (item.closing_balance !== undefined && item.closing_balance !== null ? parseFloat(item.closing_balance) : NaN);
+                      const rawOpening = parseFloat(item.openingBalance || item.opening_balance) || 0;
+                      const val = !isNaN(rawClosing) && rawClosing !== 0 ? rawClosing : (!isNaN(rawOpening) ? rawOpening : 0);
+                      const type = (item.balanceType || item.balance_type || "debit").toLowerCase();
+                      netClosing = (type === "credit" || type === "cr") ? -val : val;
+                    } else if (balance.type === 'debit' || balance.type === 'dr') {
                       netClosing = (balance.opening + balance.debit) - balance.credit;
                     } else {
                       netClosing = (balance.opening + balance.credit) - balance.debit;
@@ -703,19 +756,19 @@ const GroupSummary: React.FC = () => {
                       {/* Opening */}
                       {columnVisibility.opening && (
                         <td className="px-4 py-3 text-right font-mono">
-                          ₹ {Math.abs(balance.opening).toLocaleString()} {(!isGroup ? balance.type : (balance.opening >= 0 ? 'Dr' : 'Cr')) === 'debit' ? 'Dr' : 'Cr'}
+                          {isStock ? "" : `₹ ${Math.abs(balance.opening).toLocaleString()} ${(!isGroup ? balance.type : (balance.opening >= 0 ? 'Dr' : 'Cr')) === 'debit' ? 'Dr' : 'Cr'}`}
                         </td>
                       )}
 
                       {columnVisibility.debit && (
                         <td className="px-4 py-3 text-right font-mono text-green-600">
-                          ₹ {balance.debit.toLocaleString()}
+                          {isStock || balance.debit === 0 ? "" : `₹ ${balance.debit.toLocaleString()}`}
                         </td>
                       )}
 
                       {columnVisibility.credit && (
                         <td className="px-4 py-3 text-right font-mono text-red-600">
-                          ₹ {balance.credit.toLocaleString()}
+                          {isStock || balance.credit === 0 ? "" : `₹ ${balance.credit.toLocaleString()}`}
                         </td>
                       )}
 

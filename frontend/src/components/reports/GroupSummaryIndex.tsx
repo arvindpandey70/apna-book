@@ -18,16 +18,22 @@ const GroupSummaryIndex: React.FC = () => {
   const navigate = useNavigate();
   const [groupTypes, setGroupTypes] = useState<GroupType[]>([]);
   const [, setLoading] = useState(true);
-  const companyId = localStorage.getItem("company_id");
-  const ownerType = localStorage.getItem("supplier");
+  const companyId = localStorage.getItem("company_id") || localStorage.getItem("active_company_id") || "";
+  const rawOwnerType = localStorage.getItem("supplier") || "";
+  const employeeId = localStorage.getItem("employee_id");
+  const userId = localStorage.getItem("user_id") || "";
+
+  const ownerType = (rawOwnerType === "ca" || rawOwnerType === "ca_employee" || rawOwnerType === "new_ca" || rawOwnerType === "employee" || employeeId)
+    ? "employee"
+    : (rawOwnerType || "employee");
+
+  const ownerId = (rawOwnerType === "ca" || rawOwnerType === "ca_employee" || rawOwnerType === "new_ca" || rawOwnerType === "employee" || employeeId)
+    ? (employeeId || userId)
+    : userId;
+
   const [selectedNature, setSelectedNature] = useState<string | null>(null);
   const [ledgers, setLedgers] = useState<any[]>([]);
   const [taxData, setTaxData] = useState<Record<number, { debit: number; credit: number }>>({});
-
-  const ownerId =
-    localStorage.getItem(
-      ownerType === "employee" ? "employee_id" : "user_id"
-    ) || "";
 
 
   //fixed ui
@@ -175,6 +181,22 @@ const GroupSummaryIndex: React.FC = () => {
     let netBalance = 0; // positive for debit, negative for credit (arbitrary)
 
     groupLedgers.forEach((ledger) => {
+      const gid = Number(ledger.groupId || ledger.group_id);
+      const gname = String(ledger.groupName || ledger.group_name || "").toLowerCase().replace(/[\s-_]/g, "");
+      const isStock = gid === -108 || gname === "stockinhand" || gname.includes("stockinhand");
+
+      if (isStock) {
+        const rawClosing = ledger.closingBalance !== undefined && ledger.closingBalance !== null
+          ? parseFloat(ledger.closingBalance)
+          : (ledger.closing_balance !== undefined && ledger.closing_balance !== null ? parseFloat(ledger.closing_balance) : NaN);
+        const rawOpening = parseFloat(ledger.opening_balance || ledger.openingBalance) || 0;
+        const val = !isNaN(rawClosing) && rawClosing !== 0 ? rawClosing : (!isNaN(rawOpening) ? rawOpening : 0);
+        const type = (ledger.balance_type || ledger.balanceType || "debit").toLowerCase();
+        const signed = (type === "credit" || type === "cr") ? -val : val;
+        netBalance += signed;
+        return;
+      }
+
       const opening =
         Number(ledger.opening_balance || ledger.openingBalance) || 0;
       const tData = taxData[Number(ledger.id)] || { debit: 0, credit: 0 };
