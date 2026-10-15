@@ -2,7 +2,6 @@ import React, { useEffect, useState, useRef } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAppContext } from "../../context/AppContext";
 import { ArrowLeft } from "lucide-react";
-import { useProfitLossSync } from "../../hooks/useProfitLossSync";
 import { allSystemGroups as baseGroups } from "../../constants/ledgerGroups";
 
 
@@ -45,7 +44,6 @@ const SubGroupSummary: React.FC = () => {
   console.log('groupid', groupId)
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { closingStock } = useProfitLossSync();
   const [subGroups, setSubGroups] = useState<Group[]>([]);
   const [allFetchedGroups, setAllFetchedGroups] = useState<Group[]>([]);
   const groupIds = [Number(groupId)];
@@ -56,12 +54,18 @@ const SubGroupSummary: React.FC = () => {
   );
 
 
-  const companyId = localStorage.getItem("company_id") || "";
-  const ownerType = localStorage.getItem("supplier") || "";
-  const ownerId =
-    localStorage.getItem(
-      ownerType === "employee" ? "employee_id" : "user_id"
-    ) || "";
+  const companyId = localStorage.getItem("company_id") || localStorage.getItem("active_company_id") || "";
+  const rawOwnerType = localStorage.getItem("supplier") || "";
+  const employeeId = localStorage.getItem("employee_id");
+  const userId = localStorage.getItem("user_id") || "";
+
+  const ownerType = (rawOwnerType === "ca" || rawOwnerType === "ca_employee" || rawOwnerType === "new_ca" || rawOwnerType === "employee" || employeeId)
+    ? "employee"
+    : (rawOwnerType || "employee");
+
+  const ownerId = (rawOwnerType === "ca" || rawOwnerType === "ca_employee" || rawOwnerType === "new_ca" || rawOwnerType === "employee" || employeeId)
+    ? (employeeId || userId)
+    : userId;
 
 
   useEffect(() => {
@@ -95,15 +99,27 @@ const SubGroupSummary: React.FC = () => {
 
             // Normalize ledgers - CRITICAL to check both group_id and groupId
             const rawLedgers = data.ledgers || [];
-            const normalizedLedgers = rawLedgers.map((l: any) => ({
-              id: l.id,
-              name: l.name,
-              group_id: Number(l.group_id || l.groupId), // Handle inconsistent backend field names
-              openingBalance: parseFloat(l.opening_balance || l.openingBalance) || 0,
-              balanceType: l.balance_type || l.balanceType,
-              closingBalance: parseFloat(l.closing_balance || l.closingBalance) || 0,
-              groupName: l.group_name || l.groupName,
-            }));
+            const normalizedLedgers = rawLedgers.map((l: any) => {
+              const gid = Number(l.group_id || l.groupId);
+              const bg = baseGroups.find((g) => g.id === gid);
+              const rawClosing = l.closing_balance !== undefined && l.closing_balance !== null
+                ? parseFloat(l.closing_balance)
+                : (l.closingBalance !== undefined && l.closingBalance !== null ? parseFloat(l.closingBalance) : NaN);
+              const rawOpening = parseFloat(l.opening_balance || l.openingBalance) || 0;
+              const closingBalance = !isNaN(rawClosing) && rawClosing !== 0
+                ? rawClosing
+                : (!isNaN(rawClosing) && rawClosing === 0 && rawOpening !== 0 ? rawOpening : (!isNaN(rawClosing) ? rawClosing : rawOpening));
+
+              return {
+                id: l.id,
+                name: l.name,
+                group_id: gid,
+                openingBalance: rawOpening,
+                balanceType: l.balance_type || l.balanceType || "debit",
+                closingBalance: closingBalance,
+                groupName: l.group_name || l.groupName || bg?.name || "",
+              };
+            });
 
             allLedgers = [...allLedgers, ...normalizedLedgers];
             allSubGroups = [...allSubGroups, ...normalizedFetchedGroups];
@@ -232,31 +248,66 @@ const SubGroupSummary: React.FC = () => {
     groupIds.includes(Number(l.group_id))
   );
 
+  const isStockInHandLedger = (l: Ledger) => {
+    if (Number(groupId) === -108) return true;
+    if (Number(l.group_id) === -108) return true;
+
+    const gName = (l.groupName || "").toLowerCase().replace(/[\s-_]/g, "");
+    if (gName === "stockinhand" || gName.includes("stockinhand")) return true;
+
+    const bg = baseGroups.find((g) => g.id === Number(l.group_id));
+    if (bg) {
+      const bgName = bg.name.toLowerCase().replace(/[\s-_]/g, "");
+      if (bg.id === -108 || bgName === "stockinhand" || bgName.includes("stockinhand")) return true;
+    }
+
+    const isDescendant = (grpId: number, visited = new Set<number>()): boolean => {
+      if (visited.has(grpId)) return false;
+      visited.add(grpId);
+      if (grpId === -108) return true;
+      const grp =
+        allFetchedGroups.find((g) => g.id === grpId) ||
+        baseGroups.find((g) => g.id === grpId);
+      if (grp) {
+        const cleanName = (grp.name || "").toLowerCase().replace(/[\s-_]/g, "");
+        if (cleanName === "stockinhand" || cleanName.includes("stockinhand")) return true;
+        if (grp.parent !== null && grp.parent !== undefined) {
+          return isDescendant(Number(grp.parent), visited);
+        }
+      }
+      return false;
+    };
+
+    return isDescendant(Number(l.group_id));
+  };
+
   // 2. Calculation Functions
   const getLedgerBalances = (ledger: Ledger) => {
+    const isStock = isStockInHandLedger(ledger);
+
+    if (isStock) {
+      const rawClosing = Number(ledger.closingBalance);
+      const rawOpening = Number(ledger.openingBalance);
+      const closingVal = !isNaN(rawClosing) && rawClosing !== 0
+        ? rawClosing
+        : (!isNaN(rawOpening) ? rawOpening : 0);
+      const closingSigned = ledger.balanceType === "credit" ? -closingVal : closingVal;
+
+      return {
+        openingSigned: 0,
+        debit: 0,
+        credit: 0,
+        closingSigned,
+      };
+    }
+
     const o = Number(ledger.openingBalance) || 0;
     const debit = debitCreditData[ledger.id]?.debit || 0;
     const credit = debitCreditData[ledger.id]?.credit || 0;
 
     // Signed value (Relative to Debit)
     const openingSigned = ledger.balanceType === "debit" ? o : -o;
-
-    let closingSigned;
-    if (ledger.groupName?.toLowerCase() === "stock-in-hand") {
-      // Use synced closing stock for stock-in-hand
-      const stockLedgers = ledgers.filter(l => l.groupName?.toLowerCase() === "stock-in-hand");
-      const dbTotal = stockLedgers.reduce((sum, l) => sum + (Number(l.closingBalance) || 0), 0);
-
-      if (dbTotal !== 0) {
-        closingSigned = (Number(ledger.closingBalance) / dbTotal) * closingStock;
-      } else {
-        // If DB is 0, we can't distribute by proportion.
-        // Assign total to first ledger only to avoid duplication.
-        closingSigned = stockLedgers[0]?.id === ledger.id ? closingStock : 0;
-      }
-    } else {
-      closingSigned = openingSigned + debit - credit;
-    }
+    const closingSigned = openingSigned + debit - credit;
 
     return { openingSigned, debit, credit, closingSigned };
   };
@@ -400,6 +451,7 @@ const SubGroupSummary: React.FC = () => {
                               trimmedName.startsWith("cash ");
                             const isCreditBalance = b.closingSigned < -0.001;
                             const isRedClosingBalance = isCashLedger && isCreditBalance;
+                            const isStock = isStockInHandLedger(ledger);
 
                             return (
                               <tr
@@ -417,18 +469,18 @@ const SubGroupSummary: React.FC = () => {
                                   {ledger.name}
                                 </td>
                                 <td className="py-3 px-4 text-right font-mono text-sm">
-                                  {formatBalance(b.openingSigned)}
+                                  {isStock ? "" : formatBalance(b.openingSigned)}
                                 </td>
                                 <td className="py-3 px-4 text-right font-mono text-sm">
-                                  {b.debit > 0 ? b.debit.toLocaleString() : ""}
+                                  {isStock ? "" : (b.debit > 0 ? b.debit.toLocaleString() : "")}
                                 </td>
                                 <td className="py-3 px-4 text-right font-mono text-sm">
-                                  {b.credit > 0 ? b.credit.toLocaleString() : ""}
+                                  {isStock ? "" : (b.credit > 0 ? b.credit.toLocaleString() : "")}
                                 </td>
                                 <td className={`py-3 px-4 text-right font-mono text-sm font-semibold ${
                                   isRedClosingBalance ? "text-red-600 dark:text-red-400 font-bold" : ""
                                 }`}>
-                                  {formatBalance(b.closingSigned)}
+                                  {formatBalance(b.closingSigned) || (isStock ? `0.00 ${ledger.balanceType === "credit" ? "Cr" : "Dr"}` : "")}
                                 </td>
                               </tr>
                             );
@@ -445,6 +497,7 @@ const SubGroupSummary: React.FC = () => {
                   {/* Grand Total Row */}
                   {(() => {
                     const total = calculateGrandTotal();
+                    const isCurrentGroupStock = Number(groupId) === -108;
 
                     return (
                       <tr
@@ -455,16 +508,16 @@ const SubGroupSummary: React.FC = () => {
                       >
                         <td className="py-3 px-4 text-right">Grand Total</td>
                         <td className="py-3 px-4 text-right font-mono">
-                          {formatBalance(total.opening)}
+                          {isCurrentGroupStock ? "" : formatBalance(total.opening)}
                         </td>
                         <td className="py-3 px-4 text-right font-mono">
-                          {total.debit > 0 ? total.debit.toLocaleString() : ""}
+                          {isCurrentGroupStock ? "" : (total.debit > 0 ? total.debit.toLocaleString() : "")}
                         </td>
                         <td className="py-3 px-4 text-right font-mono">
-                          {total.credit > 0 ? total.credit.toLocaleString() : ""}
+                          {isCurrentGroupStock ? "" : (total.credit > 0 ? total.credit.toLocaleString() : "")}
                         </td>
                         <td className="py-3 px-4 text-right font-mono">
-                          {formatBalance(total.closing)}
+                          {formatBalance(total.closing) || (isCurrentGroupStock ? "0.00 Dr" : "")}
                         </td>
                       </tr>
                     );
@@ -534,16 +587,16 @@ const SubGroupSummary: React.FC = () => {
                             )}
                           </td>
                           <td className="py-3 px-4 text-right font-mono font-semibold text-sm">
-                            {formatBalance(totals.opening)}
+                            {Number(groupId) === -108 ? "" : formatBalance(totals.opening)}
                           </td>
                           <td className="py-3 px-4 text-right font-mono font-semibold">
-                            {totals.debit > 0 ? totals.debit.toLocaleString() : ""}
+                            {Number(groupId) === -108 ? "" : (totals.debit > 0 ? totals.debit.toLocaleString() : "")}
                           </td>
                           <td className="py-3 px-4 text-right font-mono font-semibold">
-                            {totals.credit > 0 ? totals.credit.toLocaleString() : ""}
+                            {Number(groupId) === -108 ? "" : (totals.credit > 0 ? totals.credit.toLocaleString() : "")}
                           </td>
                           <td className="py-3 px-4 text-right font-mono font-semibold text-sm">
-                            {formatBalance(totals.closing)}
+                            {formatBalance(totals.closing) || (Number(groupId) === -108 ? "0.00 Dr" : "")}
                           </td>
                         </tr>
                       );
@@ -552,6 +605,8 @@ const SubGroupSummary: React.FC = () => {
                   <tfoot>
                     {(() => {
                       const total = calculateSubGroupGrandTotal();
+                      const isCurrentGroupStock = Number(groupId) === -108;
+
                       return (
                         <tr
                           className={`font-bold border-t-2 ${theme === "dark"
@@ -561,16 +616,16 @@ const SubGroupSummary: React.FC = () => {
                         >
                           <td className="py-3 px-4 text-right">Grand Total</td>
                           <td className="py-3 px-4 text-right font-mono">
-                            {formatBalance(total.opening)}
+                            {isCurrentGroupStock ? "" : formatBalance(total.opening)}
                           </td>
                           <td className="py-3 px-4 text-right font-mono">
-                            {total.debit > 0 ? total.debit.toLocaleString() : ""}
+                            {isCurrentGroupStock ? "" : (total.debit > 0 ? total.debit.toLocaleString() : "")}
                           </td>
                           <td className="py-3 px-4 text-right font-mono">
-                            {total.credit > 0 ? total.credit.toLocaleString() : ""}
+                            {isCurrentGroupStock ? "" : (total.credit > 0 ? total.credit.toLocaleString() : "")}
                           </td>
                           <td className="py-3 px-4 text-right font-mono">
-                            {formatBalance(total.closing)}
+                            {formatBalance(total.closing) || (isCurrentGroupStock ? "0.00 Dr" : "")}
                           </td>
                         </tr>
                       );

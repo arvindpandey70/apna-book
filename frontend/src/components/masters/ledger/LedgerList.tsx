@@ -606,7 +606,7 @@ const LedgerList: React.FC = () => {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => navigate("/app/masters/ledger/opn")}
+              onClick={() => navigate("/app/masters/ledger/opening")}
               className="flex items-center px-3 py-1.5 text-xs font-medium rounded bg-indigo-600 hover:bg-indigo-700 text-white transition-colors shadow-xs"
             >
               Opening Balance
