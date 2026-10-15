@@ -380,6 +380,16 @@ function App() {
                   }
                 />
                 <Route
+                  path="masters/ledger/opening"
+                  element={
+                    <RequireCompany>
+                      <RequireSubscription>
+                        <OpeningBalance />
+                      </RequireSubscription>
+                    </RequireCompany>
+                  }
+                />
+                <Route
                   path="masters/ledger/opn"
                   element={
                     <RequireCompany>

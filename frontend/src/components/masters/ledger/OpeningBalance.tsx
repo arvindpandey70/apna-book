@@ -14,12 +14,48 @@ const OpeningBalance: React.FC = () => {
   const [selectedGroup, setSelectedGroup] = useState<any | null>(null);
   const [selectedSubGroupFilter, setSelectedSubGroupFilter] = useState<string>("all");
   const [expandedGroups, setExpandedGroups] = useState<Record<number, boolean>>({});
+  const [savingAll, setSavingAll] = useState(false);
+  const [debitCreditData, setDebitCreditData] = useState<
+    Record<number | string, { debit: number; credit: number }>
+  >({});
 
   const toggleGroupExpand = (groupId: number) => {
     setExpandedGroups((prev) => ({
       ...prev,
       [groupId]: !prev[groupId],
     }));
+  };
+
+  const fetchDebitCredit = async (currentLedgers: Ledger[]) => {
+    if (!currentLedgers || currentLedgers.length === 0) return;
+    try {
+      const companyId = localStorage.getItem("company_id");
+      const rawOwnerType = localStorage.getItem("supplier");
+      const userType = localStorage.getItem("userType");
+
+      let fetchOwnerType = rawOwnerType;
+      let fetchOwnerId = rawOwnerType === "employee"
+        ? localStorage.getItem("employee_id")
+        : localStorage.getItem("user_id");
+
+      if (userType === "ca_employee") {
+        fetchOwnerType = "employee";
+        fetchOwnerId = localStorage.getItem("employee_id");
+      }
+
+      if (!companyId) return;
+
+      const ledgerIds = currentLedgers.map((l) => l.id).join(",");
+      const url = `${import.meta.env.VITE_API_URL}/api/group?company_id=${companyId}&owner_type=${fetchOwnerType || "employee"}&owner_id=${fetchOwnerId || "1"}&ledgerIds=${ledgerIds}`;
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data && data.success && data.data) {
+        setDebitCreditData(data.data);
+      }
+    } catch (err) {
+      console.error("Failed to load debit credit data", err);
+    }
   };
 
   useEffect(() => {
@@ -57,7 +93,12 @@ const OpeningBalance: React.FC = () => {
           `${import.meta.env.VITE_API_URL}/api/ledger?company_id=${companyId}&owner_type=${fetchOwnerType}&owner_id=${fetchOwnerId}`
         );
         const ledgerData = await ledgerRes.json();
-        setLedgers(Array.isArray(ledgerData) ? ledgerData : []);
+        const loadedLedgers = Array.isArray(ledgerData) ? ledgerData : [];
+        setLedgers(loadedLedgers);
+
+        if (loadedLedgers.length > 0) {
+          fetchDebitCredit(loadedLedgers);
+        }
       } catch (err) {
         console.error("Failed to load data", err);
         setGroups([...allSystemGroups]);
@@ -214,6 +255,100 @@ const OpeningBalance: React.FC = () => {
     return getGroupedLedgersForGroup(groupId).flatMap((b) => b.ledgers);
   };
 
+  const getLedgerAmount = (ledger: Ledger, isAsset: boolean = false): number => {
+    const op = parseFloat(String(ledger.openingBalance || (ledger as any).opening_balance || 0)) || 0;
+    const dc =
+      debitCreditData[ledger.id] ||
+      debitCreditData[Number(ledger.id)] ||
+      debitCreditData[String(ledger.id)] ||
+      { debit: 0, credit: 0 };
+    const debit = Number(dc.debit) || 0;
+    const credit = Number(dc.credit) || 0;
+    const closing = Math.abs(parseFloat(String(ledger.closingBalance || (ledger as any).closing_balance || 0)) || 0);
+
+    // 1. If opening balance was explicitly entered (> 0)
+    if (op > 0) {
+      if (debit > 0 || credit > 0) {
+        if (isAsset) {
+          const signedOp = ledger.balanceType === "credit" ? -op : op;
+          const net = signedOp + (debit - credit);
+          return Math.abs(net);
+        } else {
+          const signedOp = ledger.balanceType === "debit" ? -op : op;
+          const net = signedOp + (credit - debit);
+          return Math.abs(net);
+        }
+      }
+      return op;
+    }
+
+    // 2. If opening balance is 0 or empty, but voucher entries / transactions exist
+    if (debit > 0 || credit > 0) {
+      if (isAsset) {
+        const net = debit - credit;
+        return net !== 0 ? Math.abs(net) : Math.max(debit, credit);
+      } else {
+        const net = credit - debit;
+        return net !== 0 ? Math.abs(net) : Math.max(credit, debit);
+      }
+    }
+
+    // 3. Fallback to closing balance if available in ledger record
+    if (closing > 0) {
+      return closing;
+    }
+
+    return 0;
+  };
+
+  const getGroupTotalAmount = (groupLedgers: Ledger[], isAsset: boolean = false): number => {
+    return groupLedgers.reduce((sum, l) => sum + getLedgerAmount(l, isAsset), 0);
+  };
+
+  const formatINR = (amount: number): string => {
+    return Number(amount || 0).toLocaleString("en-IN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  };
+
+  const liabilityGroupNames = [
+    "Capital Account",
+    "Loan(Liability)",
+    "Current Liabilities",
+    "TDS Payables",
+  ];
+
+  const assetGroupNames = [
+    "Fixed Assets",
+    "Current Assets",
+  ];
+
+  // Calculate Liabilities Summary
+  const allLiabilityLedgers = liabilityGroupNames.flatMap((groupName) => {
+    const group = groups.find((g) => g.name.toLowerCase() === groupName.toLowerCase());
+    return group ? getLedgersForGroup(group.id) : [];
+  });
+  const uniqueLiabilityLedgers = Array.from(
+    new Map(allLiabilityLedgers.map((l) => [l.id, l])).values()
+  );
+  const totalLiabilitiesLedgersCount = uniqueLiabilityLedgers.length;
+  const totalLiabilitiesAmount = getGroupTotalAmount(uniqueLiabilityLedgers, false);
+
+  // Calculate Assets Summary
+  const allAssetLedgers = assetGroupNames.flatMap((groupName) => {
+    const group = groups.find((g) => g.name.toLowerCase() === groupName.toLowerCase());
+    return group ? getLedgersForGroup(group.id) : [];
+  });
+  const uniqueAssetLedgers = Array.from(
+    new Map(allAssetLedgers.map((l) => [l.id, l])).values()
+  );
+  const totalAssetsLedgersCount = uniqueAssetLedgers.length;
+  const totalAssetsAmount = getGroupTotalAmount(uniqueAssetLedgers, true);
+
+  const differenceAmount = Math.abs(totalLiabilitiesAmount - totalAssetsAmount);
+  const isBalanced = differenceAmount < 0.01;
+
   const handleLedgerChange = (ledgerId: number, field: string, value: string | number) => {
     setLedgers(prev => prev.map(l => l.id === ledgerId ? { ...l, [field]: value } : l));
   };
@@ -221,8 +356,18 @@ const OpeningBalance: React.FC = () => {
   const handleSaveLedger = async (ledger: Ledger) => {
     try {
       const companyId = localStorage.getItem("company_id");
-      const ownerType = localStorage.getItem("supplier");
-      const ownerId = localStorage.getItem(ownerType === "employee" ? "employee_id" : "user_id");
+      const rawOwnerType = localStorage.getItem("supplier");
+      const userType = localStorage.getItem("userType");
+
+      let ownerType = rawOwnerType;
+      let ownerId = rawOwnerType === "employee"
+        ? localStorage.getItem("employee_id")
+        : localStorage.getItem("user_id");
+
+      if (userType === "ca_employee") {
+        ownerType = "employee";
+        ownerId = localStorage.getItem("employee_id");
+      }
       
       const res = await fetch(
         `${import.meta.env.VITE_API_URL}/api/ledger/${ledger.id}?company_id=${companyId}&owner_type=${ownerType}&owner_id=${ownerId}`,
@@ -250,6 +395,54 @@ const OpeningBalance: React.FC = () => {
     } catch (err) {
       console.error("Update error", err);
       Swal.fire("Error", "Network error occurred", "error");
+    }
+  };
+
+  const handleSaveAllLedgers = async (targetLedgers: Ledger[]) => {
+    if (savingAll || targetLedgers.length === 0) return;
+    setSavingAll(true);
+    try {
+      const companyId = localStorage.getItem("company_id");
+      const rawOwnerType = localStorage.getItem("supplier");
+      const userType = localStorage.getItem("userType");
+
+      let ownerType = rawOwnerType;
+      let ownerId = rawOwnerType === "employee"
+        ? localStorage.getItem("employee_id")
+        : localStorage.getItem("user_id");
+
+      if (userType === "ca_employee") {
+        ownerType = "employee";
+        ownerId = localStorage.getItem("employee_id");
+      }
+
+      const promises = targetLedgers.map((l) =>
+        fetch(
+          `${import.meta.env.VITE_API_URL}/api/ledger/${l.id}?company_id=${companyId}&owner_type=${ownerType}&owner_id=${ownerId}`,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(l),
+          }
+        )
+      );
+
+      await Promise.all(promises);
+
+      Swal.fire({
+        icon: "success",
+        title: "Saved All!",
+        text: "Opening balances updated for all ledgers.",
+        timer: 1500,
+        showConfirmButton: false,
+      });
+    } catch (err) {
+      console.error("Bulk save error", err);
+      Swal.fire("Error", "Failed to update some or all ledgers", "error");
+    } finally {
+      setSavingAll(false);
     }
   };
 
@@ -282,234 +475,438 @@ const OpeningBalance: React.FC = () => {
       </div>
 
       {!selectedGroup ? (
-        <div className="flex flex-col md:flex-row gap-6 mb-6">
-          {/* Liabilities Column */}
-          <div className={`p-6 rounded-lg w-full md:w-1/2 ${theme === "dark" ? "bg-gray-800" : "bg-white shadow"}`}>
-            <h2 className="mb-4 text-xl font-bold text-center border-b pb-2 text-red-600 dark:text-red-400 border-gray-200 dark:border-gray-700">
-              Liabilities
-            </h2>
-            <div className="grid grid-cols-2 gap-2 pb-2 border-b-2 border-gray-400 font-semibold text-sm mb-2">
-              <div>Group Particulars</div>
-              <div className="text-right">Ledgers Count</div>
-            </div>
-            <div className="space-y-1">
-              {["Capital Account", "Loan(Liability)", "Current Liabilities", "TDS Payables"].map((groupName) => {
-                const group = groups.find(g => g.name.toLowerCase() === groupName.toLowerCase());
-                if (!group) return null;
-                const groupLedgers = getLedgersForGroup(group.id);
-                
-                return (
-                  <div 
-                    key={group.id}
-                    onClick={() => {
-                      setSelectedGroup(group);
-                      setSelectedSubGroupFilter("all");
-                    }}
-                    className={`grid grid-cols-2 gap-2 py-2.5 px-2 border-b border-gray-200 dark:border-gray-700 cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50 rounded`}
-                  >
-                    <span className="text-blue-600 font-semibold hover:underline flex items-center gap-1.5">
-                      {group.name}
-                    </span>
-                    <div className="text-right">
-                      <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full inline-block ${
-                        groupLedgers.length > 0 
-                          ? (theme === "dark" ? "bg-red-900/50 text-red-300" : "bg-red-100 text-red-800")
-                          : (theme === "dark" ? "bg-gray-700 text-gray-400" : "bg-gray-200 text-gray-600")
-                      }`}>
-                        {groupLedgers.length} {groupLedgers.length === 1 ? "Ledger" : "Ledgers"}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Assets Column */}
-          <div className={`p-6 rounded-lg w-full md:w-1/2 ${theme === "dark" ? "bg-gray-800" : "bg-white shadow"}`}>
-            <h2 className="mb-4 text-xl font-bold text-center border-b pb-2 text-green-600 dark:text-green-400 border-gray-200 dark:border-gray-700">
-              Assets
-            </h2>
-            <div className="grid grid-cols-2 gap-2 pb-2 border-b-2 border-gray-400 font-semibold text-sm mb-2">
-              <div>Group Particulars</div>
-              <div className="text-right">Ledgers Count</div>
-            </div>
-            <div className="space-y-1">
-              {["Fixed Assets", "Current Assets"].map((groupName) => {
-                const group = groups.find(g => g.name.toLowerCase() === groupName.toLowerCase());
-                if (!group) return null;
-                const groupLedgers = getLedgersForGroup(group.id);
-                
-                return (
-                  <div 
-                    key={group.id}
-                    onClick={() => {
-                      setSelectedGroup(group);
-                      setSelectedSubGroupFilter("all");
-                    }}
-                    className={`grid grid-cols-2 gap-2 py-2.5 px-2 border-b border-gray-200 dark:border-gray-700 cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50 rounded`}
-                  >
-                    <span className="text-blue-600 font-semibold hover:underline flex items-center gap-1.5">
-                      {group.name}
-                    </span>
-                    <div className="text-right">
-                      <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full inline-block ${
-                        groupLedgers.length > 0 
-                          ? (theme === "dark" ? "bg-green-900/50 text-green-300" : "bg-green-100 text-green-800")
-                          : (theme === "dark" ? "bg-gray-700 text-gray-400" : "bg-gray-200 text-gray-600")
-                      }`}>
-                        {groupLedgers.length} {groupLedgers.length === 1 ? "Ledger" : "Ledgers"}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className={`p-6 rounded-lg ${theme === "dark" ? "bg-gray-800 text-white" : "bg-white shadow"}`}>
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 border-b pb-4 border-gray-200 dark:border-gray-700">
-            <div>
-              <h2 className="text-xl font-bold">Ledgers in {selectedGroup.name}</h2>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Enter opening balance values and select Debit or Credit balance type for each ledger
+        <>
+          {/* Top Summary Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div
+              className={`p-4 rounded-xl border transition-all ${
+                theme === "dark"
+                  ? "bg-gray-800/80 border-red-900/40"
+                  : "bg-red-50/60 border-red-200 shadow-xs"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wider">
+                  Total Liabilities
+                </span>
+                <span className="text-xs px-2.5 py-0.5 rounded-full bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300 font-medium">
+                  {totalLiabilitiesLedgersCount} {totalLiabilitiesLedgersCount === 1 ? "Ledger" : "Ledgers"}
+                </span>
+              </div>
+              <div className="mt-2 text-2xl font-bold font-mono text-red-600 dark:text-red-400">
+                ₹{formatINR(totalLiabilitiesAmount)}
+              </div>
+              <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
+                Sum of all liabilities ledger balances / entries
               </p>
             </div>
-            
-            <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-end">
-              {/* Subgroup Filter Dropdown */}
-              {(() => {
-                const buckets = getGroupedLedgersForGroup(selectedGroup.id);
-                if (buckets.length <= 1) return null;
 
-                return (
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs font-semibold text-gray-600 dark:text-gray-300 whitespace-nowrap">
-                      Filter Subgroup:
-                    </label>
-                    <select
-                      value={selectedSubGroupFilter}
-                      onChange={(e) => setSelectedSubGroupFilter(e.target.value)}
-                      className={`text-xs font-semibold px-3 py-1.5 rounded border outline-none transition-colors ${
-                        theme === "dark"
-                          ? "bg-gray-700 border-gray-600 text-white focus:border-blue-500"
-                          : "bg-white border-gray-300 text-gray-800 focus:border-blue-500"
-                      }`}
-                    >
-                      <option value="all">All Subgroups ({getLedgersForGroup(selectedGroup.id).length} ledgers)</option>
-                      {buckets.map((b) => (
-                        <option key={b.groupId} value={b.groupId.toString()}>
-                          {b.isDirect ? `Direct Ledgers (${selectedGroup.name})` : b.groupName} ({b.ledgers.length})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                );
-              })()}
+            <div
+              className={`p-4 rounded-xl border transition-all ${
+                theme === "dark"
+                  ? "bg-gray-800/80 border-green-900/40"
+                  : "bg-green-50/60 border-green-200 shadow-xs"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-green-600 dark:text-green-400 uppercase tracking-wider">
+                  Total Assets
+                </span>
+                <span className="text-xs px-2.5 py-0.5 rounded-full bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300 font-medium">
+                  {totalAssetsLedgersCount} {totalAssetsLedgersCount === 1 ? "Ledger" : "Ledgers"}
+                </span>
+              </div>
+              <div className="mt-2 text-2xl font-bold font-mono text-green-600 dark:text-green-400">
+                ₹{formatINR(totalAssetsAmount)}
+              </div>
+              <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
+                Sum of all assets ledger balances / entries
+              </p>
+            </div>
 
-              <button
-                onClick={() => {
-                  setSelectedGroup(null);
-                  setSelectedSubGroupFilter("all");
-                }}
-                className={`text-xs font-semibold px-3 py-1.5 rounded border transition-colors ${
-                  theme === "dark" ? "border-gray-600 hover:bg-gray-700 text-gray-300" : "border-gray-300 hover:bg-gray-100 text-gray-700"
+            <div
+              className={`p-4 rounded-xl border transition-all ${
+                theme === "dark"
+                  ? isBalanced
+                    ? "bg-gray-800/80 border-emerald-900/40"
+                    : "bg-gray-800/80 border-amber-900/40"
+                  : isBalanced
+                  ? "bg-emerald-50/60 border-emerald-200 shadow-xs"
+                  : "bg-amber-50/60 border-amber-200 shadow-xs"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span
+                  className={`text-xs font-semibold uppercase tracking-wider ${
+                    isBalanced
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-amber-600 dark:text-amber-400"
+                  }`}
+                >
+                  Difference
+                </span>
+                <span
+                  className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${
+                    isBalanced
+                      ? "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300"
+                      : "bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300"
+                  }`}
+                >
+                  {isBalanced
+                    ? "Balanced"
+                    : totalLiabilitiesAmount > totalAssetsAmount
+                    ? "Liab Excess"
+                    : "Asset Excess"}
+                </span>
+              </div>
+              <div
+                className={`mt-2 text-2xl font-bold font-mono ${
+                  isBalanced
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-amber-600 dark:text-amber-400"
                 }`}
               >
-                ← Choose Another Group
-              </button>
+                ₹{formatINR(differenceAmount)}
+              </div>
+              <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
+                {isBalanced
+                  ? "Books are perfectly balanced"
+                  : "Difference between Liabilities & Assets"}
+              </p>
             </div>
           </div>
-          
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b-2 dark:border-gray-700 border-gray-400">
-                  <th className="py-3 px-4 font-semibold text-sm">Ledger Name</th>
-                  <th className="py-3 px-4 font-semibold text-sm">GST Number</th>
-                  <th className="py-3 px-4 text-right font-semibold text-sm">Opening Balance</th>
-                  <th className="py-3 px-4 text-center font-semibold text-sm">Type</th>
-                  <th className="py-3 px-4 text-center font-semibold text-sm">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(() => {
-                  const buckets = getGroupedLedgersForGroup(selectedGroup.id);
-                  const displayLedgers = selectedSubGroupFilter === "all"
-                    ? getLedgersForGroup(selectedGroup.id)
-                    : (buckets.find(b => b.groupId.toString() === selectedSubGroupFilter)?.ledgers || []);
 
-                  if (displayLedgers.length === 0) {
+          <div className="flex flex-col md:flex-row gap-6 mb-6">
+            {/* Liabilities Column */}
+            <div className={`p-6 rounded-lg w-full md:w-1/2 flex flex-col justify-between ${theme === "dark" ? "bg-gray-800" : "bg-white shadow"}`}>
+              <div>
+                <h2 className="mb-4 text-xl font-bold text-center border-b pb-2 text-red-600 dark:text-red-400 border-gray-200 dark:border-gray-700">
+                  Liabilities
+                </h2>
+                <div className="grid grid-cols-12 gap-2 pb-2 border-b-2 border-gray-400 dark:border-gray-600 font-semibold text-sm mb-2 text-gray-700 dark:text-gray-300">
+                  <div className="col-span-5">Group Particulars</div>
+                  <div className="col-span-3 text-right">Ledgers Count</div>
+                  <div className="col-span-4 text-right">Total Amount</div>
+                </div>
+                <div className="space-y-1">
+                  {liabilityGroupNames.map((groupName) => {
+                    const group = groups.find(g => g.name.toLowerCase() === groupName.toLowerCase());
+                    if (!group) return null;
+                    const groupLedgers = getLedgersForGroup(group.id);
+                    const groupAmount = getGroupTotalAmount(groupLedgers, false);
+                    
                     return (
-                      <tr>
-                        <td colSpan={5} className="py-8 px-4 text-center opacity-70 italic">
-                          No ledgers found in this subgroup selection.
-                        </td>
-                      </tr>
+                      <div 
+                        key={group.id}
+                        onClick={() => {
+                          setSelectedGroup(group);
+                          setSelectedSubGroupFilter("all");
+                        }}
+                        className="grid grid-cols-12 gap-2 items-center py-2.5 px-2 border-b border-gray-200 dark:border-gray-700 cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50 rounded"
+                      >
+                        <span className="col-span-5 text-blue-600 font-semibold hover:underline flex items-center gap-1.5 truncate" title={group.name}>
+                          {group.name}
+                        </span>
+                        <div className="col-span-3 text-right">
+                          <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full inline-block ${
+                            groupLedgers.length > 0 
+                              ? (theme === "dark" ? "bg-red-900/50 text-red-300" : "bg-red-100 text-red-800")
+                              : (theme === "dark" ? "bg-gray-700 text-gray-400" : "bg-gray-200 text-gray-600")
+                          }`}>
+                            {groupLedgers.length} {groupLedgers.length === 1 ? "Ledger" : "Ledgers"}
+                          </span>
+                        </div>
+                        <div className="col-span-4 text-right font-mono font-medium text-sm text-gray-900 dark:text-gray-100">
+                          ₹{formatINR(groupAmount)}
+                        </div>
+                      </div>
                     );
-                  }
+                  })}
+                </div>
+              </div>
 
-                  return displayLedgers.map((ledger) => (
-                    <tr
-                      key={ledger.id}
-                      className={`border-b transition-colors ${
-                        theme === "dark"
-                          ? "border-gray-700 hover:bg-gray-700/40"
-                          : "border-gray-200 hover:bg-gray-50"
+              {/* Grand Total Row */}
+              <div className="grid grid-cols-12 gap-2 items-center pt-3 px-2 mt-4 border-t-2 border-gray-400 dark:border-gray-600 font-bold bg-gray-50 dark:bg-gray-700/40 rounded">
+                <div className="col-span-5 text-gray-900 dark:text-gray-100 font-bold text-sm">
+                  Grand Total
+                </div>
+                <div className="col-span-3 text-right text-xs text-gray-600 dark:text-gray-300 font-semibold">
+                  {totalLiabilitiesLedgersCount} {totalLiabilitiesLedgersCount === 1 ? "Ledger" : "Ledgers"}
+                </div>
+                <div className="col-span-4 text-right font-mono font-bold text-base text-red-600 dark:text-red-400">
+                  ₹{formatINR(totalLiabilitiesAmount)}
+                </div>
+              </div>
+            </div>
+
+            {/* Assets Column */}
+            <div className={`p-6 rounded-lg w-full md:w-1/2 flex flex-col justify-between ${theme === "dark" ? "bg-gray-800" : "bg-white shadow"}`}>
+              <div>
+                <h2 className="mb-4 text-xl font-bold text-center border-b pb-2 text-green-600 dark:text-green-400 border-gray-200 dark:border-gray-700">
+                  Assets
+                </h2>
+                <div className="grid grid-cols-12 gap-2 pb-2 border-b-2 border-gray-400 dark:border-gray-600 font-semibold text-sm mb-2 text-gray-700 dark:text-gray-300">
+                  <div className="col-span-5">Group Particulars</div>
+                  <div className="col-span-3 text-right">Ledgers Count</div>
+                  <div className="col-span-4 text-right">Total Amount</div>
+                </div>
+                <div className="space-y-1">
+                  {assetGroupNames.map((groupName) => {
+                    const group = groups.find(g => g.name.toLowerCase() === groupName.toLowerCase());
+                    if (!group) return null;
+                    const groupLedgers = getLedgersForGroup(group.id);
+                    const groupAmount = getGroupTotalAmount(groupLedgers, true);
+                    
+                    return (
+                      <div 
+                        key={group.id}
+                        onClick={() => {
+                          setSelectedGroup(group);
+                          setSelectedSubGroupFilter("all");
+                        }}
+                        className="grid grid-cols-12 gap-2 items-center py-2.5 px-2 border-b border-gray-200 dark:border-gray-700 cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50 rounded"
+                      >
+                        <span className="col-span-5 text-blue-600 font-semibold hover:underline flex items-center gap-1.5 truncate" title={group.name}>
+                          {group.name}
+                        </span>
+                        <div className="col-span-3 text-right">
+                          <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full inline-block ${
+                            groupLedgers.length > 0 
+                              ? (theme === "dark" ? "bg-green-900/50 text-green-300" : "bg-green-100 text-green-800")
+                              : (theme === "dark" ? "bg-gray-700 text-gray-400" : "bg-gray-200 text-gray-600")
+                          }`}>
+                            {groupLedgers.length} {groupLedgers.length === 1 ? "Ledger" : "Ledgers"}
+                          </span>
+                        </div>
+                        <div className="col-span-4 text-right font-mono font-medium text-sm text-gray-900 dark:text-gray-100">
+                          ₹{formatINR(groupAmount)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Grand Total Row */}
+              <div className="grid grid-cols-12 gap-2 items-center pt-3 px-2 mt-4 border-t-2 border-gray-400 dark:border-gray-600 font-bold bg-gray-50 dark:bg-gray-700/40 rounded">
+                <div className="col-span-5 text-gray-900 dark:text-gray-100 font-bold text-sm">
+                  Grand Total
+                </div>
+                <div className="col-span-3 text-right text-xs text-gray-600 dark:text-gray-300 font-semibold">
+                  {totalAssetsLedgersCount} {totalAssetsLedgersCount === 1 ? "Ledger" : "Ledgers"}
+                </div>
+                <div className="col-span-4 text-right font-mono font-bold text-base text-green-600 dark:text-green-400">
+                  ₹{formatINR(totalAssetsAmount)}
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className={`p-6 rounded-lg ${theme === "dark" ? "bg-gray-800 text-white" : "bg-white shadow"}`}>
+          {(() => {
+            const buckets = getGroupedLedgersForGroup(selectedGroup.id);
+            const displayLedgers = selectedSubGroupFilter === "all"
+              ? getLedgersForGroup(selectedGroup.id)
+              : (buckets.find(b => b.groupId.toString() === selectedSubGroupFilter)?.ledgers || []);
+            const isSelectedGroupAsset = (() => {
+              const gName = String(selectedGroup.name || "").toLowerCase();
+              const gNature = String(selectedGroup.nature || "").toLowerCase();
+              if (gNature === "assets" || assetGroupNames.some(n => n.toLowerCase() === gName)) return true;
+              return false;
+            })();
+            const currentTotal = getGroupTotalAmount(displayLedgers, isSelectedGroupAsset);
+
+            return (
+              <>
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 border-b pb-4 border-gray-200 dark:border-gray-700">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <h2 className="text-xl font-bold">Ledgers in {selectedGroup.name}</h2>
+                      <span className="text-xs font-semibold px-2.5 py-1 rounded bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300 font-mono">
+                        Total: ₹{formatINR(currentTotal)}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Enter opening balance values or view balances for ledgers with transactions
+                    </p>
+                  </div>
+                  
+                  <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-end">
+                    {/* Subgroup Filter Dropdown */}
+                    {buckets.length > 1 && (
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs font-semibold text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                          Filter Subgroup:
+                        </label>
+                        <select
+                          value={selectedSubGroupFilter}
+                          onChange={(e) => setSelectedSubGroupFilter(e.target.value)}
+                          className={`text-xs font-semibold px-3 py-1.5 rounded border outline-none transition-colors ${
+                            theme === "dark"
+                              ? "bg-gray-700 border-gray-600 text-white focus:border-blue-500"
+                              : "bg-white border-gray-300 text-gray-800 focus:border-blue-500"
+                          }`}
+                        >
+                          <option value="all">All Subgroups ({getLedgersForGroup(selectedGroup.id).length} ledgers)</option>
+                          {buckets.map((b) => (
+                            <option key={b.groupId} value={b.groupId.toString()}>
+                              {b.isDirect ? `Direct Ledgers (${selectedGroup.name})` : b.groupName} ({b.ledgers.length})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {displayLedgers.length > 0 && (
+                      <button
+                        onClick={() => handleSaveAllLedgers(displayLedgers)}
+                        disabled={savingAll}
+                        className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
+                      >
+                        <Save size={14} />
+                        {savingAll ? "Saving..." : "Save All"}
+                      </button>
+                    )}
+
+                    <button
+                      onClick={() => {
+                        setSelectedGroup(null);
+                        setSelectedSubGroupFilter("all");
+                      }}
+                      className={`text-xs font-semibold px-3 py-1.5 rounded border transition-colors ${
+                        theme === "dark" ? "border-gray-600 hover:bg-gray-700 text-gray-300" : "border-gray-300 hover:bg-gray-100 text-gray-700"
                       }`}
                     >
-                      <td className="py-3 px-4 text-blue-600 font-medium">
-                        {ledger.name}
-                      </td>
-                      <td className="py-3 px-4 font-mono text-sm opacity-80">{ledger.gstNumber || "-"}</td>
-                      <td className="py-3 px-4 text-right font-mono">
-                        <input
-                          type="number"
-                          value={ledger.openingBalance || ""}
-                          onChange={(e) => handleLedgerChange(ledger.id, "openingBalance", e.target.value)}
-                          className={`w-36 px-3 py-1.5 text-right font-mono text-sm border rounded outline-none transition-colors ${
-                            theme === "dark"
-                              ? "bg-gray-700 border-gray-600 text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                              : "bg-white border-gray-300 text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                          }`}
-                          placeholder="0.00"
-                        />
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <select
-                          value={ledger.balanceType || ""}
-                          onChange={(e) => handleLedgerChange(ledger.id, "balanceType", e.target.value)}
-                          className={`w-28 px-2 py-1.5 text-sm border rounded outline-none transition-colors ${
-                            theme === "dark"
-                              ? "bg-gray-700 border-gray-600 text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                              : "bg-white border-gray-300 text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                          }`}
-                        >
-                          <option value="">Select</option>
-                          <option value="debit">DEBIT</option>
-                          <option value="credit">CREDIT</option>
-                        </select>
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <button
-                          onClick={() => handleSaveLedger(ledger)}
-                          className={`p-2 rounded-lg transition-colors flex items-center justify-center mx-auto ${
-                            theme === "dark"
-                              ? "bg-blue-600 hover:bg-blue-700 text-white"
-                              : "bg-blue-600 hover:bg-blue-700 text-white"
-                          }`}
-                          title="Save Opening Balance"
-                        >
-                          <Save size={16} />
-                        </button>
-                      </td>
-                    </tr>
-                  ));
-                })()}
-              </tbody>
-            </table>
-          </div>
+                      ← Choose Another Group
+                    </button>
+                  </div>
+                </div>
+                
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b-2 dark:border-gray-700 border-gray-400">
+                        <th className="py-3 px-4 font-semibold text-sm">Ledger Name</th>
+                        <th className="py-3 px-4 font-semibold text-sm">GST Number</th>
+                        <th className="py-3 px-4 text-right font-semibold text-sm">Total / Entries</th>
+                        <th className="py-3 px-4 text-right font-semibold text-sm">Opening Balance</th>
+                        <th className="py-3 px-4 text-center font-semibold text-sm">Type</th>
+                        <th className="py-3 px-4 text-center font-semibold text-sm">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {displayLedgers.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-8 px-4 text-center opacity-70 italic">
+                            No ledgers found in this subgroup selection.
+                          </td>
+                        </tr>
+                      ) : (
+                        displayLedgers.map((ledger) => {
+                          const ledgerAmt = getLedgerAmount(ledger, isSelectedGroupAsset);
+                          const dc =
+                            debitCreditData[ledger.id] ||
+                            debitCreditData[Number(ledger.id)] ||
+                            debitCreditData[String(ledger.id)];
+                          const hasEntries = dc && (Number(dc.debit) > 0 || Number(dc.credit) > 0);
+
+                          return (
+                            <tr
+                              key={ledger.id}
+                              className={`border-b transition-colors ${
+                                theme === "dark"
+                                  ? "border-gray-700 hover:bg-gray-700/40"
+                                  : "border-gray-200 hover:bg-gray-50"
+                              }`}
+                            >
+                              <td className="py-3 px-4 text-blue-600 font-medium">
+                                <div>{ledger.name}</div>
+                                {hasEntries && (
+                                  <div className="text-[11px] text-gray-500 font-mono mt-0.5">
+                                    {Number(dc.debit) > 0 ? `Dr: ₹${formatINR(Number(dc.debit))}` : ""}
+                                    {Number(dc.debit) > 0 && Number(dc.credit) > 0 ? " | " : ""}
+                                    {Number(dc.credit) > 0 ? `Cr: ₹${formatINR(Number(dc.credit))}` : ""}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="py-3 px-4 font-mono text-sm opacity-80">{ledger.gstNumber || "-"}</td>
+                              <td className="py-3 px-4 text-right font-mono text-sm font-semibold">
+                                {ledgerAmt > 0 ? (
+                                  <span className="text-gray-900 dark:text-gray-100">
+                                    ₹{formatINR(ledgerAmt)}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-400 dark:text-gray-600">-</span>
+                                )}
+                              </td>
+                              <td className="py-3 px-4 text-right font-mono">
+                                <input
+                                  type="number"
+                                  value={ledger.openingBalance || ""}
+                                  onChange={(e) => handleLedgerChange(ledger.id, "openingBalance", e.target.value)}
+                                  className={`w-36 px-3 py-1.5 text-right font-mono text-sm border rounded outline-none transition-colors ${
+                                    theme === "dark"
+                                      ? "bg-gray-700 border-gray-600 text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                      : "bg-white border-gray-300 text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                  }`}
+                                  placeholder="0.00"
+                                />
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                <select
+                                  value={ledger.balanceType || ""}
+                                  onChange={(e) => handleLedgerChange(ledger.id, "balanceType", e.target.value)}
+                                  className={`w-28 px-2 py-1.5 text-sm border rounded outline-none transition-colors ${
+                                    theme === "dark"
+                                      ? "bg-gray-700 border-gray-600 text-white focus:border-blue-500"
+                                      : "bg-white border-gray-300 text-gray-900 focus:border-blue-500"
+                                  }`}
+                                >
+                                  <option value="">Select</option>
+                                  <option value="debit">DEBIT</option>
+                                  <option value="credit">CREDIT</option>
+                                </select>
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                <button
+                                  onClick={() => handleSaveLedger(ledger)}
+                                  className={`p-2 rounded-lg transition-colors flex items-center justify-center mx-auto cursor-pointer ${
+                                    theme === "dark"
+                                      ? "bg-blue-600 hover:bg-blue-700 text-white"
+                                      : "bg-blue-600 hover:bg-blue-700 text-white"
+                                  }`}
+                                  title="Save Opening Balance"
+                                >
+                                  <Save size={16} />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                    {displayLedgers.length > 0 && (
+                      <tfoot>
+                        <tr className="border-t-2 border-gray-400 dark:border-gray-600 font-bold bg-gray-50 dark:bg-gray-700/50">
+                          <td className="py-3 px-4 font-bold text-sm">
+                            Total ({displayLedgers.length} {displayLedgers.length === 1 ? "Ledger" : "Ledgers"})
+                          </td>
+                          <td className="py-3 px-4"></td>
+                          <td className="py-3 px-4 text-right font-mono font-bold text-base text-blue-600 dark:text-blue-400">
+                            ₹{formatINR(currentTotal)}
+                          </td>
+                          <td className="py-3 px-4"></td>
+                          <td className="py-3 px-4"></td>
+                          <td className="py-3 px-4"></td>
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                </div>
+              </>
+            );
+          })()}
         </div>
       )}
     </div>
