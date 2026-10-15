@@ -596,7 +596,7 @@ const SubGroupSummary: React.FC = () => {
                             {Number(groupId) === -108 ? "" : (totals.credit > 0 ? totals.credit.toLocaleString() : "")}
                           </td>
                           <td className="py-3 px-4 text-right font-mono font-semibold text-sm">
-                            {formatBalance(totals.closing) || (Number(groupId) === -108 ? "0.00 Dr" : "")}
+                            {formatBalance(totals.closing) || (group.id === -108 || Number(groupId) === -108 ? "0.00 Dr" : "")}
                           </td>
                         </tr>
                       );
