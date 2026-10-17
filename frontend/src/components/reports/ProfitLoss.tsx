@@ -1,7 +1,10 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import { useAppContext } from "../../context/AppContext";
+import { useCompany } from "../../context/CompanyContext";
 import { useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, Printer, Download, Filter, Settings } from "lucide-react";
+import { ArrowLeft, Printer, Download, Filter, Settings, Loader2 } from "lucide-react";
+import domtoimage from "dom-to-image-more";
+import jsPDF from "jspdf";
 
 interface ProfitLossProps {
   showHeader?: boolean;
@@ -50,6 +53,124 @@ const ProfitLoss: React.FC<ProfitLossProps> = ({ showHeader = true }) => {
   const ownerId = (rawOwnerType === "ca" || rawOwnerType === "ca_employee" || rawOwnerType === "new_ca" || rawOwnerType === "employee" || employeeId)
     ? (employeeId || userId)
     : userId;
+
+  const { companyInfo, companies, activeCompanyId } = useCompany();
+  const reportRef = useRef<HTMLDivElement>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const activeCompany = useMemo(() => {
+    return companies?.find(
+      (c) => String(c.id) === String(activeCompanyId || companyId)
+    );
+  }, [companies, activeCompanyId, companyId]);
+
+  const companyName =
+    companyInfo?.name ||
+    (companyInfo as any)?.companyName ||
+    (companyInfo as any)?.company_name ||
+    activeCompany?.name ||
+    "ApnoTax solutions";
+
+  const companyAddress =
+    companyInfo?.address ||
+    activeCompany?.address ||
+    "vigyan vihar colony near hawai adda dhanbad";
+
+  const companyCityStatePin = [
+    companyInfo?.state || activeCompany?.state,
+    companyInfo?.pin || activeCompany?.pin,
+  ]
+    .filter(Boolean)
+    .join(" - ");
+
+  const companyGst =
+    companyInfo?.gstNumber ||
+    (companyInfo as any)?.gst_number ||
+    activeCompany?.gstNumber ||
+    "";
+
+  const companyPhone =
+    companyInfo?.phoneNumber ||
+    (companyInfo as any)?.phone_number ||
+    activeCompany?.phoneNumber ||
+    "";
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const handleDownloadPDF = async () => {
+    if (!reportRef.current || isDownloading) return;
+    setIsDownloading(true);
+
+    const element = reportRef.current;
+    const width = element.offsetWidth || 1200;
+    const scale = 2;
+
+    // Create an off-screen wrapper so the screen NEVER shows the company header
+    const wrapper = document.createElement("div");
+    wrapper.style.cssText = `position: fixed; left: -99999px; top: 0; width: ${width}px; z-index: -9999; pointer-events: none; opacity: 1;`;
+
+    try {
+      const clone = element.cloneNode(true) as HTMLElement;
+      clone.style.width = `${width}px`;
+
+      // Enable the company header ONLY on the off-screen clone
+      const cloneHeader = clone.querySelector("#profit-loss-company-header") as HTMLElement;
+      if (cloneHeader) {
+        cloneHeader.style.display = "block";
+        cloneHeader.classList.remove("hidden");
+      }
+
+      wrapper.appendChild(clone);
+      document.body.appendChild(wrapper);
+
+      const height = clone.offsetHeight;
+
+      const imgData = await domtoimage.toPng(clone, {
+        bgcolor: theme === "dark" ? "#1f2937" : "#ffffff",
+        width: width * scale,
+        height: height * scale,
+        style: {
+          transform: `scale(${scale})`,
+          transformOrigin: "top left",
+          width: `${width}px`,
+          height: `${height}px`,
+        },
+      });
+
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+
+      const imgWidth = pdfWidth;
+      const imgHeight = (height * pdfWidth) / width;
+
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pdfHeight;
+
+      while (heightLeft > 3) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+        heightLeft -= pdfHeight;
+      }
+
+      const sanitizedName = (companyName || "Company").replace(/[^a-zA-Z0-9]/g, "_");
+      pdf.save(`Profit_Loss_Statement_${sanitizedName}.pdf`);
+    } catch (err) {
+      console.error("PDF generation error:", err);
+      alert("Failed to download PDF. Please try again.");
+    } finally {
+      if (wrapper.parentNode) {
+        wrapper.parentNode.removeChild(wrapper);
+      }
+      setIsDownloading(false);
+    }
+  };
 
   // Navigation handlers
   const handleStockClick = () => {
@@ -750,8 +871,29 @@ const ProfitLoss: React.FC<ProfitLossProps> = ({ showHeader = true }) => {
 
   return (
     <div className={showHeader ? "pt-[56px] px-4 " : ""}>
+      <style>{`
+        @media print {
+          body {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            background-color: #ffffff !important;
+            color: #000000 !important;
+          }
+          .print\\:hidden, button, nav, header {
+            display: none !important;
+          }
+          .print\\:block {
+            display: block !important;
+          }
+          @page {
+            size: A4 portrait;
+            margin: 10mm;
+          }
+        }
+      `}</style>
+
       {showHeader && (
-        <div className="flex items-center mb-6 relative">
+        <div className="flex items-center mb-6 relative print:hidden">
           <button
             title="Back to Reports"
             type="button"
@@ -830,6 +972,8 @@ const ProfitLoss: React.FC<ProfitLossProps> = ({ showHeader = true }) => {
             {/* Print Button */}
             <button
               title="Print Report"
+              type="button"
+              onClick={handlePrint}
               className={`p-2 rounded-md ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"
                 }`}
             >
@@ -840,17 +984,23 @@ const ProfitLoss: React.FC<ProfitLossProps> = ({ showHeader = true }) => {
             <button
               title="Download Report"
               type="button"
+              disabled={isDownloading}
+              onClick={handleDownloadPDF}
               className={`p-2 rounded-md ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"
-                }`}
+                } ${isDownloading ? "opacity-50 cursor-not-allowed" : ""}`}
             >
-              <Download size={18} />
+              {isDownloading ? (
+                <Loader2 size={18} className="animate-spin text-blue-500" />
+              ) : (
+                <Download size={18} />
+              )}
             </button>
           </div>
         </div>
       )}
 
       {!showHeader && (
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 print:hidden">
           <h2 className="text-xl font-bold">Trading & Profit & Loss Statement</h2>
           <div className="flex space-x-2 relative">
             <button
@@ -894,7 +1044,7 @@ const ProfitLoss: React.FC<ProfitLossProps> = ({ showHeader = true }) => {
 
       {showFilterPanel && (
         <div
-          className={`p-4 mb-6 rounded-lg ${theme === "dark" ? "bg-gray-800" : "bg-white shadow"
+          className={`p-4 mb-6 rounded-lg print:hidden ${theme === "dark" ? "bg-gray-800" : "bg-white shadow"
             }`}
         >
           <h3 className="font-semibold mb-4">Filters</h3>
@@ -919,11 +1069,48 @@ const ProfitLoss: React.FC<ProfitLossProps> = ({ showHeader = true }) => {
         </div>
       )}
 
-      {/* Trading Account Section */}
-      <div
-        className={`mb-6 p-6 rounded-lg ${theme === "dark" ? "bg-gray-800" : "bg-white shadow"
+      {/* Printable & Downloadable Report Area */}
+      <div ref={reportRef} id="profit-loss-report-area" className="w-full">
+        {/* Company Details Header - Only visible on Print & Download */}
+        <div
+          id="profit-loss-company-header"
+          className={`hidden print:block mb-6 p-6 rounded-lg text-center ${
+            theme === "dark" ? "bg-gray-800" : "bg-white shadow"
           }`}
-      >
+        >
+          <h1 className="text-2xl sm:text-3xl font-extrabold uppercase tracking-wide text-gray-900 dark:text-gray-100">
+            {companyName}
+          </h1>
+          {companyAddress && (
+            <p className="text-sm sm:text-base text-gray-600 dark:text-gray-300 mt-1 whitespace-pre-line font-medium">
+              {companyAddress}
+              {companyCityStatePin ? `, ${companyCityStatePin}` : ""}
+            </p>
+          )}
+          {(companyGst || companyPhone) && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              {companyGst && <span>GSTIN: {companyGst}</span>}
+              {companyGst && companyPhone && <span className="mx-2">•</span>}
+              {companyPhone && <span>Phone: {companyPhone}</span>}
+            </p>
+          )}
+          <hr
+            className="my-4 border-t-2 border-gray-300 dark:border-gray-600"
+            style={{ borderTop: "2px solid #cbd5e1" }}
+          />
+          <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">
+            Trading & Profit & Loss Statement
+          </h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            For the year ended {new Date().getFullYear()}
+          </p>
+        </div>
+
+        {/* Trading Account Section */}
+        <div
+          className={`mb-6 p-6 rounded-lg ${theme === "dark" ? "bg-gray-800" : "bg-white shadow"
+            }`}
+        >
         <h2 className="text-xl font-bold mb-4 text-center">Trading Account</h2>
         <p className="text-center text-sm opacity-75 mb-4">
           For the year ended {new Date().getFullYear()}
@@ -1562,9 +1749,12 @@ const ProfitLoss: React.FC<ProfitLossProps> = ({ showHeader = true }) => {
           </div>
         </div>
       </div>
+      {/* End Printable & Downloadable Report Area */}
+      </div>
 
       <div
-        className={`mt-6 p-4 rounded ${theme === "dark" ? "bg-gray-800" : "bg-blue-50"
+        data-html2canvas-ignore="true"
+        className={`mt-6 p-4 rounded print:hidden ${theme === "dark" ? "bg-gray-800" : "bg-blue-50"
           }`}
       >
         <p className="text-sm">
