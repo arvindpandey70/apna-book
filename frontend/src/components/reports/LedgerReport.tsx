@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useAppContext } from "../../context/AppContext";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
@@ -13,10 +13,13 @@ import {
   ChevronDown,
   X,
   FileCheck,
+  Loader2,
 } from "lucide-react";
 import { useCompany } from "../../context/CompanyContext";
 import * as XLSX from "xlsx";
 import BillMatchModal from "./BillMatchModal";
+import domtoimage from "dom-to-image-more";
+import { jsPDF } from "jspdf";
 
 interface DayBookEntry {
   id: string;
@@ -98,7 +101,9 @@ interface VoucherDetail {
 
 const LedgerReport: React.FC = () => {
   const { theme, ledgerGroups } = useAppContext();
-  const { companyInfo } = useCompany();
+  const { companyInfo, companies, activeCompanyId } = useCompany();
+  const reportRef = useRef<HTMLDivElement>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
   const navigate = useNavigate();
   const { id } = useParams();
   const [searchParams] = useSearchParams();
@@ -162,11 +167,48 @@ const LedgerReport: React.FC = () => {
   const [dailyBreakupYear, setDailyBreakupYear] = useState<number>(
     new Date().getFullYear()
   );
-  const companyId = localStorage.getItem("company_id");
+  const companyId = localStorage.getItem("company_id") || localStorage.getItem("active_company_id") || "";
   const ownerType = localStorage.getItem("supplier");
   const ownerId = localStorage.getItem(
     ownerType === "employee" ? "employee_id" : "user_id"
   );
+
+  const activeCompany = useMemo(() => {
+    return companies?.find(
+      (c) => String(c.id) === String(activeCompanyId || companyId)
+    );
+  }, [companies, activeCompanyId, companyId]);
+
+  const companyName =
+    companyInfo?.name ||
+    (companyInfo as any)?.companyName ||
+    (companyInfo as any)?.company_name ||
+    activeCompany?.name ||
+    "ApnoTax solutions";
+
+  const companyAddress =
+    companyInfo?.address ||
+    activeCompany?.address ||
+    "vigyan vihar colony near hawai adda dhanbad";
+
+  const companyCityStatePin = [
+    companyInfo?.state || activeCompany?.state || "Jharkhand(20)",
+    companyInfo?.pin || activeCompany?.pin || "826004",
+  ]
+    .filter(Boolean)
+    .join(" - ");
+
+  const companyGst =
+    companyInfo?.gstNumber ||
+    (companyInfo as any)?.gst_number ||
+    activeCompany?.gstNumber ||
+    "";
+
+  const companyPhone =
+    companyInfo?.phoneNumber ||
+    (companyInfo as any)?.phone_number ||
+    activeCompany?.phoneNumber ||
+    "";
 
   // Initialize from URL params
   useEffect(() => {
@@ -503,6 +545,90 @@ const LedgerReport: React.FC = () => {
 
   const isDebitLedger = ledgerData?.ledger?.balance_type === "debit";
 
+  const handleDownloadPDF = async () => {
+    if (!reportRef.current || isDownloading) return;
+    if (!ledgerId) {
+      alert("Please select a ledger first");
+      return;
+    }
+    setIsDownloading(true);
+
+    const element = reportRef.current;
+    const width = element.offsetWidth || 1200;
+    const scale = 2;
+
+    // Create an off-screen wrapper so the screen NEVER shows the company header
+    const wrapper = document.createElement("div");
+    wrapper.style.cssText = `position: fixed; left: -99999px; top: 0; width: ${width}px; z-index: -9999; pointer-events: none; opacity: 1;`;
+
+    try {
+      const clone = element.cloneNode(true) as HTMLElement;
+      clone.style.width = `${width}px`;
+
+      // Enable the company header ONLY on the off-screen clone
+      const cloneHeader = clone.querySelector("#ledger-company-header") as HTMLElement;
+      if (cloneHeader) {
+        cloneHeader.style.display = "block";
+        cloneHeader.classList.remove("hidden");
+      }
+
+      // Hide elements with print:hidden or data-html2canvas-ignore inside clone
+      const ignoreElements = clone.querySelectorAll('[data-html2canvas-ignore="true"], .print\\:hidden');
+      ignoreElements.forEach((el) => {
+        (el as HTMLElement).style.display = "none";
+      });
+
+      wrapper.appendChild(clone);
+      document.body.appendChild(wrapper);
+
+      const height = clone.offsetHeight;
+
+      const imgData = await domtoimage.toPng(clone, {
+        bgcolor: theme === "dark" ? "#1f2937" : "#ffffff",
+        width: width * scale,
+        height: height * scale,
+        style: {
+          transform: `scale(${scale})`,
+          transformOrigin: "top left",
+          width: `${width}px`,
+          height: `${height}px`,
+        },
+      });
+
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+
+      const imgWidth = pdfWidth;
+      const imgHeight = (height * pdfWidth) / width;
+
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pdfHeight;
+
+      while (heightLeft > 3) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+        heightLeft -= pdfHeight;
+      }
+
+      const ledgerName = selectedLedgerData?.name || "Report";
+      const sanitizedName = ledgerName.replace(/[^a-zA-Z0-9]/g, "_");
+      pdf.save(`Ledger_${sanitizedName}.pdf`);
+    } catch (err) {
+      console.error("PDF generation error:", err);
+      alert("Failed to download PDF. Please try again.");
+    } finally {
+      if (wrapper.parentNode) {
+        wrapper.parentNode.removeChild(wrapper);
+      }
+      setIsDownloading(false);
+    }
+  };
+
   // ledger transactions from API response remain the same
   const ledgerTransactions = useMemo(() => {
     if (!ledgerData) return [];
@@ -770,105 +896,133 @@ const LedgerReport: React.FC = () => {
 
   return (
     <>
-    <div className="pt-[56px] px-4 print:hidden">
-      <div className="flex items-center mb-6">
-        <button
-          type="button"
-          title="Back to Reports"
-          onClick={() => navigate("/app/reports")}
-          className={`mr-4 p-2 rounded-full ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"
-            }`}
-        >
-          <ArrowLeft size={20} />
-        </button>
-        <h1 className="text-2xl font-bold">Ledger Report</h1>
-        <div className="ml-auto flex items-center space-x-2">
+      <style type="text/css" media="print">
+        {`
+          @media print {
+            body {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+              background-color: #ffffff !important;
+              color: #000000 !important;
+            }
+            .print\\:hidden, button, nav, header {
+              display: none !important;
+            }
+            .print\\:block {
+              display: block !important;
+            }
+            @page {
+              size: A4 portrait;
+              margin: 10mm;
+            }
+          }
+        `}
+      </style>
+      <div className="pt-[56px] px-4">
+        <div className="flex items-center mb-6 print:hidden" data-html2canvas-ignore="true">
           <button
-            title="Ledger Confirmation"
             type="button"
-            onClick={() => {
-              if (ledgerId) {
-                navigate(`/app/reports/ledger-confirmation?ledgerId=${ledgerId}&fromDate=${fromDate}&toDate=${toDate}`);
-              } else {
-                navigate("/app/reports/ledger-confirmation");
-              }
-            }}
-            className={`flex items-center space-x-1 px-3 py-1.5 text-sm font-medium rounded-md text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 ${
-              theme === "dark" ? "hover:bg-blue-900/50" : "hover:bg-blue-100"
-            }`}
-          >
-            <FileCheck size={16} />
-            <span>Ledger Confirmation</span>
-          </button>
-          <button
-            title="Toggle Filters"
-            type="button"
-            onClick={() => setShowFilterPanel(!showFilterPanel)}
-            className={`p-2 rounded-md ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"
-              } ${showFilterPanel ? "bg-blue-100 dark:bg-blue-900" : ""}`}
-          >
-            <Filter size={18} />
-          </button>
-          <button
-            title="Print Report"
-            type="button"
-            onClick={handlePrint}
-            className={`p-2 rounded-md ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"
+            title="Back to Reports"
+            onClick={() => navigate("/app/reports")}
+            className={`mr-4 p-2 rounded-full ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"
               }`}
           >
-            <Printer size={18} />
+            <ArrowLeft size={20} />
           </button>
-          <div className="relative">
+          <h1 className="text-2xl font-bold">Ledger Report</h1>
+          <div className="ml-auto flex items-center space-x-2">
             <button
+              title="Ledger Confirmation"
               type="button"
-              title="Download Report"
-              onClick={handleDownload}
+              onClick={() => {
+                if (ledgerId) {
+                  navigate(`/app/reports/ledger-confirmation?ledgerId=${ledgerId}&fromDate=${fromDate}&toDate=${toDate}`);
+                } else {
+                  navigate("/app/reports/ledger-confirmation");
+                }
+              }}
+              className={`flex items-center space-x-1 px-3 py-1.5 text-sm font-medium rounded-md text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 ${
+                theme === "dark" ? "hover:bg-blue-900/50" : "hover:bg-blue-100"
+              }`}
+            >
+              <FileCheck size={16} />
+              <span>Ledger Confirmation</span>
+            </button>
+            <button
+              title="Toggle Filters"
+              type="button"
+              onClick={() => setShowFilterPanel(!showFilterPanel)}
+              className={`p-2 rounded-md ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"
+                } ${showFilterPanel ? "bg-blue-100 dark:bg-blue-900" : ""}`}
+            >
+              <Filter size={18} />
+            </button>
+            <button
+              title="Print Report"
+              type="button"
+              onClick={handlePrint}
               className={`p-2 rounded-md ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"
                 }`}
             >
-              <Download size={18} />
+              <Printer size={18} />
             </button>
-            {showDownloadDropdown && (
-              <div
-                className={`absolute right-0 mt-2 w-48 rounded-md shadow-lg z-10 ${
-                  theme === "dark" ? "bg-gray-800 border border-gray-700" : "bg-white border border-gray-200"
-                }`}
+            <div className="relative">
+              <button
+                type="button"
+                title="Download Report"
+                disabled={isDownloading}
+                onClick={handleDownload}
+                className={`p-2 rounded-md ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"
+                  } ${isDownloading ? "opacity-50 cursor-not-allowed" : ""}`}
               >
-                <div className="py-1">
-                  <button
-                    onClick={() => {
-                      setShowDownloadDropdown(false);
-                      exportToExcel();
-                    }}
-                    className={`block w-full text-left px-4 py-2 text-sm ${
-                      theme === "dark" ? "hover:bg-gray-700 text-gray-200" : "hover:bg-gray-100 text-gray-700"
-                    }`}
-                  >
-                    Download as Excel
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowDownloadDropdown(false);
-                      handlePrint();
-                    }}
-                    className={`block w-full text-left px-4 py-2 text-sm ${
-                      theme === "dark" ? "hover:bg-gray-700 text-gray-200" : "hover:bg-gray-100 text-gray-700"
-                    }`}
-                  >
-                    Download as PDF
-                  </button>
+                {isDownloading ? (
+                  <Loader2 className="animate-spin" size={18} />
+                ) : (
+                  <Download size={18} />
+                )}
+              </button>
+              {showDownloadDropdown && (
+                <div
+                  className={`absolute right-0 mt-2 w-48 rounded-md shadow-lg z-10 ${
+                    theme === "dark" ? "bg-gray-800 border border-gray-700" : "bg-white border border-gray-200"
+                  }`}
+                >
+                  <div className="py-1">
+                    <button
+                      onClick={() => {
+                        setShowDownloadDropdown(false);
+                        exportToExcel();
+                      }}
+                      className={`block w-full text-left px-4 py-2 text-sm ${
+                        theme === "dark" ? "hover:bg-gray-700 text-gray-200" : "hover:bg-gray-100 text-gray-700"
+                      }`}
+                    >
+                      Download as Excel
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowDownloadDropdown(false);
+                        handleDownloadPDF();
+                      }}
+                      className={`block w-full text-left px-4 py-2 text-sm ${
+                        theme === "dark" ? "hover:bg-gray-700 text-gray-200" : "hover:bg-gray-100 text-gray-700"
+                      }`}
+                    >
+                      Download as PDF
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
-      </div>
 
-      {showFilterPanel && (
-        <div
-          className={`p-4 mb-6 rounded-lg ${theme === "dark" ? "bg-gray-800" : "bg-white shadow"
-            }`}
-        >
+        {showFilterPanel && (
+          <div
+            className={`p-4 mb-6 rounded-lg print:hidden ${theme === "dark" ? "bg-gray-800" : "bg-white shadow"
+              }`}
+            data-html2canvas-ignore="true"
+          >
           <h3 className="font-semibold mb-4">Filters & Options</h3>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
             <div ref={ledgerComboboxRef} className="relative">
@@ -1115,25 +1269,63 @@ const LedgerReport: React.FC = () => {
         </div>
       ) : (
         <>
-          {/* Ledger Header */}
-          <div
-            className={`p-4 mb-4 rounded-lg ${theme === "dark" ? "bg-gray-800" : "bg-white shadow"
+          {/* Printable / Downloadable Area */}
+          <div ref={reportRef} id="ledger-report-area" className="w-full">
+            {/* Company Details Header - Only visible on Print & Download */}
+            <div
+              id="ledger-company-header"
+              className={`hidden print:block mb-6 p-6 rounded-lg text-center ${
+                theme === "dark" ? "bg-gray-800" : "bg-white shadow"
               }`}
-          >
-            <div className="flex justify-between items-start">
-              <div>
-                <div className="flex items-center mb-1">
-                  <h2 className="text-xl font-bold">
-                    {selectedLedgerData?.name}
-                  </h2>
-                  <button 
-                    onClick={() => setIsBillMatchModalOpen(true)}
-                    className="ml-12 px-4 py-1.5 text-sm font-semibold bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-md shadow-md hover:shadow-lg hover:from-blue-700 hover:to-purple-700 transition-all flex items-center gap-1.5 border border-purple-400"
-                  >
-                    <Sparkles size={16} className="animate-pulse" />
-                    AI Ledger Match
-                  </button>
-                </div>
+            >
+              <h1 className="text-2xl sm:text-3xl font-extrabold uppercase tracking-wide text-gray-900 dark:text-gray-100">
+                {companyName}
+              </h1>
+              {companyAddress && (
+                <p className="text-sm sm:text-base text-gray-600 dark:text-gray-300 mt-1 whitespace-pre-line font-medium">
+                  {companyAddress}
+                  {companyCityStatePin ? `, ${companyCityStatePin}` : ""}
+                </p>
+              )}
+              {(companyGst || companyPhone) && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  {companyGst && <span>GSTIN: {companyGst}</span>}
+                  {companyGst && companyPhone && <span className="mx-2">•</span>}
+                  {companyPhone && <span>Phone: {companyPhone}</span>}
+                </p>
+              )}
+              <hr
+                className="my-4 border-t-2 border-gray-300 dark:border-gray-600"
+                style={{ borderTop: "2px solid #cbd5e1" }}
+              />
+              <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">
+                Ledger Report{selectedLedgerData?.name ? ` - ${selectedLedgerData.name}` : ""}
+              </h2>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                {fromDate && toDate ? `Period: ${formatDate(fromDate)} to ${formatDate(toDate)}` : ""}
+              </p>
+            </div>
+
+            {/* Ledger Header */}
+            <div
+              className={`p-4 mb-4 rounded-lg ${theme === "dark" ? "bg-gray-800" : "bg-white shadow"
+                }`}
+            >
+              <div className="flex justify-between items-start">
+                <div>
+                  <div className="flex items-center mb-1">
+                    <h2 className="text-xl font-bold">
+                      {selectedLedgerData?.name}
+                    </h2>
+                    <button 
+                      onClick={() => setIsBillMatchModalOpen(true)}
+                      className="ml-12 px-4 py-1.5 text-sm font-semibold bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-md shadow-md hover:shadow-lg hover:from-blue-700 hover:to-purple-700 transition-all flex items-center gap-1.5 border border-purple-400 print:hidden"
+                      data-html2canvas-ignore="true"
+                    >
+                      <Sparkles size={16} className="animate-pulse" />
+                      AI Ledger Match
+                    </button>
+                  </div>
                 <p className="text-sm text-gray-500">
                   Address: {selectedLedgerData?.address || "N/A"} | Period:{" "}
                   {formatDate(fromDate)} to {formatDate(toDate)}
@@ -1209,7 +1401,7 @@ const LedgerReport: React.FC = () => {
           </div>
 
           {/* View Mode Tabs */}
-          <div className="flex space-x-1 mb-4">
+          <div className="flex space-x-1 mb-4 print:hidden" data-html2canvas-ignore="true">
             {["detailed", "monthly", "daily"].map((mode) => (
               <button
                 key={mode}
@@ -1234,7 +1426,7 @@ const LedgerReport: React.FC = () => {
           </div>
 
           {viewMode === "daily" && (
-            <div className={`p-4 mb-4 rounded-lg flex items-center space-x-4 ${theme === "dark" ? "bg-gray-800" : "bg-white shadow"}`}>
+            <div className={`p-4 mb-4 rounded-lg flex items-center space-x-4 print:hidden ${theme === "dark" ? "bg-gray-800" : "bg-white shadow"}`} data-html2canvas-ignore="true">
               <div className="flex items-center space-x-2">
                 <label className="text-sm font-medium">Month:</label>
                 <select
@@ -1305,7 +1497,7 @@ const LedgerReport: React.FC = () => {
                       <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider">
                         Closing Balance
                       </th>
-                      <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">
+                      <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider print:hidden" data-html2canvas-ignore="true">
                         Action
                       </th>
                     </tr>
@@ -1367,7 +1559,7 @@ const LedgerReport: React.FC = () => {
                                     : ""}
                               </td>
 
-                              <td className="px-4 py-3 flex items-center justify-center space-x-2">
+                              <td className="px-4 py-3 flex items-center justify-center space-x-2 print:hidden" data-html2canvas-ignore="true">
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -1656,13 +1848,14 @@ const LedgerReport: React.FC = () => {
             )}
 
           </div>
+        </div> {/* /ledger-report-area */}
         </>
       )
       }
 
       {/* Voucher Detail Modal */}
       {selectedVoucher && (
-        <div className="fixed inset-0 flex items-center justify-center z-50 p-4 backdrop-blur-sm bg-black/50">
+        <div className="fixed inset-0 flex items-center justify-center z-50 p-4 backdrop-blur-sm bg-black/50 print:hidden" data-html2canvas-ignore="true">
           <div className={`w-full max-w-4xl max-h-[90vh] rounded-lg overflow-hidden flex flex-col ${theme === "dark" ? "bg-gray-800" : "bg-white"}`}>
             {/* Header */}
             <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
@@ -1772,8 +1965,9 @@ const LedgerReport: React.FC = () => {
       )}
 
       <div
-        className={`mt-6 p-4 rounded ${theme === "dark" ? "bg-gray-800" : "bg-blue-50"
+        className={`mt-6 p-4 rounded print:hidden ${theme === "dark" ? "bg-gray-800" : "bg-blue-50"
           }`}
+        data-html2canvas-ignore="true"
       >
         <p className="text-sm">
           <span className="font-semibold">Pro Tip:</span> Click on any
@@ -1782,142 +1976,6 @@ const LedgerReport: React.FC = () => {
         </p>
       </div>
     </div>
-
-      {/* Print Only UI */}
-      {ledgerId && ledgerData && (
-        <div className="hidden print:block w-full text-black bg-white font-sans text-sm print:px-6 print:py-4">
-          <style type="text/css" media="print">
-            {`
-              body { -webkit-print-color-adjust: exact; }
-              @page { size: auto; margin: 5mm; }
-            `}
-          </style>
-          <div className="text-center font-bold text-lg leading-tight uppercase mt-4">
-            {companyInfo?.name || "M P TRADERS"}
-          </div>
-          <div className="text-center text-sm leading-tight uppercase whitespace-pre-wrap">
-            {companyInfo?.address || ""}
-          </div>
-          <div className="text-center font-bold mt-4 text-base leading-tight uppercase">
-            {ledgerData?.ledger?.name || selectedLedgerData?.name}
-          </div>
-          <div className="text-center text-sm leading-tight whitespace-pre-wrap uppercase mt-1">
-            {[
-              ledgerData?.ledger?.address || selectedLedgerData?.address,
-              ledgerData?.ledger?.district || selectedLedgerData?.district,
-              ledgerData?.ledger?.state || selectedLedgerData?.state,
-              ledgerData?.ledger?.pinCode || selectedLedgerData?.pinCode
-            ].filter(Boolean).join(", ") || "Ledger Account"}
-          </div>
-          <div className="text-center text-sm mt-1">
-            {formatDate(fromDate)} to {formatDate(toDate)}
-          </div>
-          <div className="text-right text-xs mt-2">
-            Page 1
-          </div>
-
-          <table className="w-full mt-1 border-collapse text-sm">
-            <thead>
-              <tr className="border-t border-b border-black">
-                <th className="py-0.5 px-1 text-left font-normal w-24">Date</th>
-                <th className="py-0.5 px-1 text-left font-normal">Particulars</th>
-                <th className="py-0.5 px-1 text-left font-normal w-32">Vch Type</th>
-                <th className="py-0.5 px-1 text-left font-normal w-28">Vch No.</th>
-                <th className="py-0.5 px-1 text-right font-bold w-32">Debit</th>
-                <th className="py-0.5 px-1 text-right font-bold w-32">Credit</th>
-              </tr>
-            </thead>
-            <tbody>
-              {/* Opening Balance */}
-              {summaryTotals.openingBalance !== 0 && (
-                <tr className="align-top">
-                  <td className="py-0.5 px-1"></td>
-                  <td className="py-0.5 px-1">
-                    <span className="inline-block w-8 font-medium"></span>
-                    <span className="font-bold">Opening Balance</span>
-                  </td>
-                  <td className="py-0.5 px-1"></td>
-                  <td className="py-0.5 px-1"></td>
-                  <td className="py-0.5 px-1 text-right font-mono">
-                    {((summaryTotals.openingBalance > 0 && isDebitLedger) || (summaryTotals.openingBalance < 0 && !isDebitLedger)) 
-                      ? new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2 }).format(Math.abs(summaryTotals.openingBalance)) 
-                      : ''}
-                  </td>
-                  <td className="py-0.5 px-1 text-right font-mono">
-                    {((summaryTotals.openingBalance < 0 && isDebitLedger) || (summaryTotals.openingBalance > 0 && !isDebitLedger)) 
-                      ? new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2 }).format(Math.abs(summaryTotals.openingBalance)) 
-                      : ''}
-                  </td>
-                </tr>
-              )}
-
-              {/* Transactions */}
-              {ledgerTransactions.filter(t => !t.isOpening && !t.isClosing).map((txn, idx) => (
-                <tr key={idx} className="align-top">
-                  <td className="py-0.5 px-1 whitespace-nowrap">{formatDate(txn.date)}</td>
-                  <td className="py-0.5 px-1 align-top">
-                    <span className="float-left w-8 font-medium">{txn.debit > 0 ? 'Cr' : 'Dr'}</span>
-                    <span className="block ml-8 font-bold">{ledgerIdNameMap[String(txn.particulars)] || txn.particulars}</span>
-                  </td>
-                  <td className="py-0.5 px-1 uppercase">{txn.isQuotation ? "Quotation" : txn.voucherType}</td>
-                  <td className="py-0.5 px-1 whitespace-nowrap">{txn.voucherNo}</td>
-                  <td className="py-0.5 px-1 text-right font-mono">
-                    {txn.debit > 0 ? new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2 }).format(txn.debit) : ''}
-                  </td>
-                  <td className="py-0.5 px-1 text-right font-mono">
-                    {txn.credit > 0 ? new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2 }).format(txn.credit) : ''}
-                  </td>
-                </tr>
-              ))}
-
-              {/* Sub Totals */}
-              <tr className="border-t border-black">
-                <td colSpan={4}></td>
-                <td className="py-0.5 px-1 text-right font-mono">
-                  {new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2 }).format(summaryTotals.totalDebit)}
-                </td>
-                <td className="py-0.5 px-1 text-right font-mono">
-                  {new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2 }).format(summaryTotals.totalCredit)}
-                </td>
-              </tr>
-
-              {/* Closing Balance */}
-              {Math.abs(summaryTotals.totalDebit - summaryTotals.totalCredit) > 0 && (
-                <tr className="align-top">
-                  <td colSpan={1}></td>
-                  <td colSpan={3} className="py-0.5 px-1">
-                    <span className="inline-block w-8 font-medium">
-                      {summaryTotals.totalCredit > summaryTotals.totalDebit ? 'Cr' : 'Dr'}
-                    </span>
-                    <span className="font-bold">Closing Balance</span>
-                  </td>
-                  <td className="py-0.5 px-1 text-right font-mono">
-                    {summaryTotals.totalCredit > summaryTotals.totalDebit 
-                      ? new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2 }).format(Math.abs(summaryTotals.totalDebit - summaryTotals.totalCredit)) 
-                      : ''}
-                  </td>
-                  <td className="py-0.5 px-1 text-right font-mono">
-                    {summaryTotals.totalDebit > summaryTotals.totalCredit 
-                      ? new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2 }).format(Math.abs(summaryTotals.totalDebit - summaryTotals.totalCredit)) 
-                      : ''}
-                  </td>
-                </tr>
-              )}
-
-              {/* Grand Totals */}
-              <tr className="border-t border-b border-black font-bold">
-                <td colSpan={4}></td>
-                <td className="py-0.5 px-1 text-right font-mono">
-                  {new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2 }).format(Math.max(summaryTotals.totalDebit, summaryTotals.totalCredit))}
-                </td>
-                <td className="py-0.5 px-1 text-right font-mono">
-                  {new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2 }).format(Math.max(summaryTotals.totalDebit, summaryTotals.totalCredit))}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      )}
 
       {ledgerData?.transactions && selectedLedgerData && (
         <BillMatchModal

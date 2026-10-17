@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useAppContext } from "../../context/AppContext";
+import { useCompany } from "../../context/CompanyContext";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -9,7 +10,10 @@ import {
   Calendar,
   Eye,
   Edit,
+  Loader2,
 } from "lucide-react";
+import domtoimage from "dom-to-image-more";
+import jsPDF from "jspdf";
 import { useFinancialYear, filterByFinancialYear } from "../../hooks/useFinancialYear";
 
 interface DayBookEntry {
@@ -54,6 +58,125 @@ const DayBook: React.FC = () => {
   const { theme, stockItems } = useAppContext();
   const navigate = useNavigate();
   const { selectedFinYear } = useFinancialYear();
+  const { companyInfo, companies, activeCompanyId } = useCompany();
+  const reportRef = useRef<HTMLDivElement>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const companyId = localStorage.getItem("company_id") || localStorage.getItem("active_company_id") || "";
+
+  const activeCompany = useMemo(() => {
+    return companies?.find(
+      (c) => String(c.id) === String(activeCompanyId || companyId)
+    );
+  }, [companies, activeCompanyId, companyId]);
+
+  const companyName =
+    companyInfo?.name ||
+    (companyInfo as any)?.companyName ||
+    (companyInfo as any)?.company_name ||
+    activeCompany?.name ||
+    "ApnoTax solutions";
+
+  const companyAddress =
+    companyInfo?.address ||
+    activeCompany?.address ||
+    "vigyan vihar colony near hawai adda dhanbad";
+
+  const companyCityStatePin = [
+    companyInfo?.state || activeCompany?.state,
+    companyInfo?.pin || activeCompany?.pin,
+  ]
+    .filter(Boolean)
+    .join(" - ");
+
+  const companyGst =
+    companyInfo?.gstNumber ||
+    (companyInfo as any)?.gst_number ||
+    activeCompany?.gstNumber ||
+    "";
+
+  const companyPhone =
+    companyInfo?.phoneNumber ||
+    (companyInfo as any)?.phone_number ||
+    activeCompany?.phoneNumber ||
+    "";
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const handleDownloadPDF = async () => {
+    if (!reportRef.current || isDownloading) return;
+    setIsDownloading(true);
+
+    const element = reportRef.current;
+    const width = element.offsetWidth || 1200;
+    const scale = 2;
+
+    // Create an off-screen wrapper so the screen NEVER shows the company header
+    const wrapper = document.createElement("div");
+    wrapper.style.cssText = `position: fixed; left: -99999px; top: 0; width: ${width}px; z-index: -9999; pointer-events: none; opacity: 1;`;
+
+    try {
+      const clone = element.cloneNode(true) as HTMLElement;
+      clone.style.width = `${width}px`;
+
+      // Enable the company header ONLY on the off-screen clone
+      const cloneHeader = clone.querySelector("#day-book-company-header") as HTMLElement;
+      if (cloneHeader) {
+        cloneHeader.style.display = "block";
+        cloneHeader.classList.remove("hidden");
+      }
+
+      wrapper.appendChild(clone);
+      document.body.appendChild(wrapper);
+
+      const height = clone.offsetHeight;
+
+      const imgData = await domtoimage.toPng(clone, {
+        bgcolor: theme === "dark" ? "#1f2937" : "#ffffff",
+        width: width * scale,
+        height: height * scale,
+        style: {
+          transform: `scale(${scale})`,
+          transformOrigin: "top left",
+          width: `${width}px`,
+          height: `${height}px`,
+        },
+      });
+
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+
+      const imgWidth = pdfWidth;
+      const imgHeight = (height * pdfWidth) / width;
+
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pdfHeight;
+
+      while (heightLeft > 3) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+        heightLeft -= pdfHeight;
+      }
+
+      const sanitizedName = (companyName || "Company").replace(/[^a-zA-Z0-9]/g, "_");
+      pdf.save(`Day_Book_${sanitizedName}.pdf`);
+    } catch (err) {
+      console.error("PDF generation error:", err);
+      alert("Failed to download PDF. Please try again.");
+    } finally {
+      if (wrapper.parentNode) {
+        wrapper.parentNode.removeChild(wrapper);
+      }
+      setIsDownloading(false);
+    }
+  };
 
   const getItemName = (itemId: string | undefined) => {
     if (!itemId) return "";
@@ -553,7 +676,28 @@ const DayBook: React.FC = () => {
 
   return (
     <div className="pt-[56px] px-4 ">
-      <div className="flex items-center mb-6">
+      <style>{`
+        @media print {
+          body {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            background-color: #ffffff !important;
+            color: #000000 !important;
+          }
+          .print\\:hidden, button, nav, header {
+            display: none !important;
+          }
+          .print\\:block {
+            display: block !important;
+          }
+          @page {
+            size: A4 portrait;
+            margin: 10mm;
+          }
+        }
+      `}</style>
+
+      <div className="flex items-center mb-6 print:hidden">
         <button
           type="button"
           title="Back to Reports"
@@ -576,6 +720,8 @@ const DayBook: React.FC = () => {
           </button>
           <button
             title="Print Report"
+            type="button"
+            onClick={handlePrint}
             className={`p-2 rounded-md ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"
               }`}
           >
@@ -584,17 +730,23 @@ const DayBook: React.FC = () => {
           <button
             title="Download Report"
             type="button"
+            disabled={isDownloading}
+            onClick={handleDownloadPDF}
             className={`p-2 rounded-md ${theme === "dark" ? "hover:bg-gray-700" : "hover:bg-gray-200"
-              }`}
+              } ${isDownloading ? "opacity-50 cursor-not-allowed" : ""}`}
           >
-            <Download size={18} />
+            {isDownloading ? (
+              <Loader2 size={18} className="animate-spin text-blue-500" />
+            ) : (
+              <Download size={18} />
+            )}
           </button>
         </div>
       </div>
 
       {showFilterPanel && (
         <div
-          className={`p-4 mb-6 rounded-lg ${theme === "dark" ? "bg-gray-800" : "bg-white shadow"
+          className={`p-4 mb-6 rounded-lg print:hidden ${theme === "dark" ? "bg-gray-800" : "bg-white shadow"
             }`}
         >
           <h3 className="font-semibold mb-4">Filters & Options</h3>
@@ -709,8 +861,49 @@ const DayBook: React.FC = () => {
         </div>
       )}
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      {/* Printable / Downloadable Area */}
+      <div ref={reportRef} id="day-book-report-area" className="w-full">
+        {/* Company Details Header - Only visible on Print & Download */}
+        <div
+          id="day-book-company-header"
+          className={`hidden print:block mb-6 p-6 rounded-lg text-center ${
+            theme === "dark" ? "bg-gray-800" : "bg-white shadow"
+          }`}
+        >
+          <h1 className="text-2xl sm:text-3xl font-extrabold uppercase tracking-wide text-gray-900 dark:text-gray-100">
+            {companyName}
+          </h1>
+          {companyAddress && (
+            <p className="text-sm sm:text-base text-gray-600 dark:text-gray-300 mt-1 whitespace-pre-line font-medium">
+              {companyAddress}
+              {companyCityStatePin ? `, ${companyCityStatePin}` : ""}
+            </p>
+          )}
+          {(companyGst || companyPhone) && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              {companyGst && <span>GSTIN: {companyGst}</span>}
+              {companyGst && companyPhone && <span className="mx-2">•</span>}
+              {companyPhone && <span>Phone: {companyPhone}</span>}
+            </p>
+          )}
+          <hr
+            className="my-4 border-t-2 border-gray-300 dark:border-gray-600"
+            style={{ borderTop: "2px solid #cbd5e1" }}
+          />
+          <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">
+            Day Book
+          </h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            {selectedMonth !== "Select Month"
+              ? `Period: ${selectedMonth === "Current" ? "Current Month" : selectedMonth}`
+              : selectedDateRange === "Daily" && selectedDate
+                ? `Date: ${selectedDate}`
+                : `Period: ${selectedDateRange}`}
+          </p>
+        </div>
+
+        {/* Summary Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <div
           className={`p-4 rounded-lg ${theme === "dark" ? "bg-gray-800" : "bg-white shadow"
             }`}
@@ -790,7 +983,7 @@ const DayBook: React.FC = () => {
                   : `For ${selectedDateRange}`}
             </p>
           </div>
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2 print:hidden" data-html2canvas-ignore="true">
             <Calendar size={16} className="text-gray-500" />
 
             <input
@@ -1216,10 +1409,11 @@ const DayBook: React.FC = () => {
           ) : null}
         </div>
       </div>
+      </div> {/* /day-book-report-area */}
 
       {/* Voucher Detail Modal */}
       {selectedVoucher && (
-        <div className="fixed inset-0 flex items-center justify-center z-50 p-4 backdrop-blur-sm bg-black/50">
+        <div className="fixed inset-0 flex items-center justify-center z-50 p-4 backdrop-blur-sm bg-black/50 print:hidden" data-html2canvas-ignore="true">
           <div
             className={`w-full max-w-4xl max-h-[90vh] rounded-lg overflow-hidden flex flex-col ${theme === "dark" ? "bg-gray-800" : "bg-white"
               }`}
@@ -1485,8 +1679,9 @@ const DayBook: React.FC = () => {
       )}
 
       <div
-        className={`mt-6 p-4 rounded ${theme === "dark" ? "bg-gray-800" : "bg-blue-50"
+        className={`mt-6 p-4 rounded print:hidden ${theme === "dark" ? "bg-gray-800" : "bg-blue-50"
           }`}
+        data-html2canvas-ignore="true"
       >
         <p className="text-sm">
           <span className="font-semibold">Pro Tip:</span> Press F5 to refresh,
