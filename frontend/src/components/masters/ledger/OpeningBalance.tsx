@@ -15,47 +15,12 @@ const OpeningBalance: React.FC = () => {
   const [selectedSubGroupFilter, setSelectedSubGroupFilter] = useState<string>("all");
   const [expandedGroups, setExpandedGroups] = useState<Record<number, boolean>>({});
   const [savingAll, setSavingAll] = useState(false);
-  const [debitCreditData, setDebitCreditData] = useState<
-    Record<number | string, { debit: number; credit: number }>
-  >({});
 
   const toggleGroupExpand = (groupId: number) => {
     setExpandedGroups((prev) => ({
       ...prev,
       [groupId]: !prev[groupId],
     }));
-  };
-
-  const fetchDebitCredit = async (currentLedgers: Ledger[]) => {
-    if (!currentLedgers || currentLedgers.length === 0) return;
-    try {
-      const companyId = localStorage.getItem("company_id");
-      const rawOwnerType = localStorage.getItem("supplier");
-      const userType = localStorage.getItem("userType");
-
-      let fetchOwnerType = rawOwnerType;
-      let fetchOwnerId = rawOwnerType === "employee"
-        ? localStorage.getItem("employee_id")
-        : localStorage.getItem("user_id");
-
-      if (userType === "ca_employee") {
-        fetchOwnerType = "employee";
-        fetchOwnerId = localStorage.getItem("employee_id");
-      }
-
-      if (!companyId) return;
-
-      const ledgerIds = currentLedgers.map((l) => l.id).join(",");
-      const url = `${import.meta.env.VITE_API_URL}/api/group?company_id=${companyId}&owner_type=${fetchOwnerType || "employee"}&owner_id=${fetchOwnerId || "1"}&ledgerIds=${ledgerIds}`;
-      const res = await fetch(url);
-      if (!res.ok) return;
-      const data = await res.json();
-      if (data && data.success && data.data) {
-        setDebitCreditData(data.data);
-      }
-    } catch (err) {
-      console.error("Failed to load debit credit data", err);
-    }
   };
 
   useEffect(() => {
@@ -95,10 +60,6 @@ const OpeningBalance: React.FC = () => {
         const ledgerData = await ledgerRes.json();
         const loadedLedgers = Array.isArray(ledgerData) ? ledgerData : [];
         setLedgers(loadedLedgers);
-
-        if (loadedLedgers.length > 0) {
-          fetchDebitCredit(loadedLedgers);
-        }
       } catch (err) {
         console.error("Failed to load data", err);
         setGroups([...allSystemGroups]);
@@ -255,54 +216,17 @@ const OpeningBalance: React.FC = () => {
     return getGroupedLedgersForGroup(groupId).flatMap((b) => b.ledgers);
   };
 
-  const getLedgerAmount = (ledger: Ledger, isAsset: boolean = false): number => {
-    const op = parseFloat(String(ledger.openingBalance || (ledger as any).opening_balance || 0)) || 0;
-    const dc =
-      debitCreditData[ledger.id] ||
-      debitCreditData[Number(ledger.id)] ||
-      debitCreditData[String(ledger.id)] ||
-      { debit: 0, credit: 0 };
-    const debit = Number(dc.debit) || 0;
-    const credit = Number(dc.credit) || 0;
-    const closing = Math.abs(parseFloat(String(ledger.closingBalance || (ledger as any).closing_balance || 0)) || 0);
-
-    // 1. If opening balance was explicitly entered (> 0)
-    if (op > 0) {
-      if (debit > 0 || credit > 0) {
-        if (isAsset) {
-          const signedOp = ledger.balanceType === "credit" ? -op : op;
-          const net = signedOp + (debit - credit);
-          return Math.abs(net);
-        } else {
-          const signedOp = ledger.balanceType === "debit" ? -op : op;
-          const net = signedOp + (credit - debit);
-          return Math.abs(net);
-        }
-      }
-      return op;
-    }
-
-    // 2. If opening balance is 0 or empty, but voucher entries / transactions exist
-    if (debit > 0 || credit > 0) {
-      if (isAsset) {
-        const net = debit - credit;
-        return net !== 0 ? Math.abs(net) : Math.max(debit, credit);
-      } else {
-        const net = credit - debit;
-        return net !== 0 ? Math.abs(net) : Math.max(credit, debit);
-      }
-    }
-
-    // 3. Fallback to closing balance if available in ledger record
-    if (closing > 0) {
-      return closing;
-    }
-
-    return 0;
+  const getLedgerOpeningAmount = (l: Ledger): number => {
+    const val =
+      l.openingBalance !== undefined && l.openingBalance !== null
+        ? l.openingBalance
+        : (l as any).opening_balance;
+    const num = parseFloat(String(val || 0));
+    return isNaN(num) ? 0 : num;
   };
 
-  const getGroupTotalAmount = (groupLedgers: Ledger[], isAsset: boolean = false): number => {
-    return groupLedgers.reduce((sum, l) => sum + getLedgerAmount(l, isAsset), 0);
+  const getGroupTotalAmount = (groupLedgers: Ledger[]): number => {
+    return groupLedgers.reduce((sum, l) => sum + getLedgerOpeningAmount(l), 0);
   };
 
   const formatINR = (amount: number): string => {
@@ -324,7 +248,7 @@ const OpeningBalance: React.FC = () => {
     "Current Assets",
   ];
 
-  // Calculate Liabilities Summary
+  // Calculate Liabilities Summary strictly from openingBalance
   const allLiabilityLedgers = liabilityGroupNames.flatMap((groupName) => {
     const group = groups.find((g) => g.name.toLowerCase() === groupName.toLowerCase());
     return group ? getLedgersForGroup(group.id) : [];
@@ -333,9 +257,9 @@ const OpeningBalance: React.FC = () => {
     new Map(allLiabilityLedgers.map((l) => [l.id, l])).values()
   );
   const totalLiabilitiesLedgersCount = uniqueLiabilityLedgers.length;
-  const totalLiabilitiesAmount = getGroupTotalAmount(uniqueLiabilityLedgers, false);
+  const totalLiabilitiesAmount = getGroupTotalAmount(uniqueLiabilityLedgers);
 
-  // Calculate Assets Summary
+  // Calculate Assets Summary strictly from openingBalance
   const allAssetLedgers = assetGroupNames.flatMap((groupName) => {
     const group = groups.find((g) => g.name.toLowerCase() === groupName.toLowerCase());
     return group ? getLedgersForGroup(group.id) : [];
@@ -344,7 +268,7 @@ const OpeningBalance: React.FC = () => {
     new Map(allAssetLedgers.map((l) => [l.id, l])).values()
   );
   const totalAssetsLedgersCount = uniqueAssetLedgers.length;
-  const totalAssetsAmount = getGroupTotalAmount(uniqueAssetLedgers, true);
+  const totalAssetsAmount = getGroupTotalAmount(uniqueAssetLedgers);
 
   const differenceAmount = Math.abs(totalLiabilitiesAmount - totalAssetsAmount);
   const isBalanced = differenceAmount < 0.01;
@@ -497,7 +421,7 @@ const OpeningBalance: React.FC = () => {
                 ₹{formatINR(totalLiabilitiesAmount)}
               </div>
               <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
-                Sum of all liabilities ledger balances / entries
+                Sum of all liabilities opening balances
               </p>
             </div>
 
@@ -520,7 +444,7 @@ const OpeningBalance: React.FC = () => {
                 ₹{formatINR(totalAssetsAmount)}
               </div>
               <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
-                Sum of all assets ledger balances / entries
+                Sum of all assets opening balances
               </p>
             </div>
 
@@ -543,7 +467,7 @@ const OpeningBalance: React.FC = () => {
                       : "text-amber-600 dark:text-amber-400"
                   }`}
                 >
-                  Difference
+                  Difference (Opening Balances)
                 </span>
                 <span
                   className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${
@@ -593,7 +517,7 @@ const OpeningBalance: React.FC = () => {
                     const group = groups.find(g => g.name.toLowerCase() === groupName.toLowerCase());
                     if (!group) return null;
                     const groupLedgers = getLedgersForGroup(group.id);
-                    const groupAmount = getGroupTotalAmount(groupLedgers, false);
+                    const groupAmount = getGroupTotalAmount(groupLedgers);
                     
                     return (
                       <div 
@@ -655,7 +579,7 @@ const OpeningBalance: React.FC = () => {
                     const group = groups.find(g => g.name.toLowerCase() === groupName.toLowerCase());
                     if (!group) return null;
                     const groupLedgers = getLedgersForGroup(group.id);
-                    const groupAmount = getGroupTotalAmount(groupLedgers, true);
+                    const groupAmount = getGroupTotalAmount(groupLedgers);
                     
                     return (
                       <div 
@@ -709,13 +633,7 @@ const OpeningBalance: React.FC = () => {
             const displayLedgers = selectedSubGroupFilter === "all"
               ? getLedgersForGroup(selectedGroup.id)
               : (buckets.find(b => b.groupId.toString() === selectedSubGroupFilter)?.ledgers || []);
-            const isSelectedGroupAsset = (() => {
-              const gName = String(selectedGroup.name || "").toLowerCase();
-              const gNature = String(selectedGroup.nature || "").toLowerCase();
-              if (gNature === "assets" || assetGroupNames.some(n => n.toLowerCase() === gName)) return true;
-              return false;
-            })();
-            const currentTotal = getGroupTotalAmount(displayLedgers, isSelectedGroupAsset);
+            const currentTotal = getGroupTotalAmount(displayLedgers);
 
             return (
               <>
@@ -728,7 +646,7 @@ const OpeningBalance: React.FC = () => {
                       </span>
                     </div>
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      Enter opening balance values or view balances for ledgers with transactions
+                      Enter opening balance values and select Debit or Credit balance type for each ledger
                     </p>
                   </div>
                   
@@ -789,7 +707,6 @@ const OpeningBalance: React.FC = () => {
                       <tr className="border-b-2 dark:border-gray-700 border-gray-400">
                         <th className="py-3 px-4 font-semibold text-sm">Ledger Name</th>
                         <th className="py-3 px-4 font-semibold text-sm">GST Number</th>
-                        <th className="py-3 px-4 text-right font-semibold text-sm">Total / Entries</th>
                         <th className="py-3 px-4 text-right font-semibold text-sm">Opening Balance</th>
                         <th className="py-3 px-4 text-center font-semibold text-sm">Type</th>
                         <th className="py-3 px-4 text-center font-semibold text-sm">Action</th>
@@ -798,92 +715,67 @@ const OpeningBalance: React.FC = () => {
                     <tbody>
                       {displayLedgers.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="py-8 px-4 text-center opacity-70 italic">
+                          <td colSpan={5} className="py-8 px-4 text-center opacity-70 italic">
                             No ledgers found in this subgroup selection.
                           </td>
                         </tr>
                       ) : (
-                        displayLedgers.map((ledger) => {
-                          const ledgerAmt = getLedgerAmount(ledger, isSelectedGroupAsset);
-                          const dc =
-                            debitCreditData[ledger.id] ||
-                            debitCreditData[Number(ledger.id)] ||
-                            debitCreditData[String(ledger.id)];
-                          const hasEntries = dc && (Number(dc.debit) > 0 || Number(dc.credit) > 0);
-
-                          return (
-                            <tr
-                              key={ledger.id}
-                              className={`border-b transition-colors ${
-                                theme === "dark"
-                                  ? "border-gray-700 hover:bg-gray-700/40"
-                                  : "border-gray-200 hover:bg-gray-50"
-                              }`}
-                            >
-                              <td className="py-3 px-4 text-blue-600 font-medium">
-                                <div>{ledger.name}</div>
-                                {hasEntries && (
-                                  <div className="text-[11px] text-gray-500 font-mono mt-0.5">
-                                    {Number(dc.debit) > 0 ? `Dr: ₹${formatINR(Number(dc.debit))}` : ""}
-                                    {Number(dc.debit) > 0 && Number(dc.credit) > 0 ? " | " : ""}
-                                    {Number(dc.credit) > 0 ? `Cr: ₹${formatINR(Number(dc.credit))}` : ""}
-                                  </div>
-                                )}
-                              </td>
-                              <td className="py-3 px-4 font-mono text-sm opacity-80">{ledger.gstNumber || "-"}</td>
-                              <td className="py-3 px-4 text-right font-mono text-sm font-semibold">
-                                {ledgerAmt > 0 ? (
-                                  <span className="text-gray-900 dark:text-gray-100">
-                                    ₹{formatINR(ledgerAmt)}
-                                  </span>
-                                ) : (
-                                  <span className="text-gray-400 dark:text-gray-600">-</span>
-                                )}
-                              </td>
-                              <td className="py-3 px-4 text-right font-mono">
-                                <input
-                                  type="number"
-                                  value={ledger.openingBalance || ""}
-                                  onChange={(e) => handleLedgerChange(ledger.id, "openingBalance", e.target.value)}
-                                  className={`w-36 px-3 py-1.5 text-right font-mono text-sm border rounded outline-none transition-colors ${
-                                    theme === "dark"
-                                      ? "bg-gray-700 border-gray-600 text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                                      : "bg-white border-gray-300 text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                                  }`}
-                                  placeholder="0.00"
-                                />
-                              </td>
-                              <td className="py-3 px-4 text-center">
-                                <select
-                                  value={ledger.balanceType || ""}
-                                  onChange={(e) => handleLedgerChange(ledger.id, "balanceType", e.target.value)}
-                                  className={`w-28 px-2 py-1.5 text-sm border rounded outline-none transition-colors ${
-                                    theme === "dark"
-                                      ? "bg-gray-700 border-gray-600 text-white focus:border-blue-500"
-                                      : "bg-white border-gray-300 text-gray-900 focus:border-blue-500"
-                                  }`}
-                                >
-                                  <option value="">Select</option>
-                                  <option value="debit">DEBIT</option>
-                                  <option value="credit">CREDIT</option>
-                                </select>
-                              </td>
-                              <td className="py-3 px-4 text-center">
-                                <button
-                                  onClick={() => handleSaveLedger(ledger)}
-                                  className={`p-2 rounded-lg transition-colors flex items-center justify-center mx-auto cursor-pointer ${
-                                    theme === "dark"
-                                      ? "bg-blue-600 hover:bg-blue-700 text-white"
-                                      : "bg-blue-600 hover:bg-blue-700 text-white"
-                                  }`}
-                                  title="Save Opening Balance"
-                                >
-                                  <Save size={16} />
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })
+                        displayLedgers.map((ledger) => (
+                          <tr
+                            key={ledger.id}
+                            className={`border-b transition-colors ${
+                              theme === "dark"
+                                ? "border-gray-700 hover:bg-gray-700/40"
+                                : "border-gray-200 hover:bg-gray-50"
+                            }`}
+                          >
+                            <td className="py-3 px-4 text-blue-600 font-medium">
+                              {ledger.name}
+                            </td>
+                            <td className="py-3 px-4 font-mono text-sm opacity-80">{ledger.gstNumber || "-"}</td>
+                            <td className="py-3 px-4 text-right font-mono">
+                              <input
+                                type="number"
+                                value={ledger.openingBalance || ""}
+                                onChange={(e) => handleLedgerChange(ledger.id, "openingBalance", e.target.value)}
+                                className={`w-36 px-3 py-1.5 text-right font-mono text-sm border rounded outline-none transition-colors ${
+                                  theme === "dark"
+                                    ? "bg-gray-700 border-gray-600 text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                    : "bg-white border-gray-300 text-gray-900 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                }`}
+                                placeholder="0.00"
+                              />
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <select
+                                value={ledger.balanceType || ""}
+                                onChange={(e) => handleLedgerChange(ledger.id, "balanceType", e.target.value)}
+                                className={`w-28 px-2 py-1.5 text-sm border rounded outline-none transition-colors ${
+                                  theme === "dark"
+                                    ? "bg-gray-700 border-gray-600 text-white focus:border-blue-500"
+                                    : "bg-white border-gray-300 text-gray-900 focus:border-blue-500"
+                                }`}
+                              >
+                                <option value="">Select</option>
+                                <option value="debit">DEBIT</option>
+                                <option value="credit">CREDIT</option>
+                              </select>
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <button
+                                onClick={() => handleSaveLedger(ledger)}
+                                className={`p-2 rounded-lg transition-colors flex items-center justify-center mx-auto cursor-pointer ${
+                                  theme === "dark"
+                                    ? "bg-blue-600 hover:bg-blue-700 text-white"
+                                    : "bg-blue-600 hover:bg-blue-700 text-white"
+                                }`}
+                                title="Save Opening Balance"
+                              >
+                                <Save size={16} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))
                       )}
                     </tbody>
                     {displayLedgers.length > 0 && (
@@ -896,7 +788,6 @@ const OpeningBalance: React.FC = () => {
                           <td className="py-3 px-4 text-right font-mono font-bold text-base text-blue-600 dark:text-blue-400">
                             ₹{formatINR(currentTotal)}
                           </td>
-                          <td className="py-3 px-4"></td>
                           <td className="py-3 px-4"></td>
                           <td className="py-3 px-4"></td>
                         </tr>
