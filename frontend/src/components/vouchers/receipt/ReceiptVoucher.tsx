@@ -694,23 +694,28 @@ const ReceiptVoucher: React.FC = () => {
 
     try {
       setIsSubmitting(true);
+
       const payload = {
         ...formData,
         companyId: companyId,
+        ownerType,
+        ownerId,
         owner_type: ownerType,
         owner_id: ownerId,
       };
 
-      const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/vouchers`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(payload), // your state
-        }
-      );
+      const isUpdateMode = Boolean(id);
+      const endpoint = isUpdateMode
+        ? `${import.meta.env.VITE_API_URL}/api/vouchers/${id}`
+        : `${import.meta.env.VITE_API_URL}/api/vouchers`;
+
+      const response = await fetch(endpoint, {
+        method: isUpdateMode ? "PUT" : "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
 
       const data = await response.json();
 
@@ -718,9 +723,9 @@ const ReceiptVoucher: React.FC = () => {
         Swal.fire({
           icon: "success",
           title: "Success",
-          text: data.message,
+          text: data.message || (isUpdateMode ? "Voucher updated successfully" : "Voucher saved successfully"),
         }).then(() => {
-          navigate(new URLSearchParams(window.location.search).get("returnUrl") || "/app/vouchers"); // or your route to go back
+          navigate(new URLSearchParams(window.location.search).get("returnUrl") || "/app/vouchers");
         });
       } else {
         Swal.fire("Error", data.message || "Something went wrong", "error");
@@ -880,6 +885,8 @@ const ReceiptVoucher: React.FC = () => {
     .filter((entry) => entry.type === "credit")
     .reduce((sum, entry) => sum + entry.amount, 0);
   const isBalanced = totalDebit === totalCredit;
+  const submitButtonLabel = isEditMode ? "Update" : "Save";
+  const submitButtonProgressLabel = isEditMode ? "Updating..." : "Saving...";
 
   return (
     <div
@@ -1604,15 +1611,14 @@ const ReceiptVoucher: React.FC = () => {
             </button>
             <button
               type="submit"
-              title="Save Voucher"
-              onClick={handleSubmit}
+              title={isEditMode ? "Update Voucher" : "Save Voucher"}
               disabled={isSubmitting || !isBalanced}
               className={`px-5 py-2 rounded-md font-medium flex items-center text-white transition-colors ${theme === "dark"
                 ? "bg-blue-600 hover:bg-blue-700"
                 : "bg-blue-600 hover:bg-blue-700"
                 } ${isSubmitting || !isBalanced ? "opacity-50 cursor-not-allowed" : ""}`}
             >
-              <Save size={18} className="mr-2" /> {isSubmitting ? "Saving..." : "Save"}
+              <Save size={18} className="mr-2" /> {isSubmitting ? submitButtonProgressLabel : submitButtonLabel}
             </button>
           </div>
         </form>
@@ -1624,7 +1630,7 @@ const ReceiptVoucher: React.FC = () => {
       >
         <p className="text-sm text-gray-700 dark:text-gray-300">
           <span className="font-semibold">Keyboard Shortcuts:</span> Ctrl+S to
-          save, Ctrl+P to print, F12 to configure, Esc to cancel.
+          {isEditMode ? " update" : " save"}, Ctrl+P to print, F12 to configure, Esc to cancel.
         </p>
       </div>
     </div>
