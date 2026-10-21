@@ -510,7 +510,7 @@ const GSTTradingAccount: React.FC = () => {
 
             {/* Closing Stock Breakdown by Item (Item-wise mode) */}
             {showItemWise && itemNames.map((itemName) => {
-              const rowTotal = data.reduce((acc, r) => acc + (row.closingStockByItem?.[itemName] || 0), 0);
+              const rowTotal = data.reduce((acc, r) => acc + (r.closingStockByItem?.[itemName] || 0), 0);
               if (rowTotal === 0) return null;
               return (
                 <tr key={`cl-item-${itemName}`} className="bg-gray-50/20 text-xs">
