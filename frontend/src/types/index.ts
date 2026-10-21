@@ -100,6 +100,7 @@ export type Ledger = {
   tanNumber?: string;
   depreciationRate?: number | string | null;
   percentage?: number | string | null;
+  profitRatio?: number | string | null;
   type?: LedgerType;
   state?: string;
   district?: string;
