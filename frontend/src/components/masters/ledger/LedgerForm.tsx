@@ -39,6 +39,7 @@ const LedgerForm: React.FC = () => {
     tanNumber: "",
     depreciationRate: "",
     percentage: "",
+    profitRatio: "",
     state: "",
     district: "",
     pinCode: "",
@@ -70,6 +71,29 @@ const LedgerForm: React.FC = () => {
     }
     if (chekStock) {
       return chekStock.toLowerCase().replace(/[\s-]/g, "") === "currentassets";
+    }
+    return false;
+  }, [formData.groupId, ledgerGroups, chekStock]);
+
+  const isCapitalAccount = useMemo(() => {
+    if (!formData.groupId) return false;
+    const findGroup =
+      ledgerGroups.find((g) => g.id.toString() === formData.groupId.toString()) ||
+      baseGroups.find((g) => g.id.toString() === formData.groupId.toString());
+    if (findGroup) {
+      const normName = findGroup.name.toLowerCase().replace(/[\s-]/g, "");
+      return (
+        findGroup.id.toString() === "-4" ||
+        normName === "capitalaccount" ||
+        (normName.includes("capital") && !normName.includes("workingcapital"))
+      );
+    }
+    if (chekStock) {
+      const normCheck = chekStock.toLowerCase().replace(/[\s-]/g, "");
+      return (
+        normCheck === "capitalaccount" ||
+        (normCheck.includes("capital") && !normCheck.includes("workingcapital"))
+      );
     }
     return false;
   }, [formData.groupId, ledgerGroups, chekStock]);
@@ -161,6 +185,7 @@ const LedgerForm: React.FC = () => {
             tanNumber: data.tanNumber || data.tan_number || "",
             depreciationRate: data.depreciationRate ?? data.depreciation_rate ?? "",
             percentage: data.percentage ?? "",
+            profitRatio: data.profitRatio ?? data.profit_ratio ?? "",
             state: data.state || "",
             district: data.district || "",
             pinCode: data.pinCode || data.pin_code || "",
@@ -211,6 +236,7 @@ const LedgerForm: React.FC = () => {
             tanNumber: data.tanNumber || data.tan_number || "",
             depreciationRate: data.depreciationRate ?? data.depreciation_rate ?? "",
             percentage: data.percentage ?? "",
+            profitRatio: data.profitRatio ?? data.profit_ratio ?? "",
             state: data.state || "",
             district: data.district || "",
             pinCode: data.pinCode || data.pin_code || "",
@@ -253,10 +279,18 @@ const LedgerForm: React.FC = () => {
         findGroup.name.toLowerCase().replace(/[\s-]/g, "") === "fixedassets"
       );
 
+      const isCap = findGroup && (
+        findGroup.id.toString() === "-4" ||
+        findGroup.name.trim().toLowerCase() === "capital account" ||
+        findGroup.name.toLowerCase().replace(/[\s-]/g, "") === "capitalaccount" ||
+        (findGroup.name.toLowerCase().includes("capital") && !findGroup.name.toLowerCase().includes("working capital"))
+      );
+
       setFormData((prev) => ({
         ...prev,
         groupId: value,
         depreciationRate: isFA ? prev.depreciationRate : "",
+        profitRatio: isCap ? prev.profitRatio : "",
       }));
 
       if (findGroup) {
@@ -265,6 +299,7 @@ const LedgerForm: React.FC = () => {
       if (errors.groupId) setErrors((prev) => ({ ...prev, groupId: "" }));
       if (errors.depreciationRate) setErrors((prev) => ({ ...prev, depreciationRate: "" }));
       if (errors.percentage) setErrors((prev) => ({ ...prev, percentage: "" }));
+      if (errors.profitRatio) setErrors((prev) => ({ ...prev, profitRatio: "" }));
       return;
     }
 
@@ -286,6 +321,17 @@ const LedgerForm: React.FC = () => {
       }));
       if (errors.percentage) {
         setErrors((prev) => ({ ...prev, percentage: "" }));
+      }
+      return;
+    }
+
+    if (name === "profitRatio") {
+      setFormData((prev) => ({
+        ...prev,
+        profitRatio: value,
+      }));
+      if (errors.profitRatio) {
+        setErrors((prev) => ({ ...prev, profitRatio: "" }));
       }
       return;
     }
@@ -347,6 +393,13 @@ const LedgerForm: React.FC = () => {
       }
     }
 
+    if (isCapitalAccount && formData.profitRatio !== "" && formData.profitRatio !== null && formData.profitRatio !== undefined) {
+      const pr = Number(formData.profitRatio);
+      if (isNaN(pr) || pr < 0) {
+        newErrors.profitRatio = "Profit Ratio must be a valid positive number";
+      }
+    }
+
     if (errors.name) newErrors.name = errors.name;
     if (errors.gstNumber) newErrors.gstNumber = errors.gstNumber;
     
@@ -361,6 +414,7 @@ const LedgerForm: React.FC = () => {
         ...formData,
         depreciationRate: isFixedAssets && formData.depreciationRate !== "" && formData.depreciationRate !== null ? Number(formData.depreciationRate) : null,
         percentage: isCurrentAssets && formData.percentage !== "" && formData.percentage !== null ? Number(formData.percentage) : null,
+        profitRatio: isCapitalAccount && formData.profitRatio !== "" && formData.profitRatio !== null ? Number(formData.profitRatio) : null,
         companyId,
         ownerType,
         ownerId,
@@ -397,6 +451,7 @@ const LedgerForm: React.FC = () => {
         ...formData,
         depreciationRate: isFixedAssets && formData.depreciationRate !== "" && formData.depreciationRate !== null ? Number(formData.depreciationRate) : null,
         percentage: isCurrentAssets && formData.percentage !== "" && formData.percentage !== null ? Number(formData.percentage) : null,
+        profitRatio: isCapitalAccount && formData.profitRatio !== "" && formData.profitRatio !== null ? Number(formData.profitRatio) : null,
         companyId,
         ownerType,
         ownerId,
@@ -673,6 +728,38 @@ const LedgerForm: React.FC = () => {
                 {errors.percentage && (
                   <p className="text-red-500 text-xs mt-1">
                     {errors.percentage}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {isCapitalAccount && (
+              <div>
+                <label
+                  className="block text-sm font-medium mb-1"
+                  htmlFor="profitRatio"
+                >
+                  Profit Ratio
+                </label>
+                <input
+                  type="number"
+                  id="profitRatio"
+                  name="profitRatio"
+                  value={formData.profitRatio ?? ""}
+                  onChange={handleChange}
+                  step="any"
+                  min="0"
+                  placeholder="e.g. 50 or 33.33"
+                  className={`w-full p-2 rounded border ${errors.profitRatio
+                    ? "border-red-500 focus:border-red-500"
+                    : theme === "dark"
+                      ? "bg-gray-700 border-gray-600 focus:border-blue-500"
+                      : "bg-white border-gray-300 focus:border-blue-500"
+                    } outline-none transition-colors`}
+                />
+                {errors.profitRatio && (
+                  <p className="text-red-500 text-xs mt-1">
+                    {errors.profitRatio}
                   </p>
                 )}
               </div>

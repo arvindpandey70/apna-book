@@ -910,7 +910,7 @@ router.get("/debit-note", async (req, res) => {
 
 router.get("/trading-account", async (req, res) => {
   try {
-    const { company_id, owner_type, owner_id } = req.query;
+    const { company_id, owner_type, owner_id, year } = req.query;
 
     if (!company_id || !owner_type || !owner_id) {
       return res.status(400).json({
@@ -919,7 +919,23 @@ router.get("/trading-account", async (req, res) => {
       });
     }
 
-    // 1. Fetch all ledgers to build rate extractor
+    // Helper: Normalize rate string or name to float percentage
+    const extractRateFromName = (name) => {
+      if (!name) return null;
+      const lower = name.toLowerCase();
+      if (lower.includes("0%") || lower.includes("non-gst") || lower.includes("nongst") || lower.includes("exempt") || lower.includes("nil")) {
+        return 0;
+      }
+      const match = name.match(/(\d+(\.\d+)?)\s*%/);
+      if (match) return parseFloat(match[1]);
+      const numMatch = name.match(/(\d+(\.\d+)?)/);
+      if (numMatch && (lower.includes("gst") || lower.includes("tax") || lower.includes("purchase") || lower.includes("sale") || lower.includes("intra") || lower.includes("inter") || lower.includes("debit") || lower.includes("credit"))) {
+        return parseFloat(numMatch[1]);
+      }
+      return null;
+    };
+
+    // 1. Fetch all ledgers to build lookup and rate extractor
     const [ledgers] = await db.execute(
       `SELECT id, name, group_id, opening_balance, balance_type 
        FROM ledgers 
@@ -928,20 +944,39 @@ router.get("/trading-account", async (req, res) => {
     );
 
     const ledgerMap = new Map();
-    ledgers.forEach(l => ledgerMap.set(l.id, l));
+    ledgers.forEach(l => ledgerMap.set(Number(l.id), l));
 
-    const getRateFromLedger = (ledgerId) => {
-      if (!ledgerId) return 0;
-      const ledger = ledgerMap.get(Number(ledgerId));
-      if (!ledger) {
-        if (Number(ledgerId) < 100) return Number(ledgerId);
-        return 0;
-      }
-      const match = ledger.name.match(/(\d+(\.\d+)?)/);
-      return match ? parseFloat(match[0]) : 0;
+    const getTaxRate = (rateVal, isCgstOrSgst = false) => {
+      if (!rateVal) return 0;
+      const num = Number(rateVal);
+      if (isNaN(num) || num <= 0) return 0;
+      if (num <= 40) return num; // Already tax rate percentage
+      const ledger = ledgerMap.get(num);
+      if (!ledger) return 0;
+      const extracted = extractRateFromName(ledger.name);
+      return extracted !== null ? extracted : 0;
     };
 
-    // Fetch all stock groups for this company/owner
+    const getCombinedTaxRate = (cgstRate, sgstRate, igstRate, fallbackLedgerId = null, itemRate = null) => {
+      const igst = getTaxRate(igstRate, false);
+      if (igst > 0) return igst;
+      const cgst = getTaxRate(cgstRate, true);
+      const sgst = getTaxRate(sgstRate, true);
+      if (cgst > 0 || sgst > 0) return cgst + sgst;
+      if (fallbackLedgerId) {
+        const l = ledgerMap.get(Number(fallbackLedgerId));
+        if (l) {
+          const r = extractRateFromName(l.name);
+          if (r !== null) return r;
+        }
+      }
+      if (itemRate !== null && !isNaN(Number(itemRate)) && Number(itemRate) > 0) {
+        return Number(itemRate);
+      }
+      return 0;
+    };
+
+    // 2. Fetch stock groups
     const [stockGroups] = await db.execute(
       `SELECT id, name FROM stock_groups WHERE company_id = ? AND owner_type = ? AND owner_id = ?`,
       [company_id, owner_type, owner_id]
@@ -951,74 +986,49 @@ router.get("/trading-account", async (req, res) => {
       stockGroupMap[g.id] = g.name;
     });
 
-    // 2. Fetch stock items (using SQL fallback aliases to avoid runtime DDL/ALTER TABLE)
+    // 3. Fetch stock items
     const [stockItems] = await db.execute(
-      `SELECT id, name, NULL AS stockGroupId, 0.00 AS openingBalance, 0.00 AS openingValue, gstRate, batches, 0.00 AS openingRate, 0.00 AS standardPurchaseRate 
+      `SELECT id, name, categoryId, batches, gstRate, gstLedgerId, cgstLedgerId, sgstLedgerId 
        FROM stock_items 
        WHERE company_id = ? AND owner_type = ? AND owner_id = ?`,
       [company_id, owner_type, owner_id]
     );
 
-    // 3. Compute Opening Stock grouped by GST Rate
+    const getItemRate = (item) => {
+      if (Number(item.gstRate || 0) > 0) return Number(item.gstRate);
+      if (item.gstLedgerId) {
+        const l = ledgerMap.get(Number(item.gstLedgerId));
+        if (l) {
+          const r = extractRateFromName(l.name);
+          if (r !== null) return r;
+        }
+      }
+      if (item.cgstLedgerId || item.sgstLedgerId) {
+        const c = ledgerMap.get(Number(item.cgstLedgerId));
+        const s = ledgerMap.get(Number(item.sgstLedgerId));
+        const cr = c ? extractRateFromName(c.name) || 0 : 0;
+        const sr = s ? extractRateFromName(s.name) || 0 : 0;
+        if (cr > 0 || sr > 0) return cr + sr;
+      }
+      return 0;
+    };
+
+    // 4. Compute Opening Stock grouped by GST Rate
     const openingStockByRate = {};
-    const openingStockByRateAndGroup = {}; // rate -> { groupName -> val }
-    const openingStockByRateAndItem = {}; // rate -> { itemName -> val }
+    const openingStockByRateAndGroup = {};
+    const openingStockByRateAndItem = {};
+    const itemMap = {};
+
     stockItems.forEach(item => {
-      const rate = Number(item.gstRate || 0);
-      const groupId = item.stockGroupId;
-      const groupName = stockGroupMap[groupId] || "Primary";
+      const rate = getItemRate(item);
+      const groupName = stockGroupMap[item.categoryId] || "Primary";
       const itemName = item.name;
 
-      let val = 0;
-      let batches = [];
-      try {
-        batches = item.batches ? JSON.parse(item.batches) : [];
-      } catch (e) {}
-
-      if (batches && batches.length > 0) {
-        batches.forEach(b => {
-          val += (Number(b.batchQuantity) || 0) * (Number(b.openingRate) || 0);
-        });
-      } else {
-        val += (Number(item.openingBalance) || 0) * (Number(item.openingRate || item.standardPurchaseRate || 0) || 0);
-      }
-      openingStockByRate[rate] = (openingStockByRate[rate] || 0) + val;
-
-      if (!openingStockByRateAndGroup[rate]) {
-        openingStockByRateAndGroup[rate] = {};
-      }
-      openingStockByRateAndGroup[rate][groupName] = (openingStockByRateAndGroup[rate][groupName] || 0) + val;
-
-      if (!openingStockByRateAndItem[rate]) {
-        openingStockByRateAndItem[rate] = {};
-      }
-      openingStockByRateAndItem[rate][itemName] = (openingStockByRateAndItem[rate][itemName] || 0) + val;
-    });
-
-    // 4. Compute Closing Stock grouped by GST Rate using Tally's standard average cost
-    const [purchaseHistory] = await db.execute(
-      `SELECT i.itemId, i.quantity AS purchaseQuantity, i.rate, i.amount
-       FROM purchase_voucher_items i
-       JOIN purchase_vouchers v ON i.voucherId = v.id
-       WHERE v.company_id = ? AND v.owner_type = ? AND v.owner_id = ?`,
-      [company_id, owner_type, owner_id]
-    );
-
-    const [salesHistory] = await db.execute(
-      `SELECT i.itemId, i.quantity AS qtyChange
-       FROM sales_voucher_items i
-       JOIN sales_vouchers v ON i.voucherId = v.id
-       WHERE v.company_id = ? AND v.owner_type = ? AND v.owner_id = ?`,
-      [company_id, owner_type, owner_id]
-    );
-
-    const itemMap = {};
-    stockItems.forEach(item => {
-      const itemId = item.id;
-      itemMap[itemId] = {
+      itemMap[item.id] = {
+        id: item.id,
         name: item.name,
-        gstRate: Number(item.gstRate || 0),
-        groupName: stockGroupMap[item.stockGroupId] || "Primary",
+        gstRate: rate,
+        groupName: groupName,
         openingQty: 0,
         openingValue: 0,
         inwardQty: 0,
@@ -1031,40 +1041,216 @@ router.get("/trading-account", async (req, res) => {
         batches = item.batches ? JSON.parse(item.batches) : [];
       } catch (e) {}
 
+      let opVal = 0;
       if (batches && batches.length > 0) {
         batches.forEach(b => {
           const q = Number(b.batchQuantity || 0);
-          const r = Number(b.openingRate || 0);
-          itemMap[itemId].openingQty += q;
-          itemMap[itemId].openingValue += q * r;
+          const r = Number(b.openingRate || (b.mode === 'opening' ? b.batchRate : 0) || 0);
+          const v = Number(b.openingValue || (q * r) || 0);
+          if (b.openingRate || b.openingValue || b.mode === 'opening') {
+            opVal += v;
+            itemMap[item.id].openingQty += q;
+            itemMap[item.id].openingValue += v;
+          }
         });
+      }
+
+      openingStockByRate[rate] = (openingStockByRate[rate] || 0) + opVal;
+      if (!openingStockByRateAndGroup[rate]) openingStockByRateAndGroup[rate] = {};
+      openingStockByRateAndGroup[rate][groupName] = (openingStockByRateAndGroup[rate][groupName] || 0) + opVal;
+
+      if (!openingStockByRateAndItem[rate]) openingStockByRateAndItem[rate] = {};
+      openingStockByRateAndItem[rate][itemName] = (openingStockByRateAndItem[rate][itemName] || 0) + opVal;
+    });
+
+    // 5. Compute Purchases by GST Rate
+    const purchaseByRate = {};
+    const purchaseIntraByRate = {};
+    const purchaseInterByRate = {};
+
+    // 5a. Item invoice purchases
+    const [purchaseHistory] = await db.execute(
+      `SELECT i.itemId, i.quantity AS purchaseQuantity, i.rate, i.amount, i.cgstRate, i.sgstRate, i.igstRate, i.purchaseLedgerId, v.date
+       FROM purchase_voucher_items i
+       JOIN purchase_vouchers v ON i.voucherId = v.id
+       WHERE v.company_id = ? AND v.owner_type = ? AND v.owner_id = ?
+       ${year ? "AND YEAR(v.date) = ?" : ""}`,
+      year ? [company_id, owner_type, owner_id, year] : [company_id, owner_type, owner_id]
+    );
+
+    purchaseHistory.forEach(p => {
+      const item = itemMap[p.itemId];
+      const rate = getCombinedTaxRate(p.cgstRate, p.sgstRate, p.igstRate, p.purchaseLedgerId, item?.gstRate);
+      const amt = Number(p.amount || 0);
+      purchaseByRate[rate] = (purchaseByRate[rate] || 0) + amt;
+
+      const pLedger = ledgerMap.get(Number(p.purchaseLedgerId));
+      const pName = pLedger?.name?.toLowerCase() || "";
+      const isInter = pName.includes("inter") || Number(p.igstRate || 0) > 0;
+      if (isInter) {
+        purchaseInterByRate[rate] = (purchaseInterByRate[rate] || 0) + amt;
       } else {
-        const q = Number(item.openingBalance || 0);
-        const r = Number(item.openingRate || item.standardPurchaseRate || 0);
-        itemMap[itemId].openingQty += q;
-        itemMap[itemId].openingValue += q * r;
+        purchaseIntraByRate[rate] = (purchaseIntraByRate[rate] || 0) + amt;
+      }
+
+      if (item) {
+        const q = Number(p.purchaseQuantity || 0);
+        const v = q * Number(p.rate || 0);
+        item.inwardQty += q;
+        item.inwardValue += v;
       }
     });
 
-    purchaseHistory.forEach(p => {
-      const itemId = p.itemId;
-      if (!itemMap[itemId]) return;
-      const q = Number(p.purchaseQuantity || 0);
-      const v = q * Number(p.rate || 0);
-      itemMap[itemId].inwardQty += q;
-      itemMap[itemId].inwardValue += v;
+    // 5b. Accounting invoice purchases
+    const [acctPurchases] = await db.execute(
+      `SELECT id, subtotal, purchaseLedgerId, cgstTotal, sgstTotal, igstTotal, date
+       FROM purchase_vouchers
+       WHERE company_id = ? AND owner_type = ? AND owner_id = ? AND mode = 'accounting-invoice'
+       ${year ? "AND YEAR(date) = ?" : ""}`,
+      year ? [company_id, owner_type, owner_id, year] : [company_id, owner_type, owner_id]
+    );
+
+    acctPurchases.forEach(v => {
+      const l = ledgerMap.get(Number(v.purchaseLedgerId));
+      let rate = l ? extractRateFromName(l.name) : null;
+      if (rate === null) {
+        const sub = Number(v.subtotal || 0);
+        const tax = Number(v.cgstTotal || 0) + Number(v.sgstTotal || 0) + Number(v.igstTotal || 0);
+        rate = sub > 0 ? Math.round((tax / sub) * 100) : 0;
+      }
+      const amt = Number(v.subtotal || 0);
+      purchaseByRate[rate] = (purchaseByRate[rate] || 0) + amt;
+
+      const pName = l?.name?.toLowerCase() || "";
+      const isInter = pName.includes("inter") || Number(v.igstTotal || 0) > 0;
+      if (isInter) {
+        purchaseInterByRate[rate] = (purchaseInterByRate[rate] || 0) + amt;
+      } else {
+        purchaseIntraByRate[rate] = (purchaseIntraByRate[rate] || 0) + amt;
+      }
     });
+
+    // 6. Compute Sales by GST Rate
+    const salesByRate = {};
+    const salesIntraByRate = {};
+    const salesInterByRate = {};
+
+    // 6a. Item invoice sales
+    const [salesHistory] = await db.execute(
+      `SELECT i.itemId, i.quantity AS qtyChange, i.amount, i.cgstRate, i.sgstRate, i.igstRate, i.salesLedgerId, v.date
+       FROM sales_voucher_items i
+       JOIN sales_vouchers v ON i.voucherId = v.id
+       WHERE v.company_id = ? AND v.owner_type = ? AND v.owner_id = ?
+       ${year ? "AND YEAR(v.date) = ?" : ""}`,
+      year ? [company_id, owner_type, owner_id, year] : [company_id, owner_type, owner_id]
+    );
 
     salesHistory.forEach(s => {
-      const itemId = s.itemId;
-      if (!itemMap[itemId]) return;
-      const q = Math.abs(Number(s.qtyChange || 0));
-      itemMap[itemId].outwardQty += q;
+      const item = itemMap[s.itemId];
+      const rate = getCombinedTaxRate(s.cgstRate, s.sgstRate, s.igstRate, s.salesLedgerId, item?.gstRate);
+      const amt = Number(s.amount || 0);
+      salesByRate[rate] = (salesByRate[rate] || 0) + amt;
+
+      const sLedger = ledgerMap.get(Number(s.salesLedgerId));
+      const sName = sLedger?.name?.toLowerCase() || "";
+      const isInter = sName.includes("inter") || Number(s.igstRate || 0) > 0;
+      if (isInter) {
+        salesInterByRate[rate] = (salesInterByRate[rate] || 0) + amt;
+      } else {
+        salesIntraByRate[rate] = (salesIntraByRate[rate] || 0) + amt;
+      }
+
+      if (item) {
+        item.outwardQty += Math.abs(Number(s.qtyChange || 0));
+      }
     });
 
+    // 6b. Accounting invoice sales
+    const [acctSales] = await db.execute(
+      `SELECT id, subtotal, salesLedgerId, cgstTotal, sgstTotal, igstTotal, date
+       FROM sales_vouchers
+       WHERE company_id = ? AND owner_type = ? AND owner_id = ? AND mode = 'accounting-invoice'
+       ${year ? "AND YEAR(date) = ?" : ""}`,
+      year ? [company_id, owner_type, owner_id, year] : [company_id, owner_type, owner_id]
+    );
+
+    acctSales.forEach(v => {
+      const l = ledgerMap.get(Number(v.salesLedgerId));
+      let rate = l ? extractRateFromName(l.name) : null;
+      if (rate === null) {
+        const sub = Number(v.subtotal || 0);
+        const tax = Number(v.cgstTotal || 0) + Number(v.sgstTotal || 0) + Number(v.igstTotal || 0);
+        rate = sub > 0 ? Math.round((tax / sub) * 100) : 0;
+      }
+      const amt = Number(v.subtotal || 0);
+      salesByRate[rate] = (salesByRate[rate] || 0) + amt;
+
+      const sName = l?.name?.toLowerCase() || "";
+      const isInter = sName.includes("inter") || Number(v.igstTotal || 0) > 0;
+      if (isInter) {
+        salesInterByRate[rate] = (salesInterByRate[rate] || 0) + amt;
+      } else {
+        salesIntraByRate[rate] = (salesIntraByRate[rate] || 0) + amt;
+      }
+    });
+
+    // 7. Debit Notes (Purchase Returns)
+    const debitNoteByRate = {};
+    const [dnVouchers] = await db.execute(
+      `SELECT narration, date FROM debit_note_vouchers 
+       WHERE company_id = ? AND owner_type = ? AND owner_id = ?
+       ${year ? "AND YEAR(date) = ?" : ""}`,
+      year ? [company_id, owner_type, owner_id, year] : [company_id, owner_type, owner_id]
+    );
+
+    dnVouchers.forEach(v => {
+      if (!v.narration) return;
+      try {
+        const parsed = JSON.parse(v.narration);
+        (parsed.accountingEntries || []).forEach(e => {
+          const lid = Number(e.ledgerId);
+          const l = ledgerMap.get(lid);
+          if (!l) return;
+          const lname = l.name.toLowerCase();
+          if (lname.includes("purchase") || lname.includes("debit")) {
+            const rate = extractRateFromName(l.name) || 0;
+            debitNoteByRate[rate] = (debitNoteByRate[rate] || 0) + Number(e.amount || 0);
+          }
+        });
+      } catch (err) {}
+    });
+
+    // 8. Credit Notes (Sales Returns)
+    const creditNoteByRate = {};
+    const [cnVouchers] = await db.execute(
+      `SELECT narration, date FROM credit_vouchers 
+       WHERE company_id = ? AND owner_type = ? AND owner_id = ?
+       ${year ? "AND YEAR(date) = ?" : ""}`,
+      year ? [company_id, owner_type, owner_id, year] : [company_id, owner_type, owner_id]
+    );
+
+    cnVouchers.forEach(v => {
+      if (!v.narration) return;
+      try {
+        const parsed = JSON.parse(v.narration);
+        (parsed.accountingEntries || []).forEach(e => {
+          const lid = Number(e.ledgerId);
+          const l = ledgerMap.get(lid);
+          if (!l) return;
+          const lname = l.name.toLowerCase();
+          if (lname.includes("sales") || lname.includes("credit")) {
+            const rate = extractRateFromName(l.name) || 0;
+            creditNoteByRate[rate] = (creditNoteByRate[rate] || 0) + Number(e.amount || 0);
+          }
+        });
+      } catch (err) {}
+    });
+
+    // 9. Compute Closing Stock by rate using weighted average cost
     const closingStockByRate = {};
-    const closingStockByRateAndGroup = {}; // rate -> { groupName -> val }
-    const closingStockByRateAndItem = {}; // rate -> { itemName -> val }
+    const closingStockByRateAndGroup = {};
+    const closingStockByRateAndItem = {};
+
     Object.values(itemMap).forEach(item => {
       const rate = item.gstRate;
       const groupName = item.groupName;
@@ -1073,71 +1259,18 @@ router.get("/trading-account", async (req, res) => {
       const totalInValue = item.openingValue + item.inwardValue;
       const avgRate = totalInQty > 0 ? totalInValue / totalInQty : 0;
       const closingQty = totalInQty - item.outwardQty;
-      const closingValue = closingQty * avgRate;
+      const closingValue = Math.max(0, closingQty * avgRate);
 
-      const finalClosingVal = Math.max(0, closingValue);
-      closingStockByRate[rate] = (closingStockByRate[rate] || 0) + finalClosingVal;
+      closingStockByRate[rate] = (closingStockByRate[rate] || 0) + closingValue;
 
-      if (!closingStockByRateAndGroup[rate]) {
-        closingStockByRateAndGroup[rate] = {};
-      }
-      closingStockByRateAndGroup[rate][groupName] = (closingStockByRateAndGroup[rate][groupName] || 0) + finalClosingVal;
+      if (!closingStockByRateAndGroup[rate]) closingStockByRateAndGroup[rate] = {};
+      closingStockByRateAndGroup[rate][groupName] = (closingStockByRateAndGroup[rate][groupName] || 0) + closingValue;
 
-      if (!closingStockByRateAndItem[rate]) {
-        closingStockByRateAndItem[rate] = {};
-      }
-      closingStockByRateAndItem[rate][itemName] = (closingStockByRateAndItem[rate][itemName] || 0) + finalClosingVal;
+      if (!closingStockByRateAndItem[rate]) closingStockByRateAndItem[rate] = {};
+      closingStockByRateAndItem[rate][itemName] = (closingStockByRateAndItem[rate][itemName] || 0) + closingValue;
     });
 
-    // 5. Compute Purchases by GST Rate
-    const [purchaseItems] = await db.execute(
-      `SELECT i.amount, i.cgstRate, i.sgstRate, i.igstRate, 0.00 AS itemGstRate
-       FROM purchase_voucher_items i
-       JOIN purchase_vouchers v ON i.voucherId = v.id
-       LEFT JOIN stock_items s ON i.itemId = s.id
-       WHERE v.company_id = ? AND v.owner_type = ? AND v.owner_id = ?`,
-      [company_id, owner_type, owner_id]
-    );
-
-    const purchaseByRate = {};
-    purchaseItems.forEach(item => {
-      const cgst = getRateFromLedger(item.cgstRate);
-      const sgst = getRateFromLedger(item.sgstRate);
-      const igst = getRateFromLedger(item.igstRate);
-      
-      let rate = igst > 0 ? igst : (cgst + sgst);
-      if (rate === 0) {
-        rate = Number(item.itemGstRate || 0);
-      }
-      const amt = Number(item.amount || 0);
-      purchaseByRate[rate] = (purchaseByRate[rate] || 0) + amt;
-    });
-
-    // 6. Compute Sales by GST Rate
-    const [salesItems] = await db.execute(
-      `SELECT i.amount, i.cgstRate, i.sgstRate, i.igstRate, 0.00 AS itemGstRate
-       FROM sales_voucher_items i
-       JOIN sales_vouchers v ON i.voucherId = v.id
-       LEFT JOIN stock_items s ON i.itemId = s.id
-       WHERE v.company_id = ? AND v.owner_type = ? AND v.owner_id = ?`,
-      [company_id, owner_type, owner_id]
-    );
-
-    const salesByRate = {};
-    salesItems.forEach(item => {
-      const cgst = getRateFromLedger(item.cgstRate);
-      const sgst = getRateFromLedger(item.sgstRate);
-      const igst = getRateFromLedger(item.igstRate);
-      
-      let rate = igst > 0 ? igst : (cgst + sgst);
-      if (rate === 0) {
-        rate = Number(item.itemGstRate || 0);
-      }
-      const amt = Number(item.amount || 0);
-      salesByRate[rate] = (salesByRate[rate] || 0) + amt;
-    });
-
-    // 7. Compute Direct Expenses by GST Rate
+    // 10. Direct Expenses
     const [groups] = await db.execute(`SELECT id, name, parent FROM ledger_groups`);
     const directGroups = new Set([-7]);
     let added = true;
@@ -1151,85 +1284,122 @@ router.get("/trading-account", async (req, res) => {
       });
     }
 
-    const directLedgers = ledgers.filter(l => directGroups.has(Number(l.group_id)));
+    const directLedgers = Array.from(ledgerMap.values()).filter(l => {
+      const isDirect = directGroups.has(Number(l.group_id));
+      const lname = (l.name || "").toLowerCase();
+      const isTax = lname.includes("cgst") || lname.includes("sgst") || lname.includes("igst") || lname.includes("tax payable") || lname.includes("gst payable");
+      return isDirect && !isTax;
+    });
     const directExpensesByRate = {};
-    let commonExpenses = 0;
 
     for (const ledger of directLedgers) {
       const [entries] = await db.execute(
-        `SELECT 
-           SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE -amount END) AS balance
+        `SELECT SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE -amount END) AS balance
          FROM voucher_entries ve
          JOIN voucher_main v ON ve.voucher_id = v.id
-         WHERE ve.ledger_id = ? AND v.company_id = ? AND v.owner_type = ? AND v.owner_id = ?`,
-        [ledger.id, company_id, owner_type, owner_id]
+         WHERE ve.ledger_id = ? AND v.company_id = ? AND v.owner_type = ? AND v.owner_id = ?
+         ${year ? "AND YEAR(v.date) = ?" : ""}`,
+        year ? [ledger.id, company_id, owner_type, owner_id, year] : [ledger.id, company_id, owner_type, owner_id]
       );
-      
       const balance = Number(entries[0]?.balance || 0) + Number(ledger.opening_balance || 0);
       if (balance === 0) continue;
 
-      const match = ledger.name.match(/(\d+(\.\d+)?)/);
-      if (match) {
-        const rate = parseFloat(match[0]);
-        directExpensesByRate[rate] = (directExpensesByRate[rate] || 0) + balance;
-      } else {
-        commonExpenses += balance;
-      }
+      const rate = extractRateFromName(ledger.name);
+      const targetRate = rate !== null ? rate : 0;
+      directExpensesByRate[targetRate] = (directExpensesByRate[targetRate] || 0) + balance;
     }
 
-    const totalPurchase = Object.values(purchaseByRate).reduce((a, b) => a + b, 0);
-    if (commonExpenses > 0) {
-      if (totalPurchase > 0) {
-        Object.keys(purchaseByRate).forEach(rateStr => {
-          const rate = parseFloat(rateStr);
-          const pct = purchaseByRate[rate] / totalPurchase;
-          directExpensesByRate[rate] = (directExpensesByRate[rate] || 0) + (commonExpenses * pct);
-        });
-      } else {
-        directExpensesByRate[0] = (directExpensesByRate[0] || 0) + commonExpenses;
-      }
-    }
+    // 11. Normalize all rates dynamically from company trading ledgers, transactions, and stock items
+    // EXCLUDE GST tax ledgers (CGST, SGST, IGST) from generating trading heads
+    const tradingLedgers = Array.from(ledgerMap.values()).filter(l => {
+      const gid = Number(l.group_id);
+      const lname = (l.name || "").toLowerCase();
+      // Exclude tax groups (-103, -115, -6) and tax names
+      if (gid === -103 || gid === -115 || gid === -6) return false;
+      if (lname.includes("cgst") || lname.includes("sgst") || lname.includes("igst") || lname.includes("tax payable") || lname.includes("gst payable")) return false;
+      return gid === -15 || gid === -16 || gid === -7 || gid === -108 || lname.includes("purchase") || lname.includes("sales") || lname.includes("stock");
+    });
 
-    // 8. Collect all GST rates
-    const allRatesSet = new Set([
-      ...Object.keys(openingStockByRate).map(Number),
-      ...Object.keys(purchaseByRate).map(Number),
-      ...Object.keys(salesByRate).map(Number),
-      ...Object.keys(closingStockByRate).map(Number),
-      ...Object.keys(directExpensesByRate).map(Number)
-    ]);
-    const rates = Array.from(allRatesSet).sort((a, b) => a - b);
+    const dataRates = new Set();
 
-    // Build the final response list
-    const tradingAccount = rates.map(rate => {
-      const openingStock = openingStockByRate[rate] || 0;
-      const purchase = purchaseByRate[rate] || 0;
-      const directExpense = directExpensesByRate[rate] || 0;
-      const sales = salesByRate[rate] || 0;
-      const closingStock = closingStockByRate[rate] || 0;
+    // Rates from trading transactions with data
+    Object.keys(openingStockByRate).forEach(r => { if (Number(openingStockByRate[r]) > 0) dataRates.add(Number(r)); });
+    Object.keys(purchaseByRate).forEach(r => { if (Number(purchaseByRate[r]) !== 0) dataRates.add(Number(r)); });
+    Object.keys(salesByRate).forEach(r => { if (Number(salesByRate[r]) !== 0) dataRates.add(Number(r)); });
+    Object.keys(closingStockByRate).forEach(r => { if (Number(closingStockByRate[r]) > 0) dataRates.add(Number(r)); });
+    Object.keys(directExpensesByRate).forEach(r => { if (Number(directExpensesByRate[r]) > 0) dataRates.add(Number(r)); });
+    Object.keys(debitNoteByRate).forEach(r => { if (Number(debitNoteByRate[r]) !== 0) dataRates.add(Number(r)); });
+    Object.keys(creditNoteByRate).forEach(r => { if (Number(creditNoteByRate[r]) !== 0) dataRates.add(Number(r)); });
 
-      const totalDebits = openingStock + purchase + directExpense;
-      const totalCredits = sales + closingStock;
-      const grossProfit = totalCredits - totalDebits;
+    // Rates from existing company trading ledgers (Purchase, Sales, Stock)
+    tradingLedgers.forEach(l => {
+      const r = extractRateFromName(l.name);
+      if (r !== null) dataRates.add(r);
+    });
+
+    // If company has no rates at all, fallback to [0]
+    if (dataRates.size === 0) dataRates.add(0);
+
+    const allRates = Array.from(dataRates).sort((a, b) => a - b);
+
+    // 12. Build rate-wise rows
+    const tradingAccount = allRates.map(rate => {
+      const openingStock = Number((openingStockByRate[rate] || 0).toFixed(2));
+      const grossPurchase = Number((purchaseByRate[rate] || 0).toFixed(2));
+      const purchaseIntra = Number((purchaseIntraByRate[rate] || 0).toFixed(2));
+      const purchaseInter = Number((purchaseInterByRate[rate] || 0).toFixed(2));
+      const debitNote = Number((debitNoteByRate[rate] || 0).toFixed(2));
+      const purchase = Number((grossPurchase - debitNote).toFixed(2));
+
+      const totalStockPlusPurchase = Number((openingStock + purchase).toFixed(2));
+      const directExpense = Number((directExpensesByRate[rate] || 0).toFixed(2));
+      const totalDebitBeforeGP = Number((totalStockPlusPurchase + directExpense).toFixed(2));
+
+      const grossSales = Number((salesByRate[rate] || 0).toFixed(2));
+      const salesIntra = Number((salesIntraByRate[rate] || 0).toFixed(2));
+      const salesInter = Number((salesInterByRate[rate] || 0).toFixed(2));
+      const creditNote = Number((creditNoteByRate[rate] || 0).toFixed(2));
+      const sales = Number((grossSales - creditNote).toFixed(2));
+
+      const closingStock = Number((closingStockByRate[rate] || 0).toFixed(2));
+      const totalCredit = Number((sales + closingStock).toFixed(2));
+
+      // Accounting Balancing:
+      const grossProfit = Number((totalCredit - totalDebitBeforeGP).toFixed(2));
+      const totalDebitSide = grossProfit >= 0 ? Number((totalDebitBeforeGP + grossProfit).toFixed(2)) : totalDebitBeforeGP;
+      const totalCreditSide = grossProfit >= 0 ? totalCredit : Number((totalCredit + Math.abs(grossProfit)).toFixed(2));
 
       return {
         gstRate: rate,
         openingStock,
         openingStockByGroup: openingStockByRateAndGroup[rate] || {},
         openingStockByItem: openingStockByRateAndItem[rate] || {},
+        grossPurchase,
         purchase,
+        purchaseIntra,
+        purchaseInter,
+        debitNote,
+        totalStockPlusPurchase,
         directExpense,
+        totalDebitBeforeGP,
+        grossProfit,
+        totalDebitSide,
+        grossSales,
         sales,
+        salesIntra,
+        salesInter,
+        creditNote,
         closingStock,
         closingStockByGroup: closingStockByRateAndGroup[rate] || {},
         closingStockByItem: closingStockByRateAndItem[rate] || {},
-        grossProfit
+        totalCreditSide
       };
     });
 
     res.json({
       success: true,
-      data: tradingAccount
+      data: tradingAccount,
+      rates: allRates
     });
 
   } catch (error) {

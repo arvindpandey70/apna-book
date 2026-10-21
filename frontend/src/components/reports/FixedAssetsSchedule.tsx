@@ -349,8 +349,8 @@ const FixedAssetsSchedule: React.FC<FixedAssetsScheduleProps> = ({ embedded = fa
       `ADDITION AFTER ${finYearDates.cutoffDateStr}`,
       `SALES BEFORE ${finYearDates.cutoffDateStr}`,
       `SALES AFTER ${finYearDates.cutoffDateStr}`,
-      "RATE OF DEPRECIATION (%)",
       "Ds & PL Account",
+      "RATE OF DEPRECIATION (%)",
       "AMOUNT OF DEP.",
       `NET BLOCK AS ON ${finYearDates.endDateStr}`,
     ];
@@ -365,8 +365,8 @@ const FixedAssetsSchedule: React.FC<FixedAssetsScheduleProps> = ({ embedded = fa
         r.additionAfter.toFixed(2),
         r.salesBefore.toFixed(2),
         r.salesAfter.toFixed(2),
-        `${r.depreciationRate}%`,
         calcDep.toFixed(2),
+        `${r.depreciationRate}%`,
         r.depreciationAmount.toFixed(2),
         r.netBlock.toFixed(2),
       ];
@@ -380,8 +380,8 @@ const FixedAssetsSchedule: React.FC<FixedAssetsScheduleProps> = ({ embedded = fa
       totals.additionAfter.toFixed(2),
       totals.salesBefore.toFixed(2),
       totals.salesAfter.toFixed(2),
-      "",
       totals.calculatedDep.toFixed(2),
+      "",
       totals.depreciationAmount.toFixed(2),
       totals.netBlock.toFixed(2),
     ];
@@ -505,11 +505,11 @@ const FixedAssetsSchedule: React.FC<FixedAssetsScheduleProps> = ({ embedded = fa
                   <th colSpan={2} className="border border-gray-400 dark:border-gray-600 p-1">
                     SALES
                   </th>
-                  <th rowSpan={2} className="border border-gray-400 dark:border-gray-600 p-2 w-28">
-                    RATE OF DEPRECIATION
-                  </th>
-                  <th rowSpan={2} className="border border-gray-400 dark:border-gray-600 p-2 min-w-[110px]">
+                  <th rowSpan={2} className="border border-red-400 dark:border-red-600 p-2 min-w-[110px] text-red-600 dark:text-red-400 bg-red-50/50 dark:bg-red-950/20 font-bold">
                     Ds & PL Account
+                  </th>
+                  <th rowSpan={2} className="border border-red-400 dark:border-red-600 p-2 w-28 text-red-600 dark:text-red-400 bg-red-50/50 dark:bg-red-950/20 font-bold">
+                    RATE OF DEPRECIATION
                   </th>
                   <th rowSpan={2} className="border border-gray-400 dark:border-gray-600 p-2 min-w-[110px]">
                     AMOUNT OF DEP.
@@ -588,32 +588,19 @@ const FixedAssetsSchedule: React.FC<FixedAssetsScheduleProps> = ({ embedded = fa
                           {row.salesAfter !== 0 ? formatINR(row.salesAfter) : "-"}
                         </td>
 
-                        {/* RATE OF DEPRECIATION */}
-                        <td className="border border-gray-400 dark:border-gray-600 p-2 text-center font-mono font-semibold">
-                          {row.depreciationRate ? `${row.depreciationRate}%` : "0%"}
-                        </td>
-
                         {/* DS & PL ACCOUNT (CALC VALUE) */}
-                        <td className="border border-gray-400 dark:border-gray-600 p-2 text-right font-mono">
+                        <td className="border border-red-400 dark:border-red-600 p-2 text-right font-mono font-semibold text-red-600 dark:text-red-400 bg-red-50/40 dark:bg-red-950/20">
                           {formatINR(calcVal)}
                         </td>
 
+                        {/* RATE OF DEPRECIATION */}
+                        <td className="border border-red-400 dark:border-red-600 p-2 text-center font-mono font-bold text-red-600 dark:text-red-400 bg-red-50/40 dark:bg-red-950/20">
+                          {row.depreciationRate ? `${row.depreciationRate}%` : "0%"}
+                        </td>
+
                         {/* AMOUNT OF DEP. */}
-                        <td className="border border-gray-400 dark:border-gray-600 p-1 text-right font-mono">
-                          <div className="flex flex-col items-end">
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              value={row.depreciationAmount === 0 ? "" : row.depreciationAmount.toFixed(2)}
-                              placeholder="0.00"
-                              onChange={(e) => handleDepAmountChange(row.ledgerId, parseFloat(e.target.value) || 0)}
-                              className={`w-20 text-right p-1 border rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 print:hidden ${
-                                isDark ? "bg-gray-900 border-gray-600 text-white" : "bg-white border-gray-300 text-gray-900"
-                              }`}
-                            />
-                            <span className="hidden print:inline">{formatINR(row.depreciationAmount)}</span>
-                          </div>
+                        <td className="border border-gray-400 dark:border-gray-600 p-2 text-right font-mono">
+                          <p>{formatINR(row.depreciationAmount)}</p>
                         </td>
 
                         {/* NET BLOCK AS ON END */}
@@ -647,11 +634,13 @@ const FixedAssetsSchedule: React.FC<FixedAssetsScheduleProps> = ({ embedded = fa
                   <td className="border border-gray-400 dark:border-gray-600 p-2 text-right font-mono">
                     {totals.salesAfter !== 0 ? formatINR(totals.salesAfter) : "-"}
                   </td>
-                  <td className="border border-gray-400 dark:border-gray-600 p-2 text-center">
-                    —
-                  </td>
-                  <td className="border border-gray-400 dark:border-gray-600 p-2 text-right font-mono">
+                  {/* DS & PL ACCOUNT TOTAL */}
+                  <td className="border border-red-400 dark:border-red-600 p-2 text-right font-mono font-bold text-red-600 dark:text-red-400 bg-red-50/50 dark:bg-red-950/20">
                     {formatINR(totals.calculatedDep)}
+                  </td>
+                  {/* RATE OF DEPRECIATION TOTAL */}
+                  <td className="border border-red-400 dark:border-red-600 p-2 text-center font-bold text-red-600 dark:text-red-400 bg-red-50/50 dark:bg-red-950/20">
+                    —
                   </td>
                   <td className="border border-gray-400 dark:border-gray-600 p-2 text-right font-mono">
                     {formatINR(totals.depreciationAmount)}
