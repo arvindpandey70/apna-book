@@ -82,6 +82,57 @@ const VOUCHER_TYPES = [
   { key: "Credit Note", label: "Credit Note", color: "bg-teal-500" },
 ];
 
+const QUARTERS = [
+  { key: "Q1", label: "Q1 (Apr - Jun)" },
+  { key: "Q2", label: "Q2 (Jul - Sep)" },
+  { key: "Q3", label: "Q3 (Oct - Dec)" },
+  { key: "Q4", label: "Q4 (Jan - Mar)" },
+];
+
+const getCurrentQuarterKey = () => {
+  const m = new Date().getMonth();
+  if (m >= 3 && m <= 5) return "Q1";
+  if (m >= 6 && m <= 8) return "Q2";
+  if (m >= 9 && m <= 11) return "Q3";
+  return "Q4";
+};
+
+const getQuarterDateRange = (quarterKey: string, baseYear?: number) => {
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth();
+  const defaultFyStartYear = currentMonth >= 3 ? currentYear : currentYear - 1;
+  const fyStartYear = baseYear !== undefined ? baseYear : defaultFyStartYear;
+
+  switch (quarterKey) {
+    case "Q1":
+      return {
+        fromDate: `${fyStartYear}-04-01`,
+        toDate: `${fyStartYear}-06-30`,
+      };
+    case "Q2":
+      return {
+        fromDate: `${fyStartYear}-07-01`,
+        toDate: `${fyStartYear}-09-30`,
+      };
+    case "Q3":
+      return {
+        fromDate: `${fyStartYear}-10-01`,
+        toDate: `${fyStartYear}-12-31`,
+      };
+    case "Q4":
+      return {
+        fromDate: `${fyStartYear + 1}-01-01`,
+        toDate: `${fyStartYear + 1}-03-31`,
+      };
+    default:
+      return {
+        fromDate: `${fyStartYear}-04-01`,
+        toDate: `${fyStartYear}-06-30`,
+      };
+  }
+};
+
 const AccountSummary: React.FC = () => {
   const { theme } = useAppContext();
   const { companyInfo } = useCompany();
@@ -103,6 +154,7 @@ const AccountSummary: React.FC = () => {
   const fyEndDate = `${fyStartYear + 1}-03-31`;
 
   const [selectedDateRange, setSelectedDateRange] = useState("current-year");
+  const [selectedQuarter, setSelectedQuarter] = useState<string>(() => getCurrentQuarterKey());
   const [fromDate, setFromDate] = useState(fyStartDate);
   const [toDate, setToDate] = useState(fyEndDate);
 
@@ -194,6 +246,22 @@ const AccountSummary: React.FC = () => {
     }).format(validAmt);
   };
 
+  // Helper to extract financial year start year
+  const getBaseFyYear = () => {
+    if (fromDate) {
+      const parts = fromDate.split("-");
+      if (parts.length === 3) {
+        const y = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10) - 1;
+        if (!isNaN(y) && !isNaN(m)) {
+          return m >= 3 ? y : y - 1;
+        }
+      }
+    }
+    const today = new Date();
+    return today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1;
+  };
+
   // Handle Date Range Presets
   const handleDateRangeChange = (range: string) => {
     setSelectedDateRange(range);
@@ -223,9 +291,26 @@ const AccountSummary: React.FC = () => {
         setToDate(`${startYear + 1}-03-31`);
         break;
       }
+      case "quarter": {
+        const baseYear = getBaseFyYear();
+        const qKey = selectedQuarter || getCurrentQuarterKey();
+        const { fromDate: qFrom, toDate: qTo } = getQuarterDateRange(qKey, baseYear);
+        setFromDate(qFrom);
+        setToDate(qTo);
+        break;
+      }
       default:
         break;
     }
+  };
+
+  // Handle Quarter Change
+  const handleQuarterChange = (qKey: string) => {
+    setSelectedQuarter(qKey);
+    const baseYear = getBaseFyYear();
+    const { fromDate: qFrom, toDate: qTo } = getQuarterDateRange(qKey, baseYear);
+    setFromDate(qFrom);
+    setToDate(qTo);
   };
 
   // Filtered Ledgers based on search term
@@ -524,7 +609,7 @@ const AccountSummary: React.FC = () => {
             : "bg-white border-slate-200 shadow-sm"
         } space-y-4`}
       >
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className={`grid grid-cols-1 ${selectedDateRange === "quarter" ? "md:grid-cols-3" : "md:grid-cols-4"} gap-4`}>
           {/* Preset Date Selector */}
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
@@ -543,51 +628,82 @@ const AccountSummary: React.FC = () => {
                 <option value="current-year">Current Financial Year</option>
                 <option value="current-month">Current Month</option>
                 <option value="previous-month">Previous Month</option>
+                <option value="quarter">Quarter</option>
                 <option value="custom">Custom Date Range</option>
               </select>
               <ChevronDown className="w-4 h-4 absolute right-3 top-3 pointer-events-none opacity-50" />
             </div>
           </div>
 
-          {/* From Date */}
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-              From Date
-            </label>
-            <input
-              type="date"
-              value={fromDate}
-              onChange={(e) => {
-                setFromDate(e.target.value);
-                setSelectedDateRange("custom");
-              }}
-              className={`w-full p-2.5 rounded-lg border text-sm ${
-                theme === "dark"
-                  ? "bg-slate-900 border-slate-700 text-slate-100"
-                  : "bg-slate-50 border-slate-300 text-slate-900"
-              }`}
-            />
-          </div>
+          {/* Quarter Dropdown Selector */}
+          {selectedDateRange === "quarter" && (
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                Select Quarter
+              </label>
+              <div className="relative">
+                <select
+                  value={selectedQuarter}
+                  onChange={(e) => handleQuarterChange(e.target.value)}
+                  className={`w-full p-2.5 rounded-lg border text-sm appearance-none font-medium ${
+                    theme === "dark"
+                      ? "bg-slate-900 border-slate-700 text-slate-100 focus:border-indigo-500"
+                      : "bg-slate-50 border-slate-300 text-slate-900 focus:border-indigo-500"
+                  }`}
+                >
+                  {QUARTERS.map((q) => (
+                    <option key={q.key} value={q.key}>
+                      {q.label}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="w-4 h-4 absolute right-3 top-3 pointer-events-none opacity-50" />
+              </div>
+            </div>
+          )}
 
-          {/* To Date */}
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-              To Date
-            </label>
-            <input
-              type="date"
-              value={toDate}
-              onChange={(e) => {
-                setToDate(e.target.value);
-                setSelectedDateRange("custom");
-              }}
-              className={`w-full p-2.5 rounded-lg border text-sm ${
-                theme === "dark"
-                  ? "bg-slate-900 border-slate-700 text-slate-100"
-                  : "bg-slate-50 border-slate-300 text-slate-900"
-              }`}
-            />
-          </div>
+          {/* From Date & To Date (Hidden when Quarter is selected) */}
+          {selectedDateRange !== "quarter" && (
+            <>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                  From Date
+                </label>
+                <input
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => {
+                    setFromDate(e.target.value);
+                    setSelectedDateRange("custom");
+                  }}
+                  className={`w-full p-2.5 rounded-lg border text-sm ${
+                    theme === "dark"
+                      ? "bg-slate-900 border-slate-700 text-slate-100"
+                      : "bg-slate-50 border-slate-300 text-slate-900"
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                  To Date
+                </label>
+                <input
+                  type="date"
+                  value={toDate}
+                  onChange={(e) => {
+                    setToDate(e.target.value);
+                    setSelectedDateRange("custom");
+                  }}
+                  className={`w-full p-2.5 rounded-lg border text-sm ${
+                    theme === "dark"
+                      ? "bg-slate-900 border-slate-700 text-slate-100"
+                      : "bg-slate-50 border-slate-300 text-slate-900"
+                  }`}
+                />
+              </div>
+            </>
+          )}
 
           {/* Select Ledger Dropdown / Searchable Select */}
           <div>
