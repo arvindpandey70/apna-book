@@ -13,11 +13,13 @@ import {
   X,
   Sparkles,
   Layers,
+  UserPlus,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import * as XLSX from "xlsx-js-style";
 import axios from "axios";
 import Swal from "sweetalert2";
+import { allSystemGroups } from "../../../constants/ledgerGroups";
 import * as pdfjsLib from "pdfjs-dist";
 import * as Tesseract from "tesseract.js";
 import {
@@ -169,6 +171,7 @@ const BankStatementImport: React.FC = () => {
   >("import");
   const [isMatchingDB, setIsMatchingDB] = useState(false);
   const [saveProgress, setSaveProgress] = useState({ done: 0, total: 0 });
+  const [isSavingToCreditors, setIsSavingToCreditors] = useState(false);
 
   // Premium OCR & Duplicates States
   const [daybookVouchers, setDaybookVouchers] = useState<any[]>([]);
@@ -205,10 +208,54 @@ const BankStatementImport: React.FC = () => {
           },
         }
       );
-      setLedgerGroups((response.data as any[]) || []);
+      const dbGroups = Array.isArray(response.data) ? response.data : [];
+      setLedgerGroups([...allSystemGroups, ...dbGroups]);
     } catch (error) {
       console.error("Error fetching ledger groups:", error);
+      setLedgerGroups([...allSystemGroups]);
     }
+  };
+
+  const unmappedTraderNames = useMemo(() => {
+    if (!importedRows || importedRows.length === 0) return [];
+    // Key by lowercase to strictly guarantee only 1 ledger is saved even if there are 5, 6 or more entries
+    const uniqueMap = new Map<string, string>();
+    importedRows.forEach((row) => {
+      if (!row.particularsMatch && row.Particulars) {
+        const cleanName = row.Particulars.trim();
+        const lowerKey = cleanName.toLowerCase();
+        if (cleanName && !cleanName.toUpperCase().includes("SUSPENSE")) {
+          const exists = ledgers.some(
+            (l) => l.name && l.name.toLowerCase().trim() === lowerKey
+          );
+          if (!exists && !uniqueMap.has(lowerKey)) {
+            uniqueMap.set(lowerKey, cleanName);
+          }
+        }
+      }
+    });
+    return Array.from(uniqueMap.values());
+  }, [importedRows, ledgers]);
+
+  const findSundryCreditorsGroup = () => {
+    const dbGroup = ledgerGroups.find(
+      (g) =>
+        g.name &&
+        g.name.toLowerCase().trim() === "sundry creditors" &&
+        Number(g.id) > 0
+    );
+    if (dbGroup) return dbGroup;
+
+    const anyGroup = ledgerGroups.find(
+      (g) => g.name && g.name.toLowerCase().trim() === "sundry creditors"
+    );
+    if (anyGroup) return anyGroup;
+
+    return (
+      allSystemGroups.find(
+        (g) => g.name.toLowerCase().trim() === "sundry creditors"
+      ) || { id: -109, name: "Sundry Creditors" }
+    );
   };
 
   const fetchLedgers = async () => {
@@ -625,7 +672,7 @@ const BankStatementImport: React.FC = () => {
       const particularsName = extractedName || rawParticulars;
 
       const matchedParticulars = ledgers.find(
-        (l) => l.name.toLowerCase() === particularsName.toLowerCase()
+        (l) => l.name && l.name.toLowerCase().trim() === particularsName.toLowerCase().trim()
       );
       const isParticularsMatch = !!matchedParticulars;
 
@@ -1688,7 +1735,7 @@ const BankStatementImport: React.FC = () => {
       if (updatedFields.Particulars !== undefined) {
         const particularsName = updatedFields.Particulars.trim();
         const matchedParticulars = ledgers.find(
-          (l) => l.name.toLowerCase() === particularsName.toLowerCase()
+          (l) => l.name && l.name.toLowerCase().trim() === particularsName.toLowerCase().trim()
         );
         row.particularsMatch = !!matchedParticulars;
         row.particularsId = matchedParticulars
@@ -1728,6 +1775,300 @@ const BankStatementImport: React.FC = () => {
       newRows[index] = row;
       return newRows;
     });
+  };
+
+  const handleSaveToSundryCreditors = async () => {
+    if (isSavingToCreditors || isProcessing) return;
+
+    if (unmappedTraderNames.length === 0) {
+      Swal.fire({
+        icon: "info",
+        title: "All Ledgers Exist",
+        text: "The trader ledgers for these transactions already exist in your system.",
+      });
+      return;
+    }
+
+    const selectedBankLedger = ledgers.find(
+      (l) => String(l.id) === String(excelBankId)
+    );
+
+    if (!selectedBankLedger && !excelBankMatch) {
+      Swal.fire({
+        icon: "warning",
+        title: "Bank Ledger Required",
+        text: "Please select a valid Bank Account ledger from the dropdown above before saving.",
+      });
+      return;
+    }
+
+    const bankLedgerName = selectedBankLedger
+      ? selectedBankLedger.name
+      : ledgers.find((l) => isBankLedgerMatch(l.name, excelBankName))?.name ||
+        excelBankName;
+
+    const sundryCreditorsGroup = findSundryCreditorsGroup();
+    if (!sundryCreditorsGroup) {
+      Swal.fire({
+        icon: "error",
+        title: "Group Not Found",
+        text: "Sundry Creditors group could not be found. Please check your Group Master.",
+      });
+      return;
+    }
+
+    setIsSavingToCreditors(true);
+    let currentLedgers = [...ledgers];
+    let updatedRows = [...importedRows];
+    const savedTraderNames: string[] = [];
+
+    try {
+      // 1. Save or resolve each missing trader ledger first
+      for (const traderName of unmappedTraderNames) {
+        let existing = currentLedgers.find(
+          (l) => l.name && l.name.toLowerCase().trim() === traderName.toLowerCase().trim()
+        );
+
+        let resolvedLedger: any = existing;
+
+        if (!resolvedLedger) {
+          try {
+            const createRes = await axios.post(
+              `${import.meta.env.VITE_API_URL}/api/ledger`,
+              {
+                name: traderName,
+                groupId: sundryCreditorsGroup.id,
+                balanceType: "credit",
+                openingBalance: 0,
+                companyId,
+                ownerType,
+                ownerId,
+                reuseIfExists: true,
+              }
+            );
+
+            resolvedLedger = createRes.data?.ledger;
+            if (!resolvedLedger) {
+              throw new Error(createRes.data?.message || "Failed to create ledger");
+            }
+          } catch (err: any) {
+            const errMsg =
+              err.response?.data?.message || err.message || "Failed to save ledger";
+            Swal.fire({
+              icon: "error",
+              title: "Ledger Creation Failed",
+              text: `Could not save ledger '${traderName}': ${errMsg}`,
+            });
+            setIsSavingToCreditors(false);
+            return;
+          }
+        }
+
+        // Add to current ledgers list if not present
+        if (!currentLedgers.some((l) => l.id === resolvedLedger.id)) {
+          currentLedgers = [...currentLedgers, resolvedLedger];
+        }
+        savedTraderNames.push(resolvedLedger.name || traderName);
+
+        // Update rows matching this trader
+        updatedRows = updatedRows.map((row) => {
+          if (
+            row.Particulars &&
+            row.Particulars.toLowerCase().trim() === traderName.toLowerCase().trim()
+          ) {
+            let newError = row.errorMessage || "";
+            newError = newError
+              .replace(new RegExp(`Ledger '${row.Particulars}' not found\\.?`, "gi"), "")
+              .trim();
+
+            const isBankOk = !!(selectedBankLedger || excelBankMatch);
+            const newStatus = isBankOk && !newError ? "pending" : "error";
+
+            return {
+              ...row,
+              Particulars: resolvedLedger.name || traderName,
+              particularsMatch: true,
+              particularsId: resolvedLedger.id,
+              status: newStatus,
+              errorMessage: newError || undefined,
+            };
+          }
+          return row;
+        });
+      }
+
+      // Update state so UI reflects the resolved ledgers and rows
+      setLedgers(currentLedgers);
+      setImportedRows([...updatedRows]);
+
+      // 2. Save the transaction entries for the resolved trader(s)
+      const pendingRows = updatedRows.filter(
+        (r) => r.status === "pending" && !(skipDuplicates && r.skipImport)
+      );
+
+      setSaveProgress({ done: 0, total: pendingRows.length });
+
+      // Mark matching rows as importing
+      updatedRows.forEach((r, i) => {
+        if (r.status === "pending" && !(skipDuplicates && r.skipImport)) {
+          updatedRows[i] = { ...r, status: "importing" };
+        }
+      });
+      setImportedRows([...updatedRows]);
+
+      let done = 0;
+      let savedCount = 0;
+      let errorCount = 0;
+
+      for (let i = 0; i < updatedRows.length; i++) {
+        const row = updatedRows[i];
+        if (row.status !== "importing") continue;
+
+        let endpoint = "";
+        let payload: any = {};
+
+        if (row.VoucherTargetType === "payment") {
+          endpoint = "/api/payment_import";
+          payload = {
+            rows: [
+              {
+                Date: row.Date,
+                "Paid To": row.Particulars,
+                "Payment Mode": bankLedgerName,
+                Amount: row.Debit,
+                Narration: row.Narration,
+                "Reference No": row["Reference number"],
+              },
+            ],
+            companyId,
+            ownerType,
+            ownerId,
+          };
+        } else if (row.VoucherTargetType === "receipt") {
+          endpoint = "/api/receipt_import";
+          payload = {
+            rows: [
+              {
+                Date: row.Date,
+                "Paid To": row.Particulars,
+                "Payment Mode": bankLedgerName,
+                Amount: row.Credit,
+                Narration: row.Narration,
+                "Reference No": row["Reference number"],
+              },
+            ],
+            companyId,
+            ownerType,
+            ownerId,
+          };
+        } else if (row.VoucherTargetType === "contra") {
+          endpoint = "/api/contra_import";
+          payload = {
+            rows: [
+              {
+                Date: row.Date,
+                "Debit Ledger": row.Particulars,
+                "Credit Ledger": bankLedgerName,
+                Amount: row.Debit,
+                Narration: row.Narration,
+                "Reference No": row["Reference number"],
+              },
+            ],
+            companyId,
+            ownerType,
+            ownerId,
+          };
+        } else if (row.VoucherTargetType === "journal") {
+          endpoint = "/api/journal_import";
+          payload = {
+            rows: [
+              {
+                Date: row.Date,
+                "Debit Ledger": bankLedgerName,
+                "Credit Ledger": row.Particulars,
+                Amount: row.Credit,
+                Narration: row.Narration,
+                "Reference No": row["Reference number"],
+              },
+            ],
+            companyId,
+            ownerType,
+            ownerId,
+          };
+        } else {
+          continue;
+        }
+
+        try {
+          const res = await axios.post(
+            `${import.meta.env.VITE_API_URL}${endpoint}`,
+            payload
+          );
+          const resData = res.data as any;
+          if (resData.success) {
+            updatedRows[i] = {
+              ...updatedRows[i],
+              status: "imported",
+              errorMessage: undefined,
+            };
+            savedCount++;
+          } else {
+            updatedRows[i] = {
+              ...updatedRows[i],
+              status: "error",
+              errorMessage:
+                resData.message ||
+                (resData.errors && resData.errors[0]) ||
+                "Backend error",
+            };
+            errorCount++;
+          }
+        } catch (err: any) {
+          errorCount++;
+          updatedRows[i] = {
+            ...updatedRows[i],
+            status: "error",
+            errorMessage: err.response?.data?.message || err.message || "Failed",
+          };
+        }
+
+        done++;
+        setSaveProgress({ done, total: pendingRows.length });
+        setImportedRows([...updatedRows]);
+      }
+
+      if (savedCount > 0) {
+        Swal.fire({
+          icon: "success",
+          title: "Saved to Sundry Creditors!",
+          html: `Trader ledger <b>${savedTraderNames.join(
+            ", "
+          )}</b> was saved under <b>Sundry Creditors</b> and <b>${savedCount}</b> transaction entries were imported successfully!${
+            errorCount > 0
+              ? `<br/><span style="color:#e53e3e">${errorCount} rows had errors.</span>`
+              : ""
+          }`,
+          confirmButtonColor: "#2563eb",
+        });
+      } else if (errorCount > 0) {
+        Swal.fire({
+          icon: "warning",
+          title: "Ledger Saved, Entries Had Errors",
+          html: `Trader ledger <b>${savedTraderNames.join(
+            ", "
+          )}</b> was saved, but <b>${errorCount}</b> entries encountered issues. Please review the table and retry.`,
+        });
+      }
+    } catch (globalErr: any) {
+      console.error("Error in handleSaveToSundryCreditors:", globalErr);
+      Swal.fire({
+        icon: "error",
+        title: "Unexpected Error",
+        text: globalErr.message || "An unexpected error occurred during save.",
+      });
+    } finally {
+      setIsSavingToCreditors(false);
+    }
   };
 
   const saveImportedVouchers = async () => {
@@ -2316,6 +2657,25 @@ const BankStatementImport: React.FC = () => {
                 >
                   Start Over
                 </button>
+                {unmappedTraderNames.length > 0 && (
+                  <button
+                    onClick={handleSaveToSundryCreditors}
+                    disabled={isSavingToCreditors || isProcessing}
+                    className="flex items-center space-x-2 px-5 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:bg-gray-300 transition-colors font-medium shadow"
+                  >
+                    {isSavingToCreditors ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        <span>Saving...</span>
+                      </>
+                    ) : (
+                      <>
+                        <UserPlus className="h-4 w-4" />
+                        <span>Save to Sundry Creditors</span>
+                      </>
+                    )}
+                  </button>
+                )}
                 <button
                   onClick={saveImportedVouchers}
                   disabled={
@@ -2419,6 +2779,45 @@ const BankStatementImport: React.FC = () => {
                   </div>
                 </div>
               </div>
+
+              {/* Unmapped Trader - Save to Sundry Creditors Banner */}
+              {unmappedTraderNames.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
+                  <div className="flex items-start space-x-3">
+                    <div className="p-2 bg-amber-100 rounded-lg text-amber-700 flex-shrink-0 mt-0.5">
+                      <AlertTriangle className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold text-amber-900 flex items-center space-x-2">
+                        <span>Missing Ledger:</span>
+                        <span className="font-mono bg-amber-100 px-2 py-0.5 rounded text-amber-800">
+                          {unmappedTraderNames.join(", ")}
+                        </span>
+                      </div>
+                      <p className="text-xs text-amber-700 mt-1">
+                        The extracted trader name does not exist in your ledger master. You can save it under the existing <strong>Sundry Creditors</strong> group and import all associated transactions now.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleSaveToSundryCreditors}
+                    disabled={isSavingToCreditors || isProcessing}
+                    className="flex items-center space-x-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-sm rounded-lg shadow transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex-shrink-0"
+                  >
+                    {isSavingToCreditors ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        <span>Saving to Sundry Creditors...</span>
+                      </>
+                    ) : (
+                      <>
+                        <UserPlus className="h-4 w-4" />
+                        <span>Save to Sundry Creditors</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
 
               <div className="bg-white border rounded-lg overflow-hidden shadow-sm">
                 <div className="overflow-x-auto">
