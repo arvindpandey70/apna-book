@@ -49,7 +49,7 @@ router.get("/check-duplicate", async (req, res) => {
     const params = [company_id, owner_type, owner_id];
 
     if (name) {
-      sql += ` AND name = ?`;
+      sql += ` AND LOWER(TRIM(name)) = LOWER(TRIM(?))`;
       params.push(name);
     } else if (gst_number) {
       sql += ` AND gst_number = ?`;
@@ -62,7 +62,11 @@ router.get("/check-duplicate", async (req, res) => {
     }
 
     const [rows] = await db.execute(sql, params);
-    res.json({ exists: rows.length > 0, ledgerName: rows.length > 0 ? rows[0].name : null });
+    res.json({
+      exists: rows.length > 0,
+      ledgerId: rows.length > 0 ? rows[0].id : null,
+      ledgerName: rows.length > 0 ? rows[0].name : null,
+    });
   } catch (err) {
     console.error("Error checking duplicate ledger:", err);
     res.status(500).json({ message: "Internal server error" });
@@ -155,17 +159,23 @@ router.post("/", async (req, res) => {
   }
 
   try {
-    // 🔍 Check if ledger name already exists for this company/owner
+    // 🔍 Check if ledger name already exists for this company/owner (case-insensitive)
     const [existingLedger] = await db.execute(
-      `SELECT id FROM ledgers 
-       WHERE name = ? 
+      `SELECT id, name, group_id AS groupId, balance_type AS balanceType 
+       FROM ledgers 
+       WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) 
        AND company_id = ? 
-       AND owner_type = ? 
-       AND owner_id = ?`,
+       AND ((owner_type = ? AND owner_id = ?) OR owner_id = 0)`,
       [name, companyId, ownerType, ownerId]
     );
 
     if (existingLedger.length > 0) {
+      if (req.body.reuseIfExists) {
+        return res.status(200).json({
+          message: "Ledger already exists",
+          ledger: existingLedger[0],
+        });
+      }
       return res.status(400).json({
         message: `Ledger with name "${name}" already exists.`,
       });

@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   FileText,
+  Layers,
   Upload,
   Calendar,
   Search,
@@ -16,12 +17,21 @@ import {
   ArrowRightLeft,
 } from "lucide-react";
 import { getReportData, type StoredReportData } from "../../services/reportImportService";
+import GstJsonScanner, {
+  type ParsedGstr1Data,
+  isDateInRange,
+  isPeriodInRange,
+  normalizeToIsoDate,
+} from "./gst-scanner/GstJsonScanner";
 
 export interface BookSaleRecord {
   id: string;
   date: string;
   invoiceNumber: string;
   value: number;
+  cgst: number;
+  sgst: number;
+  igst: number;
   tax: number;
   total: number;
   partyName?: string;
@@ -36,10 +46,15 @@ const BooksVsGstr1Report: React.FC = () => {
   // Stored / Imported GSTR-1 Data
   const [reportData, setReportData] = useState<StoredReportData | null>(null);
 
-  // Books Sales Data
+  // Scanned GSTR-1 JSON Data & Partition View Mode
+  const [scannedGstr1Data, setScannedGstr1Data] = useState<ParsedGstr1Data | null>(null);
+  const [rightPartitionView, setRightPartitionView] = useState<"json-scanner" | "spreadsheet">("json-scanner");
+
+  // Books Sales Data & Active Filter Tab (B2B vs B2C)
   const [booksSales, setBooksSales] = useState<BookSaleRecord[]>([]);
   const [isLoadingBooks, setIsLoadingBooks] = useState(true);
   const [booksError, setBooksError] = useState<string | null>(null);
+  const [booksActiveTab, setBooksActiveTab] = useState<"b2b" | "b2c">("b2b");
 
   // Filter States
   const [searchTerm, setSearchTerm] = useState("");
@@ -169,10 +184,13 @@ const BooksVsGstr1Report: React.FC = () => {
             invoiceNumber:
               r.voucherNo || r.number || r.bill_no || r.referenceNo || "-",
             value: taxable,
+            cgst: cgst,
+            sgst: sgst,
+            igst: igst,
             tax: tax,
             total: total,
-            partyName: r.partyName || "",
-            partyGSTIN: r.partyGSTIN || "",
+            partyName: r.partyName || r.customerName || "",
+            partyGSTIN: r.partyGSTIN || r.gstin || r.customerGstin || "",
           };
         });
 
@@ -225,11 +243,20 @@ const BooksVsGstr1Report: React.FC = () => {
             parseFloat(r["Book Taxable Value"] || r.bookTaxable || 0) || 0;
           const tax =
             parseFloat(r["Book Tax Amount"] || r.bookTaxAmount || 0) || 0;
+          const cgst =
+            parseFloat(r["Book CGST"] || r.bookCgst || 0) || (tax > 0 ? tax / 2 : 0);
+          const sgst =
+            parseFloat(r["Book SGST"] || r.bookSgst || 0) || (tax > 0 ? tax / 2 : 0);
+          const igst =
+            parseFloat(r["Book IGST"] || r.bookIgst || 0) || 0;
           return {
             id: `import-${i}`,
             date: r["Invoice Date"] || r.invoiceDate || "",
             invoiceNumber: r["Book Invoice No"] || r.bookInvoiceNo || "-",
             value: val,
+            cgst: cgst,
+            sgst: sgst,
+            igst: igst,
             tax: tax,
             total: val + tax,
             partyName: r["Customer Name"] || r.customerName || "",
@@ -241,11 +268,18 @@ const BooksVsGstr1Report: React.FC = () => {
     return [];
   }, [booksSales, reportData]);
 
-  // Filtered Books Records
+  // Filtered Books Records (filtered by fromDate, toDate, and searchTerm)
   const filteredBooksRecords = useMemo(() => {
-    if (!searchTerm.trim()) return effectiveBooksRecords;
-    const term = searchTerm.toLowerCase();
-    return effectiveBooksRecords.filter(
+    let list = effectiveBooksRecords;
+
+    // Filter by Date Range
+    if (fromDate || toDate) {
+      list = list.filter((r) => isDateInRange(r.date, fromDate, toDate));
+    }
+
+    if (!searchTerm.trim()) return list;
+    const term = searchTerm.toLowerCase().trim();
+    return list.filter(
       (r) =>
         r.invoiceNumber.toLowerCase().includes(term) ||
         r.date.toLowerCase().includes(term) ||
@@ -255,11 +289,79 @@ const BooksVsGstr1Report: React.FC = () => {
         r.tax.toString().includes(term) ||
         r.total.toString().includes(term)
     );
-  }, [effectiveBooksRecords, searchTerm]);
+  }, [effectiveBooksRecords, fromDate, toDate, searchTerm]);
 
-  // Books Totals
+  // Helper to determine if a Books record is B2B (registered customer GSTIN)
+  const isB2b = (r: BookSaleRecord): boolean => {
+    if (!r.partyGSTIN) return false;
+    const gstin = r.partyGSTIN.trim().toUpperCase();
+    if (
+      gstin === "" ||
+      gstin === "-" ||
+      gstin === "NA" ||
+      gstin === "N/A" ||
+      gstin === "URP" ||
+      gstin === "UNREGISTERED" ||
+      gstin === "CONSUMER"
+    ) {
+      return false;
+    }
+    return gstin.length >= 10;
+  };
+
+  // Books B2B vs B2C Split
+  const booksB2bRecords = useMemo(
+    () => filteredBooksRecords.filter(isB2b),
+    [filteredBooksRecords]
+  );
+
+  const booksB2cRecords = useMemo(
+    () => filteredBooksRecords.filter((r) => !isB2b(r)),
+    [filteredBooksRecords]
+  );
+
+  // Displayed Books records based on active tab (B2B vs B2C)
+  const displayedBooksRecords = useMemo(() => {
+    return booksActiveTab === "b2b" ? booksB2bRecords : booksB2cRecords;
+  }, [booksActiveTab, booksB2bRecords, booksB2cRecords]);
+
+  // Displayed Books Totals (for table footer)
+  const displayedBookValue = useMemo(
+    () => displayedBooksRecords.reduce((acc, r) => acc + r.value, 0),
+    [displayedBooksRecords]
+  );
+  const displayedBookCgst = useMemo(
+    () => displayedBooksRecords.reduce((acc, r) => acc + (r.cgst || 0), 0),
+    [displayedBooksRecords]
+  );
+  const displayedBookSgst = useMemo(
+    () => displayedBooksRecords.reduce((acc, r) => acc + (r.sgst || 0), 0),
+    [displayedBooksRecords]
+  );
+  const displayedBookIgst = useMemo(
+    () => displayedBooksRecords.reduce((acc, r) => acc + (r.igst || 0), 0),
+    [displayedBooksRecords]
+  );
+  const displayedBookTotal = useMemo(
+    () => displayedBooksRecords.reduce((acc, r) => acc + r.total, 0),
+    [displayedBooksRecords]
+  );
+
+  // Overall Books Totals (for summary cards & variance)
   const totalBookValue = useMemo(
     () => filteredBooksRecords.reduce((acc, r) => acc + r.value, 0),
+    [filteredBooksRecords]
+  );
+  const totalBookCgst = useMemo(
+    () => filteredBooksRecords.reduce((acc, r) => acc + (r.cgst || 0), 0),
+    [filteredBooksRecords]
+  );
+  const totalBookSgst = useMemo(
+    () => filteredBooksRecords.reduce((acc, r) => acc + (r.sgst || 0), 0),
+    [filteredBooksRecords]
+  );
+  const totalBookIgst = useMemo(
+    () => filteredBooksRecords.reduce((acc, r) => acc + (r.igst || 0), 0),
     [filteredBooksRecords]
   );
   const totalBookTax = useMemo(
@@ -271,16 +373,61 @@ const BooksVsGstr1Report: React.FC = () => {
     [filteredBooksRecords]
   );
 
-  // GSTR-1 Rows from imported report data
+  // Filtered GSTR-1 B2B invoices based on fromDate, toDate, searchTerm
+  const filteredGstr1B2bInvoices = useMemo(() => {
+    if (!scannedGstr1Data) return [];
+    let list = scannedGstr1Data.b2bInvoices;
+
+    // Filter by Date Range
+    if (fromDate || toDate) {
+      list = list.filter((r) => isDateInRange(r.idt, fromDate, toDate));
+    }
+
+    if (!searchTerm.trim()) return list;
+    const term = searchTerm.toLowerCase().trim();
+    return list.filter(
+      (r) =>
+        r.inum.toLowerCase().includes(term) ||
+        r.ctin.toLowerCase().includes(term) ||
+        r.idt.toLowerCase().includes(term) ||
+        r.txval.toString().includes(term)
+    );
+  }, [scannedGstr1Data, fromDate, toDate, searchTerm]);
+
+  // Filtered GSTR-1 B2C summaries based on fromDate, toDate
+  const filteredGstr1B2cSummaries = useMemo(() => {
+    if (!scannedGstr1Data) return [];
+    let list = scannedGstr1Data.b2cSummaries;
+
+    if (fromDate || toDate) {
+      const inRange = isPeriodInRange(
+        scannedGstr1Data.metadata.fp,
+        scannedGstr1Data.metadata.fil_dt,
+        fromDate,
+        toDate
+      );
+      if (!inRange) return [];
+    }
+
+    return list;
+  }, [scannedGstr1Data, fromDate, toDate]);
+
+  // GSTR-1 Rows from imported report data (spreadsheet fallback)
   const gstr1Rows = reportData?.rows || [];
 
   const filteredGstr1Rows = useMemo(() => {
-    if (!searchTerm.trim()) return gstr1Rows;
-    const term = searchTerm.toLowerCase();
-    return gstr1Rows.filter((r) =>
+    let list = gstr1Rows;
+    if (fromDate || toDate) {
+      list = list.filter((r) =>
+        isDateInRange(r["Invoice Date"] || r.invoiceDate, fromDate, toDate)
+      );
+    }
+    if (!searchTerm.trim()) return list;
+    const term = searchTerm.toLowerCase().trim();
+    return list.filter((r) =>
       JSON.stringify(r).toLowerCase().includes(term)
     );
-  }, [gstr1Rows, searchTerm]);
+  }, [gstr1Rows, fromDate, toDate, searchTerm]);
 
   const totalGstr1Taxable = useMemo(
     () =>
@@ -304,12 +451,47 @@ const BooksVsGstr1Report: React.FC = () => {
     [filteredGstr1Rows]
   );
 
+  // Effective GSTR-1 Metrics (using scanned JSON if uploaded, or spreadsheet rows)
+  const effectiveGstr1Taxable = useMemo(() => {
+    if (scannedGstr1Data) {
+      const b2b = filteredGstr1B2bInvoices.reduce((a, b) => a + b.txval, 0);
+      const b2c = filteredGstr1B2cSummaries.reduce((a, b) => a + b.txval, 0);
+      return b2b + b2c;
+    }
+    return totalGstr1Taxable;
+  }, [scannedGstr1Data, filteredGstr1B2bInvoices, filteredGstr1B2cSummaries, totalGstr1Taxable]);
+
+  const effectiveGstr1Tax = useMemo(() => {
+    if (scannedGstr1Data) {
+      const b2b = filteredGstr1B2bInvoices.reduce(
+        (a, b) => a + b.camt + b.samt + b.iamt + b.csamt,
+        0
+      );
+      const b2c = filteredGstr1B2cSummaries.reduce(
+        (a, b) => a + b.camt + b.samt + b.iamt + b.csamt,
+        0
+      );
+      return b2b + b2c;
+    }
+    return totalGstr1Tax;
+  }, [scannedGstr1Data, filteredGstr1B2bInvoices, filteredGstr1B2cSummaries, totalGstr1Tax]);
+
+  const effectiveGstr1Count = useMemo(() => {
+    if (scannedGstr1Data) {
+      return (
+        filteredGstr1B2bInvoices.length + filteredGstr1B2cSummaries.length
+      );
+    }
+    return filteredGstr1Rows.length;
+  }, [scannedGstr1Data, filteredGstr1B2bInvoices, filteredGstr1B2cSummaries, filteredGstr1Rows.length]);
+
   // Reconciliation Variance
-  const taxableVariance = totalBookValue - totalGstr1Taxable;
+  const taxableVariance = totalBookValue - effectiveGstr1Taxable;
+  const hasGstr1Data = Boolean(scannedGstr1Data) || filteredGstr1Rows.length > 0;
   const isReconciled =
     Math.abs(taxableVariance) < 0.01 &&
     filteredBooksRecords.length > 0 &&
-    filteredGstr1Rows.length > 0;
+    hasGstr1Data;
 
   return (
     <div
@@ -454,7 +636,9 @@ const BooksVsGstr1Report: React.FC = () => {
               Left Partition (50%)
             </span>
             <span className="text-xs font-semibold text-gray-500">
-              {filteredBooksRecords.length} Sales Records
+              <span className="text-blue-600 dark:text-blue-400 font-medium">
+                {booksB2bRecords.length} B2B + {booksB2cRecords.length} B2C
+              </span>
             </span>
           </div>
           <h3 className="text-lg font-bold text-gray-900 dark:text-white">
@@ -483,17 +667,28 @@ const BooksVsGstr1Report: React.FC = () => {
               Right Partition (50%)
             </span>
             <span className="text-xs font-semibold text-gray-500">
-              {filteredGstr1Rows.length} GSTR-1 Invoices
+              {scannedGstr1Data ? (
+                <span className="text-green-600 dark:text-green-400 font-medium">
+                  {filteredGstr1B2bInvoices.length} B2B + {filteredGstr1B2cSummaries.length} B2C (JSON Scanned)
+                </span>
+              ) : (
+                `${filteredGstr1Rows.length} GSTR-1 Invoices`
+              )}
             </span>
           </div>
-          <h3 className="text-lg font-bold text-gray-900 dark:text-white">
-            📊 Filed GSTR-1 Return
+          <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center justify-between">
+            <span>📊 Filed GSTR-1 Return</span>
+            {scannedGstr1Data?.metadata.gstin && (
+              <span className="text-xs font-mono font-normal text-green-700 dark:text-green-300 bg-green-100 dark:bg-green-900/70 px-2 py-0.5 rounded">
+                {scannedGstr1Data.metadata.gstin}
+              </span>
+            )}
           </h3>
           <div className="text-3xl font-extrabold text-green-600 dark:text-green-400 mt-2">
-            {formatCurrency(totalGstr1Taxable)}
+            {formatCurrency(effectiveGstr1Taxable)}
           </div>
           <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400 mt-2">
-            <span>Tax: <strong>{formatCurrency(totalGstr1Tax)}</strong></span>
+            <span>Tax: <strong>{formatCurrency(effectiveGstr1Tax)}</strong></span>
             <span>•</span>
             <span>
               Variance:{" "}
@@ -512,7 +707,7 @@ const BooksVsGstr1Report: React.FC = () => {
       </div>
 
       {/* Variance Alert Banner */}
-      {filteredGstr1Rows.length > 0 && filteredBooksRecords.length > 0 && (
+      {hasGstr1Data && filteredBooksRecords.length > 0 ? (
         <div
           className={`p-3.5 rounded-lg mb-6 border flex items-center justify-between text-xs ${
             isReconciled
@@ -530,14 +725,26 @@ const BooksVsGstr1Report: React.FC = () => {
               <strong>Reconciliation Status:</strong>{" "}
               {isReconciled
                 ? "Books Sales and GSTR-1 reported values match perfectly."
-                : `Variance of ${formatCurrency(Math.abs(taxableVariance))} detected between Books (${formatCurrency(totalBookValue)}) and GSTR-1 (${formatCurrency(totalGstr1Taxable)}).`}
+                : `Variance of ${formatCurrency(Math.abs(taxableVariance))} detected between Books (${formatCurrency(totalBookValue)}) and GSTR-1 (${formatCurrency(effectiveGstr1Taxable)}).`}
             </span>
           </div>
           <span className="font-semibold uppercase tracking-wider text-[10px] px-2 py-0.5 rounded bg-white/60 dark:bg-gray-800">
             {isReconciled ? "Matched" : "Variance Detected"}
           </span>
         </div>
-      )}
+      ) : !hasGstr1Data ? (
+        <div className="p-3.5 rounded-lg mb-6 border border-blue-200 dark:border-blue-900 bg-blue-50/60 dark:bg-blue-950/30 text-blue-800 dark:text-blue-300 text-xs flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <FileText size={18} className="text-blue-600" />
+            <span>
+              <strong>GSTR-1 Upload Ready:</strong> Select and scan your official GSTR-1 JSON file in the right partition below to compare B2B invoices and B2C summaries against Books sales.
+            </span>
+          </div>
+          <span className="font-semibold uppercase tracking-wider text-[10px] px-2 py-0.5 rounded bg-white/60 dark:bg-gray-800">
+            Awaiting GSTR-1
+          </span>
+        </div>
+      ) : null}
 
       {/* 50% - 50% Split Content Partition */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -554,9 +761,62 @@ const BooksVsGstr1Report: React.FC = () => {
               📘 Books Sales Records (50% Partition)
             </span>
             <span className="text-xs font-semibold text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-900/60 px-2 py-0.5 rounded">
-              {filteredBooksRecords.length}{" "}
-              {filteredBooksRecords.length === 1 ? "Record" : "Records"}
+              {displayedBooksRecords.length}{" "}
+              {displayedBooksRecords.length === 1 ? "Record" : "Records"}
             </span>
+          </div>
+
+          {/* Tab Switcher for Books: B2B Invoices | B2C Summary */}
+          <div className="px-4 py-2.5 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between flex-wrap gap-2 bg-gray-50/50 dark:bg-gray-850">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setBooksActiveTab("b2b")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  booksActiveTab === "b2b"
+                    ? "bg-blue-600 text-white shadow-xs"
+                    : theme === "dark"
+                    ? "bg-gray-750 text-gray-300 hover:bg-gray-700"
+                    : "bg-white text-gray-700 border hover:bg-gray-100"
+                }`}
+              >
+                <FileText size={14} />
+                B2B Invoices
+                <span
+                  className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                    booksActiveTab === "b2b"
+                      ? "bg-white/20 text-white"
+                      : "bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300"
+                  }`}
+                >
+                  {booksB2bRecords.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setBooksActiveTab("b2c")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  booksActiveTab === "b2c"
+                    ? "bg-blue-600 text-white shadow-xs"
+                    : theme === "dark"
+                    ? "bg-gray-750 text-gray-300 hover:bg-gray-700"
+                    : "bg-white text-gray-700 border hover:bg-gray-100"
+                }`}
+              >
+                <Layers size={14} />
+                B2C Summary
+                <span
+                  className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                    booksActiveTab === "b2c"
+                      ? "bg-white/20 text-white"
+                      : "bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300"
+                  }`}
+                >
+                  {booksB2cRecords.length}
+                </span>
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto flex-1 min-h-[320px]">
@@ -593,68 +853,134 @@ const BooksVsGstr1Report: React.FC = () => {
                     : "No sales vouchers recorded in the accounting books"}
                 </p>
               </div>
+            ) : displayedBooksRecords.length === 0 ? (
+              <div className="flex flex-col items-center justify-center p-14 text-center text-gray-500">
+                {booksActiveTab === "b2b" ? (
+                  <>
+                    <FileText size={36} className="text-gray-400 mb-2" />
+                    <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                      No B2B Invoices Found
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1 max-w-sm">
+                      None of the {filteredBooksRecords.length} sales records in Books have a registered customer GSTIN.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <Layers size={36} className="text-gray-400 mb-2" />
+                    <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                      No B2C Records Found
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1 max-w-sm">
+                      All {filteredBooksRecords.length} sales records in Books have registered customer GSTINs (B2B).
+                    </p>
+                  </>
+                )}
+              </div>
             ) : (
-              <table className="w-full text-xs text-left">
-                <thead className="bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-b sticky top-0 z-10">
+              <table className="w-full text-xs text-left whitespace-nowrap">
+                <thead className="bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10">
                   <tr>
-                    <th className="px-3 py-2.5 font-semibold">Date</th>
-                    <th className="px-3 py-2.5 font-semibold">Invoice Number</th>
-                    <th className="px-3 py-2.5 font-semibold text-right">Value</th>
-                    <th className="px-3 py-2.5 font-semibold text-right">Tax</th>
-                    <th className="px-3 py-2.5 font-semibold text-right">Total</th>
+                    <th className="px-2.5 py-2.5 font-semibold text-center w-10">
+                      #
+                    </th>
+                    <th className="px-3 py-2.5 font-semibold">
+                      Customer GSTIN (ctin)
+                    </th>
+                    <th className="px-3 py-2.5 font-semibold">
+                      Invoice No (inum)
+                    </th>
+                    <th className="px-3 py-2.5 font-semibold">
+                      Date (idt)
+                    </th>
+                    <th className="px-3 py-2.5 font-semibold text-right">
+                      Taxable Value (txval)
+                    </th>
+                    <th className="px-3 py-2.5 font-semibold text-right">
+                      CGST (camt)
+                    </th>
+                    <th className="px-3 py-2.5 font-semibold text-right">
+                      SGST (samt)
+                    </th>
+                    <th className="px-3 py-2.5 font-semibold text-right">
+                      IGST (iamt)
+                    </th>
+                    <th className="px-3 py-2.5 font-semibold text-right bg-blue-50/60 dark:bg-blue-950/40">
+                      Invoice Val (val)
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                  {filteredBooksRecords.map((r, i) => (
+                  {displayedBooksRecords.map((r, i) => (
                     <tr
                       key={r.id || i}
                       className="hover:bg-blue-50/40 dark:hover:bg-gray-750 transition-colors"
                     >
-                      <td className="px-3 py-2.5 text-gray-600 dark:text-gray-400 whitespace-nowrap font-medium">
-                        {formatDate(r.date)}
+                      <td className="px-2.5 py-2 text-center text-gray-500 font-mono">
+                        {i + 1}
                       </td>
-                      <td className="px-3 py-2.5">
-                        <div className="font-semibold text-gray-900 dark:text-gray-100 font-mono">
-                          {r.invoiceNumber}
+                      <td className="px-3 py-2">
+                        <div className="font-mono font-semibold text-gray-900 dark:text-gray-100">
+                          {r.partyGSTIN || (
+                            <span className="text-gray-400 font-normal italic">URP (Consumer)</span>
+                          )}
                         </div>
                         {r.partyName && (
                           <div
-                            className="text-[11px] text-gray-500 dark:text-gray-400 truncate max-w-[180px]"
+                            className="text-[10px] text-gray-500 dark:text-gray-400 truncate max-w-[150px]"
                             title={r.partyName}
                           >
                             {r.partyName}
                           </div>
                         )}
                       </td>
-                      <td className="px-3 py-2.5 text-right font-medium text-gray-800 dark:text-gray-200 whitespace-nowrap">
+                      <td className="px-3 py-2 font-mono font-medium text-blue-600 dark:text-blue-400">
+                        {r.invoiceNumber}
+                      </td>
+                      <td className="px-3 py-2 text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                        {formatDate(r.date)}
+                      </td>
+                      <td className="px-3 py-2 text-right font-medium text-gray-900 dark:text-gray-100 whitespace-nowrap">
                         {formatCurrency(r.value)}
                       </td>
-                      <td className="px-3 py-2.5 text-right font-medium text-blue-600 dark:text-blue-400 whitespace-nowrap">
-                        {formatCurrency(r.tax)}
+                      <td className="px-3 py-2 text-right text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                        {formatCurrency(r.cgst)}
                       </td>
-                      <td className="px-3 py-2.5 text-right font-bold text-gray-900 dark:text-gray-100 whitespace-nowrap">
+                      <td className="px-3 py-2 text-right text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                        {formatCurrency(r.sgst)}
+                      </td>
+                      <td className="px-3 py-2 text-right text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                        {formatCurrency(r.igst)}
+                      </td>
+                      <td className="px-3 py-2 text-right font-bold text-blue-700 dark:text-blue-400 bg-blue-50/40 dark:bg-blue-950/20 whitespace-nowrap">
                         {formatCurrency(r.total)}
                       </td>
                     </tr>
                   ))}
                 </tbody>
-                <tfoot className="bg-gray-50 dark:bg-gray-900/80 font-bold border-t border-gray-200 dark:border-gray-700">
+                <tfoot className="bg-gray-100 dark:bg-gray-900 font-bold border-t border-gray-300 dark:border-gray-700 sticky bottom-0 z-10">
                   <tr>
                     <td
-                      className="px-3 py-2.5 text-gray-900 dark:text-gray-100"
-                      colSpan={2}
+                      className="px-3 py-2.5 text-gray-800 dark:text-gray-200"
+                      colSpan={4}
                     >
-                      Total ({filteredBooksRecords.length}{" "}
-                      {filteredBooksRecords.length === 1 ? "invoice" : "invoices"})
+                      Total {booksActiveTab === "b2b" ? "B2B" : booksActiveTab === "b2c" ? "B2C" : ""} ({displayedBooksRecords.length}{" "}
+                      {displayedBooksRecords.length === 1 ? "invoice" : "invoices"})
                     </td>
                     <td className="px-3 py-2.5 text-right text-gray-900 dark:text-gray-100 whitespace-nowrap">
-                      {formatCurrency(totalBookValue)}
+                      {formatCurrency(displayedBookValue)}
                     </td>
-                    <td className="px-3 py-2.5 text-right text-blue-600 dark:text-blue-400 whitespace-nowrap">
-                      {formatCurrency(totalBookTax)}
+                    <td className="px-3 py-2.5 text-right text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                      {formatCurrency(displayedBookCgst)}
                     </td>
-                    <td className="px-3 py-2.5 text-right text-gray-900 dark:text-gray-100 whitespace-nowrap">
-                      {formatCurrency(totalBookTotal)}
+                    <td className="px-3 py-2.5 text-right text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                      {formatCurrency(displayedBookSgst)}
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                      {formatCurrency(displayedBookIgst)}
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-extrabold text-blue-700 dark:text-blue-400 bg-blue-100/60 dark:bg-blue-950/60 whitespace-nowrap">
+                      {formatCurrency(displayedBookTotal)}
                     </td>
                   </tr>
                 </tfoot>
@@ -663,117 +989,150 @@ const BooksVsGstr1Report: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Partition Table (50%): GSTR-1 Side */}
-        <div
-          className={`border rounded-xl overflow-hidden flex flex-col ${
-            theme === "dark"
-              ? "bg-gray-800 border-gray-700"
-              : "bg-white border-gray-200 shadow-sm"
-          }`}
-        >
-          <div className="p-3.5 bg-green-50 dark:bg-green-950/50 border-b border-green-200 dark:border-green-900 flex items-center justify-between">
-            <span className="font-bold text-sm text-green-900 dark:text-green-200 flex items-center gap-2">
-              📊 Filed GSTR-1 Invoices (50% Partition)
-            </span>
-            <span className="text-xs font-semibold text-green-700 dark:text-green-300 bg-green-100 dark:bg-green-900/60 px-2 py-0.5 rounded">
-              {filteredGstr1Rows.length}{" "}
-              {filteredGstr1Rows.length === 1 ? "Invoice" : "Invoices"}
-            </span>
-          </div>
-
-          <div className="overflow-x-auto flex-1 min-h-[320px]">
-            {filteredGstr1Rows.length === 0 ? (
-              <div className="flex flex-col items-center justify-center p-16 text-gray-500 text-center">
-                <FileText className="mb-2 text-gray-400" size={36} />
-                <p className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                  No GSTR-1 return records imported yet
-                </p>
-                <p className="text-xs text-gray-400 mt-1 max-w-xs mb-4">
-                  Import your filed GSTR-1 returns spreadsheet to compare against accounting books
-                </p>
+        {/* Right Partition (50%): GSTR-1 Side with GST JSON Scanner */}
+        <div className="flex flex-col space-y-4">
+          {/* If legacy spreadsheet rows exist, show a view switcher toggle */}
+          {filteredGstr1Rows.length > 0 && (
+            <div
+              className={`p-2.5 rounded-xl border flex items-center justify-between text-xs ${
+                theme === "dark"
+                  ? "bg-gray-800 border-gray-700"
+                  : "bg-white border-gray-200 shadow-sm"
+              }`}
+            >
+              <span className="font-semibold text-gray-700 dark:text-gray-300">
+                Right Partition Data Source:
+              </span>
+              <div className="flex items-center gap-1.5">
                 <button
-                  onClick={() => navigate("/app/vouchers/import?type=books-vs-gstr1")}
-                  className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-medium inline-flex items-center gap-1.5"
+                  onClick={() => setRightPartitionView("json-scanner")}
+                  className={`px-3 py-1 rounded-lg font-bold transition-all ${
+                    rightPartitionView === "json-scanner"
+                      ? "bg-green-600 text-white shadow-xs"
+                      : theme === "dark"
+                      ? "bg-gray-750 text-gray-300 hover:bg-gray-700"
+                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  }`}
                 >
-                  <Upload size={14} />
-                  Import GSTR-1 Data
+                  ⚡ GST JSON Scanner
+                </button>
+                <button
+                  onClick={() => setRightPartitionView("spreadsheet")}
+                  className={`px-3 py-1 rounded-lg font-bold transition-all ${
+                    rightPartitionView === "spreadsheet"
+                      ? "bg-green-600 text-white shadow-xs"
+                      : theme === "dark"
+                      ? "bg-gray-750 text-gray-300 hover:bg-gray-700"
+                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  }`}
+                >
+                  📄 Spreadsheet ({filteredGstr1Rows.length})
                 </button>
               </div>
-            ) : (
-              <table className="w-full text-xs text-left">
-                <thead className="bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-b sticky top-0 z-10">
-                  <tr>
-                    <th className="px-3 py-2.5 font-semibold">GSTR1 Inv No</th>
-                    <th className="px-3 py-2.5 font-semibold">Date</th>
-                    <th className="px-3 py-2.5 font-semibold text-right">Taxable</th>
-                    <th className="px-3 py-2.5 font-semibold text-right">Tax Amount</th>
-                    <th className="px-3 py-2.5 font-semibold text-center">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                  {filteredGstr1Rows.map((r, i) => {
-                    const statusStr = String(
-                      r["Match Status"] || r.matchStatus || "Matched"
-                    ).toLowerCase();
-                    const isMatched =
-                      statusStr.includes("matched") && !statusStr.includes("mis");
-                    return (
-                      <tr
-                        key={i}
-                        className="hover:bg-green-50/40 dark:hover:bg-gray-750 transition-colors"
+            </div>
+          )}
+
+          {rightPartitionView === "json-scanner" ? (
+            <GstJsonScanner
+              onDataLoaded={(data) => setScannedGstr1Data(data)}
+              fromDate={fromDate}
+              toDate={toDate}
+              searchTerm={searchTerm}
+            />
+          ) : (
+            <div
+              className={`border rounded-xl overflow-hidden flex flex-col ${
+                theme === "dark"
+                  ? "bg-gray-800 border-gray-700"
+                  : "bg-white border-gray-200 shadow-sm"
+              }`}
+            >
+              <div className="p-3.5 bg-green-50 dark:bg-green-950/50 border-b border-green-200 dark:border-green-900 flex items-center justify-between">
+                <span className="font-bold text-sm text-green-900 dark:text-green-200 flex items-center gap-2">
+                  📊 Filed GSTR-1 Invoices (Spreadsheet View)
+                </span>
+                <span className="text-xs font-semibold text-green-700 dark:text-green-300 bg-green-100 dark:bg-green-900/60 px-2 py-0.5 rounded">
+                  {filteredGstr1Rows.length}{" "}
+                  {filteredGstr1Rows.length === 1 ? "Invoice" : "Invoices"}
+                </span>
+              </div>
+
+              <div className="overflow-x-auto flex-1 min-h-[320px]">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-gray-100 dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-b sticky top-0 z-10">
+                    <tr>
+                      <th className="px-3 py-2.5 font-semibold">GSTR1 Inv No</th>
+                      <th className="px-3 py-2.5 font-semibold">Date</th>
+                      <th className="px-3 py-2.5 font-semibold text-right">Taxable</th>
+                      <th className="px-3 py-2.5 font-semibold text-right">Tax Amount</th>
+                      <th className="px-3 py-2.5 font-semibold text-center">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {filteredGstr1Rows.map((r, i) => {
+                      const statusStr = String(
+                        r["Match Status"] || r.matchStatus || "Matched"
+                      ).toLowerCase();
+                      const isMatched =
+                        statusStr.includes("matched") && !statusStr.includes("mis");
+                      return (
+                        <tr
+                          key={i}
+                          className="hover:bg-green-50/40 dark:hover:bg-gray-750 transition-colors"
+                        >
+                          <td className="px-3 py-2.5 font-semibold text-gray-900 dark:text-gray-100 font-mono">
+                            {r["GSTR1 Invoice No"] || r.gstr1InvoiceNo || "-"}
+                          </td>
+                          <td className="px-3 py-2.5 text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                            {formatDate(r["Invoice Date"] || r.invoiceDate)}
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-medium text-gray-800 dark:text-gray-200 whitespace-nowrap">
+                            {formatCurrency(
+                              parseFloat(r["GSTR1 Taxable Value"] || r.gstr1Taxable || 0)
+                            )}
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-bold text-green-600 dark:text-green-400 whitespace-nowrap">
+                            {formatCurrency(
+                              parseFloat(r["GSTR1 Tax Amount"] || r.gstr1TaxAmount || 0)
+                            )}
+                          </td>
+                          <td className="px-3 py-2.5 text-center">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                isMatched
+                                  ? "bg-green-100 text-green-800 dark:bg-green-900/60 dark:text-green-300"
+                                  : "bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300"
+                              }`}
+                            >
+                              {r["Match Status"] || r.matchStatus || "Matched"}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot className="bg-gray-50 dark:bg-gray-900/80 font-bold border-t border-gray-200 dark:border-gray-700">
+                    <tr>
+                      <td
+                        className="px-3 py-2.5 text-gray-900 dark:text-gray-100"
+                        colSpan={2}
                       >
-                        <td className="px-3 py-2.5 font-semibold text-gray-900 dark:text-gray-100 font-mono">
-                          {r["GSTR1 Invoice No"] || r.gstr1InvoiceNo || "-"}
-                        </td>
-                        <td className="px-3 py-2.5 text-gray-600 dark:text-gray-400 whitespace-nowrap">
-                          {formatDate(r["Invoice Date"] || r.invoiceDate)}
-                        </td>
-                        <td className="px-3 py-2.5 text-right font-medium text-gray-800 dark:text-gray-200 whitespace-nowrap">
-                          {formatCurrency(
-                            parseFloat(r["GSTR1 Taxable Value"] || r.gstr1Taxable || 0)
-                          )}
-                        </td>
-                        <td className="px-3 py-2.5 text-right font-bold text-green-600 dark:text-green-400 whitespace-nowrap">
-                          {formatCurrency(
-                            parseFloat(r["GSTR1 Tax Amount"] || r.gstr1TaxAmount || 0)
-                          )}
-                        </td>
-                        <td className="px-3 py-2.5 text-center">
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              isMatched
-                                ? "bg-green-100 text-green-800 dark:bg-green-900/60 dark:text-green-300"
-                                : "bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300"
-                            }`}
-                          >
-                            {r["Match Status"] || r.matchStatus || "Matched"}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot className="bg-gray-50 dark:bg-gray-900/80 font-bold border-t border-gray-200 dark:border-gray-700">
-                  <tr>
-                    <td
-                      className="px-3 py-2.5 text-gray-900 dark:text-gray-100"
-                      colSpan={2}
-                    >
-                      Total ({filteredGstr1Rows.length}{" "}
-                      {filteredGstr1Rows.length === 1 ? "invoice" : "invoices"})
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-gray-900 dark:text-gray-100 whitespace-nowrap">
-                      {formatCurrency(totalGstr1Taxable)}
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-green-600 dark:text-green-400 whitespace-nowrap">
-                      {formatCurrency(totalGstr1Tax)}
-                    </td>
-                    <td className="px-3 py-2.5 text-center text-gray-500">-</td>
-                  </tr>
-                </tfoot>
-              </table>
-            )}
-          </div>
+                        Total ({filteredGstr1Rows.length}{" "}
+                        {filteredGstr1Rows.length === 1 ? "invoice" : "invoices"})
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-gray-900 dark:text-gray-100 whitespace-nowrap">
+                        {formatCurrency(totalGstr1Taxable)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-green-600 dark:text-green-400 whitespace-nowrap">
+                        {formatCurrency(totalGstr1Tax)}
+                      </td>
+                      <td className="px-3 py-2.5 text-center text-gray-500">-</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
