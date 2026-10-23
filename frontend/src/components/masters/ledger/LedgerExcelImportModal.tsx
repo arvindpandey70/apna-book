@@ -129,6 +129,7 @@ export const LedgerExcelImportModal: React.FC<LedgerExcelImportModalProps> = ({
         }
 
         const allGroups = [...baseGroups, ...ledgerGroups];
+        const seenNamesInSheet = new Map<string, number>();
 
         const parsedRecords: ParsedLedgerRow[] = data.map((row: any, idx: number) => {
           const getVal = (keys: string[]) => {
@@ -182,8 +183,11 @@ export const LedgerExcelImportModal: React.FC<LedgerExcelImportModalProps> = ({
             }
           }
 
+          const trimmedName = name.trim();
+          const lowerName = trimmedName.toLowerCase();
+
           let error = "";
-          if (!name) {
+          if (!trimmedName) {
             error = "Name is required";
           } else if (!groupStr) {
             error = "Group Name is required";
@@ -193,18 +197,24 @@ export const LedgerExcelImportModal: React.FC<LedgerExcelImportModalProps> = ({
             error = "DR/CR is required";
           } else if (!hasValidDrCr) {
             error = `Invalid DR/CR "${drCrStr}" (must be Dr or Cr)`;
+          } else if (seenNamesInSheet.has(lowerName)) {
+            error = `Duplicate name in Excel (already in Row ${seenNamesInSheet.get(lowerName)})`;
           } else {
             const isDuplicate = existingLedgers.some(
-              (l) => l.name.trim().toLowerCase() === name.toLowerCase()
+              (l) => l.name && l.name.trim().toLowerCase() === lowerName
             );
             if (isDuplicate) {
-              error = "Ledger name already exists";
+              error = "Ledger name already exists in database";
             }
+          }
+
+          if (trimmedName && !seenNamesInSheet.has(lowerName)) {
+            seenNamesInSheet.set(lowerName, idx + 2);
           }
 
           return {
             rowNum: idx + 2,
-            name,
+            name: trimmedName,
             groupId,
             groupName,
             openingBalance,
@@ -243,10 +253,21 @@ export const LedgerExcelImportModal: React.FC<LedgerExcelImportModalProps> = ({
   };
 
   const handleImport = async () => {
-    const validRecords = previewData.filter((r) => r.isValid);
-    if (validRecords.length === 0) {
+    const rawValidRecords = previewData.filter((r) => r.isValid);
+    if (rawValidRecords.length === 0) {
       Swal.fire("No Valid Data", "There are no valid records to import.", "warning");
       return;
+    }
+
+    // Extra guard: Ensure only distinct ledger names are sent
+    const seenImportNames = new Set<string>();
+    const validRecords: ParsedLedgerRow[] = [];
+    for (const r of rawValidRecords) {
+      const key = r.name.trim().toLowerCase();
+      if (!seenImportNames.has(key)) {
+        seenImportNames.add(key);
+        validRecords.push(r);
+      }
     }
 
     setLoading(true);
