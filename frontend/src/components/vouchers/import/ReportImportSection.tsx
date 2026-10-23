@@ -35,7 +35,6 @@ const REPORT_ICONS: Record<string, React.ReactNode> = {
   "gstr1-vs-gstr3b": <BarChart2 className="text-red-600 dark:text-red-400" size={20} />,
   "gstr2a-vs-gstr2b": <PieChart className="text-red-600 dark:text-red-400" size={20} />,
   "books-vs-2a": <BookOpen className="text-red-600 dark:text-red-400" size={20} />,
-  "books-vs-gstr1": <FileText className="text-red-600 dark:text-red-400" size={20} />,
   "books-vs-gstr3b": <FileText className="text-red-600 dark:text-red-400" size={20} />,
   "books-vs-2b": <BookOpen className="text-red-600 dark:text-red-400" size={20} />,
 };
@@ -52,7 +51,6 @@ export const ReportImportSection: React.FC<ReportImportSectionProps> = ({
     "gstr1-vs-gstr3b",
     "gstr2a-vs-gstr2b",
     "books-vs-2a",
-    "books-vs-gstr1",
     "books-vs-gstr3b",
     "books-vs-2b",
   ];
@@ -225,7 +223,7 @@ export const ReportImportSection: React.FC<ReportImportSectionProps> = ({
         </div>
       </div>
 
-      {/* Grid of 7 Report Selection Cards (Pending Indicator visually Red) */}
+      {/* Grid of Report Selection Cards (Pending Indicator visually Red) */}
       <div>
         <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
           Select Report Feature to Import Data For:
