@@ -442,9 +442,36 @@ router.post("/bulk", async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
+    // Deduplicate incoming batch by ledger name
+    const uniqueBatchLedgers = [];
+    const seenBatchNames = new Set();
+    for (const item of ledgers) {
+      if (!item || !item.name) continue;
+      const key = item.name.trim().toLowerCase();
+      if (!seenBatchNames.has(key)) {
+        seenBatchNames.add(key);
+        uniqueBatchLedgers.push(item);
+      }
+    }
+
+    if (uniqueBatchLedgers.length === 0) {
+      await connection.rollback();
+      return res.status(400).json({ message: "No valid ledgers provided" });
+    }
+
+    // Check existing ledgers in DB for this company & owner to prevent duplicate records
+    const [existingLedgers] = await connection.execute(
+      `SELECT LOWER(TRIM(name)) AS name 
+       FROM ledgers 
+       WHERE company_id = ? 
+       AND ((owner_type = ? AND owner_id = ?) OR owner_id = 0)`,
+      [companyId, ownerType, ownerId]
+    );
+    const existingNamesSet = new Set(existingLedgers.map((r) => r.name));
+
     const results = [];
 
-    for (const ledger of ledgers) {
+    for (const ledger of uniqueBatchLedgers) {
       const {
         name,
         groupId,
@@ -468,6 +495,15 @@ router.post("/bulk", async (req, res) => {
         throw new Error(
           `Missing required fields for ledger: ${name || "Unknown"}`
         );
+      }
+
+      const trimmedName = name.trim();
+      const lowerName = trimmedName.toLowerCase();
+
+      // Skip duplicate ledger if already present in database or batch
+      if (existingNamesSet.has(lowerName)) {
+        results.push({ name: trimmedName, status: "skipped", reason: "Already exists" });
+        continue;
       }
 
       let isFixedAssetsGroup = false;
@@ -503,7 +539,7 @@ router.post("/bulk", async (req, res) => {
         : null;
 
       await connection.execute(sql, [
-        name,
+        trimmedName,
         groupId,
         openingBalance || 0,
         balanceType || "debit",
@@ -523,12 +559,16 @@ router.post("/bulk", async (req, res) => {
         ownerId,
       ]);
 
-      results.push({ name, status: "created" });
+      existingNamesSet.add(lowerName);
+      results.push({ name: trimmedName, status: "created" });
     }
 
     await connection.commit();
+    const createdCount = results.filter((r) => r.status === "created").length;
+    const skippedCount = results.filter((r) => r.status === "skipped").length;
+
     res.status(201).json({
-      message: `${results.length} ledger(s) created successfully!`,
+      message: `${createdCount} ledger(s) created successfully${skippedCount > 0 ? `, ${skippedCount} duplicate(s) skipped` : ""}!`,
       results,
     });
   } catch (err) {
