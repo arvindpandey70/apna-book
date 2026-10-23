@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useAppContext } from "../../context/AppContext";
 import { useCompany } from "../../context/CompanyContext";
 import { useNavigate } from "react-router-dom";
@@ -15,6 +15,10 @@ import {
   CheckCircle2,
   AlertTriangle,
   ArrowRightLeft,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Check,
 } from "lucide-react";
 import { getReportData, type StoredReportData } from "../../services/reportImportService";
 import GstJsonScanner, {
@@ -61,6 +65,133 @@ const BooksVsGstr1Report: React.FC = () => {
   const [periodPreset, setPeriodPreset] = useState<string>("all");
   const [fromDate, setFromDate] = useState<string>("");
   const [toDate, setToDate] = useState<string>("");
+
+  // Quarter & Month Selection States
+  const [selectedQuarter, setSelectedQuarter] = useState<string>("");
+  const [selectedMonth, setSelectedMonth] = useState<string>("");
+  const [isQuarterOpen, setIsQuarterOpen] = useState(false);
+  const [isMonthOpen, setIsMonthOpen] = useState(false);
+  const quarterRef = useRef<HTMLDivElement>(null);
+  const monthRef = useRef<HTMLDivElement>(null);
+
+  // Financial Year determination (defaults to current FY start year: e.g. 2026 for FY 2026-27)
+  const defaultFyStart = useMemo(() => {
+    const now = new Date();
+    return now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+  }, []);
+  const [fyYear, setFyYear] = useState<number>(defaultFyStart);
+
+  // Synchronize Financial Year if uploaded GSTR-1 JSON has return period (fp)
+  useEffect(() => {
+    if (scannedGstr1Data?.metadata?.fp) {
+      const fpStr = scannedGstr1Data.metadata.fp.trim();
+      if (fpStr.length === 6 && /^\d{6}$/.test(fpStr)) {
+        const m = parseInt(fpStr.slice(0, 2), 10);
+        const y = parseInt(fpStr.slice(2), 10);
+        if (!isNaN(m) && !isNaN(y)) {
+          const detectedFy = m >= 4 ? y : y - 1;
+          setFyYear(detectedFy);
+        }
+      }
+    }
+  }, [scannedGstr1Data]);
+
+  // Click outside and ESC key listener for popovers
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        quarterRef.current &&
+        !quarterRef.current.contains(e.target as Node)
+      ) {
+        setIsQuarterOpen(false);
+      }
+      if (
+        monthRef.current &&
+        !monthRef.current.contains(e.target as Node)
+      ) {
+        setIsMonthOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsQuarterOpen(false);
+        setIsMonthOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
+
+  // 4 Quarters definition for selected FY
+  const quartersList = useMemo(() => {
+    const nextYear = fyYear + 1;
+    return [
+      {
+        id: "Q1",
+        label: "Q1 (Apr - Jun)",
+        monthsLabel: "Apr – Jun",
+        from: `${fyYear}-04-01`,
+        to: `${fyYear}-06-30`,
+      },
+      {
+        id: "Q2",
+        label: "Q2 (Jul - Sep)",
+        monthsLabel: "Jul – Sep",
+        from: `${fyYear}-07-01`,
+        to: `${fyYear}-09-30`,
+      },
+      {
+        id: "Q3",
+        label: "Q3 (Oct - Dec)",
+        monthsLabel: "Oct – Dec",
+        from: `${fyYear}-10-01`,
+        to: `${fyYear}-12-31`,
+      },
+      {
+        id: "Q4",
+        label: "Q4 (Jan - Mar)",
+        monthsLabel: "Jan – Mar",
+        from: `${nextYear}-01-01`,
+        to: `${nextYear}-03-31`,
+      },
+    ];
+  }, [fyYear]);
+
+  // 12 FY Months definition (April to March) for selected FY
+  const monthsList = useMemo(() => {
+    const nextYear = fyYear + 1;
+    const defs = [
+      { name: "April", short: "Apr", mNum: 4, year: fyYear },
+      { name: "May", short: "May", mNum: 5, year: fyYear },
+      { name: "June", short: "Jun", mNum: 6, year: fyYear },
+      { name: "July", short: "Jul", mNum: 7, year: fyYear },
+      { name: "August", short: "Aug", mNum: 8, year: fyYear },
+      { name: "September", short: "Sep", mNum: 9, year: fyYear },
+      { name: "October", short: "Oct", mNum: 10, year: fyYear },
+      { name: "November", short: "Nov", mNum: 11, year: fyYear },
+      { name: "December", short: "Dec", mNum: 12, year: fyYear },
+      { name: "January", short: "Jan", mNum: 1, year: nextYear },
+      { name: "February", short: "Feb", mNum: 2, year: nextYear },
+      { name: "March", short: "Mar", mNum: 3, year: nextYear },
+    ];
+
+    return defs.map((d) => {
+      const lastDay = new Date(d.year, d.mNum, 0).getDate();
+      const mm = String(d.mNum).padStart(2, "0");
+      const dd = String(lastDay).padStart(2, "0");
+      return {
+        name: d.name,
+        short: d.short,
+        from: `${d.year}-${mm}-01`,
+        to: `${d.year}-${mm}-${dd}`,
+        year: d.year,
+      };
+    });
+  }, [fyYear]);
 
   // Helpers
   const formatCurrency = (val: number | string | undefined | null): string => {
@@ -110,21 +241,10 @@ const BooksVsGstr1Report: React.FC = () => {
       const end = new Date(year, month, 0);
       return { from: fmt(start), to: fmt(end) };
     }
-    if (preset === "this-quarter") {
-      let startMonth = 0;
-      if (month >= 3 && month <= 5) startMonth = 3;
-      else if (month >= 6 && month <= 8) startMonth = 6;
-      else if (month >= 9 && month <= 11) startMonth = 9;
-      else startMonth = 0;
-      const start = new Date(year, startMonth, 1);
-      const end = new Date(year, startMonth + 3, 0);
-      return { from: fmt(start), to: fmt(end) };
-    }
     if (preset === "this-fy") {
-      const fyStart = month >= 3 ? year : year - 1;
       return {
-        from: `${fyStart}-04-01`,
-        to: `${fyStart + 1}-03-31`,
+        from: `${fyYear}-04-01`,
+        to: `${fyYear + 1}-03-31`,
       };
     }
     return { from: "", to: "" };
@@ -210,8 +330,85 @@ const BooksVsGstr1Report: React.FC = () => {
     fetchBooksSales(fromDate, toDate);
   }, [fetchBooksSales, fromDate, toDate]);
 
+  // Quarter selection
+  const handleSelectQuarter = (quarterId: string) => {
+    const q = quartersList.find((x) => x.id === quarterId);
+    if (!q) return;
+    setSelectedQuarter(quarterId);
+    setSelectedMonth("");
+    setPeriodPreset(`quarter-${quarterId.toLowerCase()}`);
+    setFromDate(q.from);
+    setToDate(q.to);
+    setIsQuarterOpen(false);
+    setIsMonthOpen(false);
+  };
+
+  // Month selection (April to March)
+  const handleSelectMonth = (monthName: string) => {
+    const m = monthsList.find(
+      (x) => x.name.toLowerCase() === monthName.toLowerCase()
+    );
+    if (!m) return;
+    setSelectedMonth(m.name);
+    setSelectedQuarter("");
+    setPeriodPreset(`month-${m.name.toLowerCase()}`);
+    setFromDate(m.from);
+    setToDate(m.to);
+    setIsMonthOpen(false);
+    setIsQuarterOpen(false);
+  };
+
+  // Switch FY Year and recompute current active period range
+  const handleFyYearChange = (newYear: number) => {
+    setFyYear(newYear);
+    const nextYear = newYear + 1;
+    if (selectedQuarter) {
+      const qDates: Record<string, { from: string; to: string }> = {
+        Q1: { from: `${newYear}-04-01`, to: `${newYear}-06-30` },
+        Q2: { from: `${newYear}-07-01`, to: `${newYear}-09-30` },
+        Q3: { from: `${newYear}-10-01`, to: `${newYear}-12-31` },
+        Q4: { from: `${nextYear}-01-01`, to: `${nextYear}-03-31` },
+      };
+      const range = qDates[selectedQuarter];
+      if (range) {
+        setFromDate(range.from);
+        setToDate(range.to);
+      }
+    } else if (selectedMonth) {
+      const mDefs: Record<string, { mNum: number; yr: number }> = {
+        April: { mNum: 4, yr: newYear },
+        May: { mNum: 5, yr: newYear },
+        June: { mNum: 6, yr: newYear },
+        July: { mNum: 7, yr: newYear },
+        August: { mNum: 8, yr: newYear },
+        September: { mNum: 9, yr: newYear },
+        October: { mNum: 10, yr: newYear },
+        November: { mNum: 11, yr: newYear },
+        December: { mNum: 12, yr: newYear },
+        January: { mNum: 1, yr: nextYear },
+        February: { mNum: 2, yr: nextYear },
+        March: { mNum: 3, yr: nextYear },
+      };
+      const def = mDefs[selectedMonth];
+      if (def) {
+        const lastDay = new Date(def.yr, def.mNum, 0).getDate();
+        const mm = String(def.mNum).padStart(2, "0");
+        const dd = String(lastDay).padStart(2, "0");
+        setFromDate(`${def.yr}-${mm}-01`);
+        setToDate(`${def.yr}-${mm}-${dd}`);
+      }
+    } else if (periodPreset === "this-fy") {
+      setFromDate(`${newYear}-04-01`);
+      setToDate(`${newYear + 1}-03-31`);
+    }
+  };
+
   // Handle Preset Change
   const handlePresetChange = (preset: string) => {
+    setSelectedQuarter("");
+    setSelectedMonth("");
+    setIsQuarterOpen(false);
+    setIsMonthOpen(false);
     setPeriodPreset(preset);
     if (preset === "all") {
       setFromDate("");
@@ -557,27 +754,227 @@ const BooksVsGstr1Report: React.FC = () => {
           <span className="text-xs font-semibold text-gray-500 flex items-center gap-1 mr-1">
             <Calendar size={14} /> Period:
           </span>
-          {[
-            { id: "all", label: "All Records" },
-            { id: "this-month", label: "This Month" },
-            { id: "last-month", label: "Last Month" },
-            { id: "this-quarter", label: "This Quarter" },
-            { id: "this-fy", label: "This FY" },
-          ].map((preset) => (
+
+          {/* All Records */}
+          <button
+            onClick={() => handlePresetChange("all")}
+            className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+              periodPreset === "all"
+                ? "bg-blue-600 text-white shadow-xs"
+                : theme === "dark"
+                ? "bg-gray-700 hover:bg-gray-600 text-gray-300"
+                : "bg-gray-100 hover:bg-gray-200 text-gray-700"
+            }`}
+          >
+            All Records
+          </button>
+
+          {/* Quarter Dropdown (4 Quarters) */}
+          <div className="relative" ref={quarterRef}>
             <button
-              key={preset.id}
-              onClick={() => handlePresetChange(preset.id)}
-              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
-                periodPreset === preset.id
-                  ? "bg-blue-600 text-white"
+              type="button"
+              onClick={() => {
+                setIsQuarterOpen((prev) => !prev);
+                setIsMonthOpen(false);
+              }}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 ${
+                periodPreset.startsWith("quarter-")
+                  ? "bg-blue-600 text-white shadow-xs"
                   : theme === "dark"
                   ? "bg-gray-700 hover:bg-gray-600 text-gray-300"
                   : "bg-gray-100 hover:bg-gray-200 text-gray-700"
               }`}
             >
-              {preset.label}
+              <span>
+                {selectedQuarter ? `Quarter: ${selectedQuarter}` : "Quarter"}
+              </span>
+              <ChevronDown
+                size={13}
+                className={`transition-transform duration-200 ${
+                  isQuarterOpen ? "rotate-180" : ""
+                }`}
+              />
             </button>
-          ))}
+
+            {isQuarterOpen && (
+              <div
+                className={`absolute left-0 top-full mt-1.5 w-64 rounded-xl shadow-xl border p-2.5 z-40 animate-in fade-in-50 zoom-in-95 ${
+                  theme === "dark"
+                    ? "bg-gray-800 border-gray-700 text-gray-200"
+                    : "bg-white border-gray-200 text-gray-800"
+                }`}
+              >
+                <div className="flex items-center justify-between px-1 py-1 mb-2 border-b border-gray-200 dark:border-gray-700 text-xs">
+                  <span className="font-semibold text-gray-600 dark:text-gray-300">
+                    Select Quarter
+                  </span>
+                  <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded-md">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleFyYearChange(fyYear - 1);
+                      }}
+                      className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-gray-500 hover:text-gray-900 dark:hover:text-white"
+                      title="Previous FY"
+                    >
+                      <ChevronLeft size={11} />
+                    </button>
+                    <span className="text-[11px] font-bold text-blue-600 dark:text-blue-400">
+                      FY {fyYear}-{String(fyYear + 1).slice(2)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleFyYearChange(fyYear + 1);
+                      }}
+                      className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-gray-500 hover:text-gray-900 dark:hover:text-white"
+                      title="Next FY"
+                    >
+                      <ChevronRight size={11} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  {quartersList.map((q) => {
+                    const isSelected = selectedQuarter === q.id;
+                    return (
+                      <button
+                        key={q.id}
+                        type="button"
+                        onClick={() => handleSelectQuarter(q.id)}
+                        className={`p-2 rounded-lg text-left transition-all flex flex-col justify-between ${
+                          isSelected
+                            ? "bg-blue-600 text-white shadow-xs"
+                            : theme === "dark"
+                            ? "bg-gray-700 hover:bg-gray-600 text-gray-200"
+                            : "bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200/60"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between w-full">
+                          <span className="font-bold text-xs">{q.id}</span>
+                          {isSelected && <Check size={12} className="stroke-[3]" />}
+                        </div>
+                        <span
+                          className={`text-[10px] mt-0.5 ${
+                            isSelected
+                              ? "text-blue-100"
+                              : "text-gray-500 dark:text-gray-400"
+                          }`}
+                        >
+                          {q.monthsLabel}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Month Dropdown (April to March) */}
+          <div className="relative" ref={monthRef}>
+            <button
+              type="button"
+              onClick={() => {
+                setIsMonthOpen((prev) => !prev);
+                setIsQuarterOpen(false);
+              }}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors flex items-center gap-1.5 ${
+                periodPreset.startsWith("month-")
+                  ? "bg-blue-600 text-white shadow-xs"
+                  : theme === "dark"
+                  ? "bg-gray-700 hover:bg-gray-600 text-gray-300"
+                  : "bg-gray-100 hover:bg-gray-200 text-gray-700"
+              }`}
+            >
+              <span>
+                {selectedMonth ? `Month: ${selectedMonth}` : "Month"}
+              </span>
+              <ChevronDown
+                size={13}
+                className={`transition-transform duration-200 ${
+                  isMonthOpen ? "rotate-180" : ""
+                }`}
+              />
+            </button>
+
+            {isMonthOpen && (
+              <div
+                className={`absolute left-0 top-full mt-1.5 w-72 rounded-xl shadow-xl border p-2.5 z-40 animate-in fade-in-50 zoom-in-95 ${
+                  theme === "dark"
+                    ? "bg-gray-800 border-gray-700 text-gray-200"
+                    : "bg-white border-gray-200 text-gray-800"
+                }`}
+              >
+                <div className="flex items-center justify-between px-1 py-1 mb-2 border-b border-gray-200 dark:border-gray-700 text-xs">
+                  <span className="font-semibold text-gray-600 dark:text-gray-300">
+                    Select Month (Apr – Mar)
+                  </span>
+                  <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded-md">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleFyYearChange(fyYear - 1);
+                      }}
+                      className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-gray-500 hover:text-gray-900 dark:hover:text-white"
+                      title="Previous FY"
+                    >
+                      <ChevronLeft size={11} />
+                    </button>
+                    <span className="text-[11px] font-bold text-blue-600 dark:text-blue-400">
+                      FY {fyYear}-{String(fyYear + 1).slice(2)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleFyYearChange(fyYear + 1);
+                      }}
+                      className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-gray-500 hover:text-gray-900 dark:hover:text-white"
+                      title="Next FY"
+                    >
+                      <ChevronRight size={11} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-1.5">
+                  {monthsList.map((m) => {
+                    const isSelected = selectedMonth === m.name;
+                    return (
+                      <button
+                        key={m.name}
+                        type="button"
+                        onClick={() => handleSelectMonth(m.name)}
+                        className={`px-2 py-1.5 rounded-lg text-center transition-all ${
+                          isSelected
+                            ? "bg-blue-600 text-white shadow-xs font-bold"
+                            : theme === "dark"
+                            ? "bg-gray-700 hover:bg-gray-600 text-gray-200 font-medium"
+                            : "bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200/60 font-medium"
+                        }`}
+                      >
+                        <div className="text-xs">{m.name}</div>
+                        <div
+                          className={`text-[9px] ${
+                            isSelected
+                              ? "text-blue-100"
+                              : "text-gray-400 dark:text-gray-400"
+                          }`}
+                        >
+                          {m.year}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Date Pickers & Search */}
@@ -589,6 +986,8 @@ const BooksVsGstr1Report: React.FC = () => {
               value={fromDate}
               onChange={(e) => {
                 setFromDate(e.target.value);
+                setSelectedQuarter("");
+                setSelectedMonth("");
                 setPeriodPreset("custom");
               }}
               className="px-2 py-1 border border-gray-300 dark:border-gray-700 rounded text-xs bg-white dark:bg-gray-900"
@@ -599,6 +998,8 @@ const BooksVsGstr1Report: React.FC = () => {
               value={toDate}
               onChange={(e) => {
                 setToDate(e.target.value);
+                setSelectedQuarter("");
+                setSelectedMonth("");
                 setPeriodPreset("custom");
               }}
               className="px-2 py-1 border border-gray-300 dark:border-gray-700 rounded text-xs bg-white dark:bg-gray-900"
