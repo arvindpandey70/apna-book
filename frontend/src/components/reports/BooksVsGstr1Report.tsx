@@ -4,6 +4,7 @@ import { useCompany } from "../../context/CompanyContext";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
+  Upload,
   FileText,
   Layers,
   Calendar,
@@ -20,6 +21,9 @@ import {
   Check,
 } from "lucide-react";
 import { getReportData, type StoredReportData } from "../../services/reportImportService";
+import {
+  fetchLatestGstr1FromDatabase,
+} from "../../services/gstr1ImportService";
 import GstJsonScanner, {
   type ParsedGstr1Data,
   isDateInRange,
@@ -253,6 +257,13 @@ const BooksVsGstr1Report: React.FC = () => {
   useEffect(() => {
     const data = getReportData("books-vs-gstr1");
     setReportData(data);
+    if (activeCompanyId) {
+      fetchLatestGstr1FromDatabase(activeCompanyId)
+        .then((dbData) => {
+          if (dbData) setScannedGstr1Data(dbData);
+        })
+        .catch((err) => console.error("Error fetching persisted GSTR-1:", err));
+    }
   }, []);
 
   // Fetch actual Books Sales records from backend API
@@ -1427,6 +1438,8 @@ const BooksVsGstr1Report: React.FC = () => {
 
           {rightPartitionView === "json-scanner" ? (
             <GstJsonScanner
+              initialData={scannedGstr1Data}
+              isSavedInDb={!!scannedGstr1Data}
               onDataLoaded={(data) => setScannedGstr1Data(data)}
               fromDate={fromDate}
               toDate={toDate}

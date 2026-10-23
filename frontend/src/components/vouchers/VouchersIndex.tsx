@@ -419,6 +419,19 @@ const VouchersIndex: React.FC = () => {
           isPendingItem: true,
         },
         {
+          id: "gstr1-import",
+          icon: <BarChart2 size={20} />,
+          name: "GSTR1",
+          path: "/app/vouchers/import/books-vs-gstr1",
+          color:
+            theme === "dark"
+              ? "bg-gray-800 border border-gray-700 hover:bg-gray-700 text-gray-200"
+              : "bg-gray-50 border border-gray-200 hover:bg-gray-100 text-gray-800",
+          iconBg: theme === "dark" ? "bg-gray-700 text-gray-200" : "bg-gray-100 text-gray-600",
+          description: "Import GSTR-1 outward return JSON",
+          category: "import",
+        },
+        {
           id: "gstr3b-import",
           icon: <BarChart2 size={20} className="text-red-600 dark:text-red-400" />,
           name: "GSTR3B",

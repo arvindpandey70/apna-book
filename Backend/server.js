@@ -24,8 +24,8 @@ app.use(
   })
 );
 
-app.use(bodyParser.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(bodyParser.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use("/uploads", express.static("uploads"));
 // const authMiddleware = require('./middlewares/authMiddleware');
 // const loadPermissions = require('./middlewares/loadPermissions');
@@ -160,8 +160,10 @@ const daybookTable = require("./routes/daybookTable");
 app.use("/api/daybookTable", daybookTable);
 const daybookTable2 = require("./routes/daybookTable2");
 app.use("/api/daybookTable2", daybookTable2);
+const gstr1Routes = require("./routes/gstr1");
 const gstRoutes = require("./routes/gst");
 app.use("/api/gst", gstRoutes);
+app.use("/api/gstr1", gstr1Routes);
 
 const gstr3bRoutes = require("./routes/gstr3b");
 app.use("/api/gstr3b", gstr3bRoutes);
@@ -352,6 +354,7 @@ if (require.main === module) {
     try {
       const { runMigration } = require("./scripts/migrate_auth_security");
       await runMigration();
+
     } catch (migErr) {
       console.error("Migration check failed:", migErr.message);
     }
