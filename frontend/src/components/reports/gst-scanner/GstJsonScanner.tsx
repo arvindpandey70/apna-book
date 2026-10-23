@@ -72,10 +72,14 @@ export interface ParsedGstr1Data {
 }
 
 export interface GstJsonScannerProps {
-  onDataLoaded?: (data: ParsedGstr1Data | null) => void;
+  onDataLoaded?: (data: ParsedGstr1Data | null, rawJsonText?: string) => void;
   fromDate?: string;
   toDate?: string;
   searchTerm?: string;
+  initialData?: ParsedGstr1Data | null;
+  isLoadingInitial?: boolean;
+  onClearFile?: () => void;
+  isSavedInDb?: boolean;
 }
 
 // Normalizes date strings (YYYY-MM-DD, DD-MM-YYYY, DD/MM/YYYY, ISO timestamps) to "YYYY-MM-DD"
@@ -430,9 +434,33 @@ export const GstJsonScanner: React.FC<GstJsonScannerProps> = ({
   fromDate,
   toDate,
   searchTerm: parentSearchTerm,
+  initialData,
+  isLoadingInitial = false,
+  onClearFile,
+  isSavedInDb = false,
 }) => {
   const { theme } = useAppContext();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Parsed State
+  const [parsedData, setParsedData] = useState<ParsedGstr1Data | null>(initialData || null);
+
+  // Sync initialData if provided from parent (e.g. database persistence)
+  useEffect(() => {
+    if (initialData !== undefined) {
+      setParsedData(initialData);
+      if (initialData) {
+        if (initialData.b2bInvoices.length === 0 && initialData.b2cSummaries.length > 0) {
+          setActiveTab("b2c");
+        } else {
+          setActiveTab("b2b");
+        }
+        if (onDataLoaded) {
+          onDataLoaded(initialData);
+        }
+      }
+    }
+  }, [initialData]);
 
   // Reset pagination when date filters or parent search change
   useEffect(() => {
@@ -445,9 +473,6 @@ export const GstJsonScanner: React.FC<GstJsonScannerProps> = ({
   const [isScanning, setIsScanning] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const [scanSuccess, setScanSuccess] = useState<string | null>(null);
-
-  // Parsed State
-  const [parsedData, setParsedData] = useState<ParsedGstr1Data | null>(null);
 
   // UI state
   const [activeTab, setActiveTab] = useState<"b2b" | "b2c">("b2b");
@@ -463,7 +488,7 @@ export const GstJsonScanner: React.FC<GstJsonScannerProps> = ({
 
     const reader = new FileReader();
 
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const text = e.target?.result as string;
         if (!text || !text.trim()) {
@@ -518,7 +543,7 @@ export const GstJsonScanner: React.FC<GstJsonScannerProps> = ({
         }
 
         if (onDataLoaded) {
-          onDataLoaded(result);
+          onDataLoaded(result, text);
         }
       } catch (err: any) {
         setScanError(
@@ -574,6 +599,7 @@ export const GstJsonScanner: React.FC<GstJsonScannerProps> = ({
     setCurrentPage(1);
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (onDataLoaded) onDataLoaded(null);
+    if (onClearFile) onClearFile();
   };
 
   // Drag and drop handlers
@@ -693,8 +719,24 @@ export const GstJsonScanner: React.FC<GstJsonScannerProps> = ({
 
   return (
     <div className="flex flex-col h-full space-y-4">
-      {/* Upload and Scan Control Card - Shown only before scanning */}
-      {!parsedData && (
+      {/* Loading state from database */}
+      {isLoadingInitial && (
+        <div
+          className={`p-10 rounded-xl border flex flex-col items-center justify-center space-y-3 ${
+            theme === "dark"
+              ? "bg-gray-800/90 border-gray-700"
+              : "bg-white border-gray-200 shadow-sm"
+          }`}
+        >
+          <span className="animate-spin inline-block w-8 h-8 border-3 border-green-600 border-t-transparent rounded-full" />
+          <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+            Loading saved GSTR-1 records from database...
+          </p>
+        </div>
+      )}
+
+      {/* Upload and Scan Control Card - Shown only before scanning and when not loading initial */}
+      {!parsedData && !isLoadingInitial && (
         <div
           className={`p-4 rounded-xl border transition-all ${
             theme === "dark"
@@ -796,6 +838,15 @@ export const GstJsonScanner: React.FC<GstJsonScannerProps> = ({
               <span className="text-[11px] font-bold uppercase tracking-wider text-green-700 dark:text-green-400 flex items-center gap-1.5">
                 <ShieldCheck size={14} /> GSTR-1 Return Information
               </span>
+              {isSavedInDb ? (
+                <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/70 border border-emerald-300 dark:border-emerald-800 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Saved in Database
+                </span>
+              ) : (
+                <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-800 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span> Preview (Not Saved Yet)
+                </span>
+              )}
               <span className="text-[10px] text-gray-400 font-mono">
                 • Scanned at {parsedData.scannedAt}
               </span>

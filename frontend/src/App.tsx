@@ -62,7 +62,13 @@ import VoucherImport from "./components/vouchers/import/VoucherImport";
 import BankStatementImport from "./components/vouchers/import/BankStatementImport";
 import PurchaseImport from "./components/vouchers/import/PurchaseImport";
 import SalesImport from "./components/vouchers/import/SalesImport";
-import SingleReportImportPage from "./components/vouchers/import/SingleReportImportPage";
+import Form26AsImportPage from "./components/vouchers/import/Form26AsImportPage";
+import Gstr1VsGstr3bImportPage from "./components/vouchers/import/Gstr1VsGstr3bImportPage";
+import Gstr2aVsGstr2bImportPage from "./components/vouchers/import/Gstr2aVsGstr2bImportPage";
+import BooksVs2aImportPage from "./components/vouchers/import/BooksVs2aImportPage";
+import BooksVsGstr1ImportPage from "./components/vouchers/import/BooksVsGstr1ImportPage";
+import BooksVsGstr3bImportPage from "./components/vouchers/import/BooksVsGstr3bImportPage";
+import BooksVs2bImportPage from "./components/vouchers/import/BooksVs2bImportPage";
 import QuotationList from "./components/vouchers/quotation/QuotationList";
 import QuotationCreate from "./components/vouchers/quotation/QuotationCreate";
 
@@ -1039,7 +1045,7 @@ function App() {
                   path="vouchers/import/26as"
                   element={
                     <RequireCompany>
-                      <SingleReportImportPage reportType="26as" />
+                      <Form26AsImportPage />
                     </RequireCompany>
                   }
                 />
@@ -1047,7 +1053,7 @@ function App() {
                   path="vouchers/import/gstr1-vs-gstr3b"
                   element={
                     <RequireCompany>
-                      <SingleReportImportPage reportType="gstr1-vs-gstr3b" />
+                      <Gstr1VsGstr3bImportPage />
                     </RequireCompany>
                   }
                 />
@@ -1055,7 +1061,7 @@ function App() {
                   path="vouchers/import/gstr2a-vs-gstr2b"
                   element={
                     <RequireCompany>
-                      <SingleReportImportPage reportType="gstr2a-vs-gstr2b" />
+                      <Gstr2aVsGstr2bImportPage />
                     </RequireCompany>
                   }
                 />
@@ -1063,7 +1069,7 @@ function App() {
                   path="vouchers/import/books-vs-2a"
                   element={
                     <RequireCompany>
-                      <SingleReportImportPage reportType="books-vs-2a" />
+                      <BooksVs2aImportPage />
                     </RequireCompany>
                   }
                 />
@@ -1071,7 +1077,7 @@ function App() {
                   path="vouchers/import/books-vs-gstr1"
                   element={
                     <RequireCompany>
-                      <SingleReportImportPage reportType="books-vs-gstr1" />
+                      <BooksVsGstr1ImportPage />
                     </RequireCompany>
                   }
                 />
@@ -1079,7 +1085,7 @@ function App() {
                   path="vouchers/import/books-vs-gstr3b"
                   element={
                     <RequireCompany>
-                      <SingleReportImportPage reportType="books-vs-gstr3b" />
+                      <BooksVsGstr3bImportPage />
                     </RequireCompany>
                   }
                 />
@@ -1087,15 +1093,7 @@ function App() {
                   path="vouchers/import/books-vs-2b"
                   element={
                     <RequireCompany>
-                      <SingleReportImportPage reportType="books-vs-2b" />
-                    </RequireCompany>
-                  }
-                />
-                <Route
-                  path="vouchers/import-report/:reportType"
-                  element={
-                    <RequireCompany>
-                      <SingleReportImportPage />
+                      <BooksVs2bImportPage />
                     </RequireCompany>
                   }
                 />

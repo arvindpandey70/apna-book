@@ -95,7 +95,7 @@ const ReportsIndex: React.FC = () => {
         { icon: <Calendar size={20} />, name: 'B2B HSN', path: '/app/reports/b2bhsn' },
         { icon: <Calendar size={20} />, name: 'B2C HSN', path: '/app/reports/b2chsn' },
         { icon: <BookOpen size={20} />, name: 'All HSN', path: '/app/reports/allhsn' },
-        { icon: <FileText size={20} />, name: 'Books vs GSTR1', path: '/app/reports/books-vs-gstr1', isPending: true },
+        { icon: <FileText size={20} />, name: 'Books vs GSTR1', path: '/app/reports/books-vs-gstr1' },
         { icon: <FileText size={20} />, name: 'Books vs GSTR3B', path: '/app/reports/books-vs-gstr3b', isPending: true },
         { icon: <FileText size={20} />, name: 'GSTR1 vs GSTR3B', path: '/app/reports/gstr1-vs-gstr3b', isPending: true }
       ]
