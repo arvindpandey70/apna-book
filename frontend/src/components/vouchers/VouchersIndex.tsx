@@ -461,17 +461,16 @@ const VouchersIndex: React.FC = () => {
         },
         {
           id: "gstr2b-import",
-          icon: <PieChart size={20} className="text-red-600 dark:text-red-400" />,
+          icon: <PieChart size={20} />,
           name: "GSTR2B",
           path: "/app/vouchers/import/gstr2a-vs-gstr2b",
           color:
             theme === "dark"
-              ? "bg-red-950/30 border border-red-800/60 hover:bg-red-900/40 text-red-300"
-              : "bg-red-50 border border-red-200 hover:bg-red-100 text-red-700",
-          iconBg: theme === "dark" ? "bg-red-900/60 text-red-300" : "bg-red-100 text-red-600",
+              ? "bg-gray-800 border border-gray-700 hover:bg-gray-700 text-gray-200"
+              : "bg-gray-50 border border-gray-200 hover:bg-gray-100 text-gray-800",
+          iconBg: theme === "dark" ? "bg-gray-700 text-gray-200" : "bg-gray-100 text-gray-600",
           description: "Import GSTR-2B data",
           category: "import",
-          isPendingItem: true,
         },
       ],
     },
