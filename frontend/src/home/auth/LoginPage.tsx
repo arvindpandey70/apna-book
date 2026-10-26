@@ -38,8 +38,8 @@ const LoginPage: React.FC = () => {
     const newErrors: Record<string, string> = {};
 
     if (!formData.email.trim()) {
-      newErrors.email = 'Email is required';
-    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+      newErrors.email = 'Email or Username is required';
+    } else if (formData.email.includes('@') && !/\S+@\S+\.\S+/.test(formData.email)) {
       newErrors.email = 'Email is invalid';
     }
 

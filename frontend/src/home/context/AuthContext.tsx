@@ -91,10 +91,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           .catch(err => console.error("Error loading permissions:", err));
       }
 
+      // Check URL search params for company_id (e.g. from Admin direct login)
+      let activeParamCompanyId: string | null = null;
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        activeParamCompanyId = urlParams.get("company_id") || urlParams.get("companyId");
+        if (activeParamCompanyId) {
+          localStorage.setItem("company_id", activeParamCompanyId);
+          localStorage.setItem("active_company_id", activeParamCompanyId);
+          localStorage.setItem("company", "true");
+        }
+      } catch (e) {}
+
       // read company info from localStorage
       const savedCompany = localStorage.getItem("company");
-      const savedCompanyId = localStorage.getItem("company_id");
-      if (savedCompany === "true" || savedCompany === "1") {
+      const savedCompanyId = activeParamCompanyId || localStorage.getItem("company_id");
+      if (savedCompany === "true" || savedCompany === "1" || activeParamCompanyId) {
         setHasCompany(true);
       }
       if (savedCompanyId) {

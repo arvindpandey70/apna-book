@@ -59,15 +59,13 @@ const Dashboard: React.FC = () => {
   }, []);
 
   const handleSwitchToCompany = (companyId: number) => {
-    // This assumes the frontend app is running on port 5173
-    // We set the company_id in localStorage and redirect
-    // Note: This only works if both apps share the same root domain or if we use a redirector
-    // Since they are likely different ports on localhost, we might need a better way, 
-    // but the user asked for "direct chali jaye", so we'll try a direct link.
-    // In a real app, you'd use a single-sign-on or a token-based redirect.
-    localStorage.setItem('company_id', companyId.toString());
-    localStorage.setItem('active_company_id', companyId.toString());
-    window.location.href = `http://localhost:5173/app`;
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const appUrl = isLocal ? 'http://localhost:5173' : 'https://apnabook.com';
+    try {
+      localStorage.setItem('company_id', companyId.toString());
+      localStorage.setItem('active_company_id', companyId.toString());
+    } catch (e) {}
+    window.location.href = `${appUrl}/app?company_id=${companyId}`;
   };
 
   const filteredCompanies = companies.filter(c =>

@@ -13,7 +13,6 @@ const RequireSubscription: React.FC<RequireSubscriptionProps> = ({
   const navigate = useNavigate();
 
   // If user object has subscription info (isExpired, hasSubscription), we can use it immediately.
-  // isChecking is true only if we're waiting for the first ever subscription check for this company.
   const hasSubInfo = user?.hasSubscription !== undefined;
   const [isChecking, setIsChecking] = useState(!hasSubInfo);
   const [isBlocked, setIsBlocked] = useState(!!user?.isExpired);
@@ -25,10 +24,9 @@ const RequireSubscription: React.FC<RequireSubscriptionProps> = ({
       : null
   );
 
-  // Sync state with user object changes (from AuthContext background refresh)
+  // Sync state with user object changes
   useEffect(() => {
     if (user?.hasSubscription !== undefined) {
-      setIsChecking(false);
       setIsBlocked(!!user.isExpired);
       if (user.isExpired) {
         setMessage(
@@ -36,52 +34,78 @@ const RequireSubscription: React.FC<RequireSubscriptionProps> = ({
             ? "Your free trial has ended. To continue using the product, please renew your subscription."
             : "Your subscription has expired. Please renew or subscribe to continue using the service."
         );
+      } else {
+        setMessage(null);
       }
     }
   }, [user]);
 
-  // Fallback: If for some reason user object is there but sub info isn't, 
-  // and we really need to fetch (this handles edge cases where AuthContext might not have fetched yet)
+  // Always verify live subscription status from server on mount / companyId change
+  // This ensures that when the admin extends the subscription, reloading or visiting unblocks immediately!
   useEffect(() => {
+    let isMounted = true;
     const check = async () => {
-      if (!user || !companyId || hasSubInfo) {
-        if (hasSubInfo) setIsChecking(false);
+      const activeCompId = companyId || localStorage.getItem("company_id") || localStorage.getItem("active_company_id");
+      if (!activeCompId) {
+        if (isMounted) setIsChecking(false);
         return;
       }
 
       try {
         const res = await fetch(
-          `${import.meta.env.VITE_API_URL}/api/company-subscription/status/${companyId}`,
+          `${import.meta.env.VITE_API_URL}/api/company-subscription/status/${activeCompId}`,
           { credentials: "include" }
         );
 
         if (!res.ok) {
-          setIsChecking(false);
+          if (isMounted) setIsChecking(false);
           return;
         }
 
         const json = await res.json();
         const status = json?.data;
 
-        if (status && status.isExpired) {
-          setIsBlocked(true);
-          setMessage(
-            status.isTrial
-              ? "Your free trial has ended. To continue using the product, please renew your subscription."
-              : "Your subscription has expired. Please renew or subscribe to continue using the service."
-          );
+        if (status && isMounted) {
+          const isCurrentlyExpired = !!status.isExpired;
+          setIsBlocked(isCurrentlyExpired);
+          if (isCurrentlyExpired) {
+            setMessage(
+              status.isTrial
+                ? "Your free trial has ended. To continue using the product, please renew your subscription."
+                : "Your subscription has expired. Please renew or subscribe to continue using the service."
+            );
+          } else {
+            setMessage(null);
+            // Update cached user in localStorage so it doesn't revert to stale expired state
+            try {
+              const savedUser = localStorage.getItem("user");
+              if (savedUser) {
+                const parsed = JSON.parse(savedUser);
+                parsed.isExpired = false;
+                parsed.hasSubscription = true;
+                parsed.subscriptionStatus = status.status;
+                parsed.isTrial = !!status.isTrial;
+                parsed.trialDaysRemaining = status.daysRemaining;
+                localStorage.setItem("user", JSON.stringify(parsed));
+              }
+            } catch (e) {
+              // ignore storage errors
+            }
+          }
         }
       } catch (err) {
         console.error("Error checking subscription status:", err);
       } finally {
-        setIsChecking(false);
+        if (isMounted) setIsChecking(false);
       }
     };
 
-    if (!hasSubInfo) {
-      check();
-    }
-  }, [user, companyId, hasSubInfo]);
+    check();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [companyId]);
 
   if (isChecking) {
     return (
@@ -95,18 +119,32 @@ const RequireSubscription: React.FC<RequireSubscriptionProps> = ({
 
   if (isBlocked) {
     return (
-      <div className="flex i mt-10 items-center justify-center h-full px-4">
-        <div className="max-w-md rounded-lg border border-red-300 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-red-600 mb-2">
+      <div className="flex flex-col items-center justify-center h-full p-6 text-center">
+        <div className="max-w-md w-full bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 p-8">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 dark:bg-red-900/40 flex items-center justify-center">
+            <span className="text-3xl">⚠️</span>
+          </div>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-2">
             Subscription Required
           </h2>
-          <p className="text-sm text-gray-700 mb-4">{message}</p>
-          <button
-            onClick={() => navigate("/app/pricing")}
-            className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-          >
-            View Plans / Renew Now
-          </button>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+            {message ||
+              "Your subscription has expired. Please renew or subscribe to continue using the service."}
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <button
+              onClick={() => navigate("/pricing")}
+              className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition"
+            >
+              View Plans & Pricing
+            </button>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 font-medium hover:bg-gray-100 dark:hover:bg-gray-700 transition"
+            >
+              Check Again
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -116,4 +154,3 @@ const RequireSubscription: React.FC<RequireSubscriptionProps> = ({
 };
 
 export default RequireSubscription;
-
