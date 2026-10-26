@@ -47,7 +47,7 @@ export const getAvailableFinYears = (startYear: string | number = 2020) => {
 
     const years = [];
     for (let y = endFinYear + 2; y >= start; y--) {
-        years.push(`${y}-${y + 1}`);
+        years.push(`${y}-${String(y + 1).slice(-2)}`);
     }
     return years;
 };
@@ -77,36 +77,20 @@ export const getFinancialYearDefaults = (finYearStr: string) => {
 };
 
 export const useFinancialYear = () => {
-    const { companyInfo } = useCompany();
     const [selectedFinYear, setFinYear] = useState<string>(() => {
-        return localStorage.getItem("selectedFinYear") || "";
+        const storedFinYear = localStorage.getItem("selectedFinYear");
+        const normalized = storedFinYear ? normalizeFinYear(storedFinYear) : "";
+        if (/^\d{4}-\d{2}$/.test(normalized)) return normalized;
+
+        const currentYear = new Date().getFullYear();
+        const isPastMarch = new Date().getMonth() >= 3;
+        const startYear = isPastMarch ? currentYear : currentYear - 1;
+        return `${startYear}-${String(startYear + 1).slice(-2)}`;
     });
 
     useEffect(() => {
-        let storedFinYear = localStorage.getItem("selectedFinYear");
-        if (storedFinYear) {
-            // Normalize existing stored fin year in case it was stored as YYYY-YYYY
-            const normalized = normalizeFinYear(storedFinYear);
-            if (normalized !== storedFinYear) {
-                localStorage.setItem("selectedFinYear", normalized);
-                storedFinYear = normalized;
-                setFinYear(normalized);
-            }
-        }
-
-        if (storedFinYear === null && companyInfo?.financialYear) {
-            const normalized = normalizeFinYear(companyInfo.financialYear);
-            setFinYear(normalized);
-            localStorage.setItem("selectedFinYear", normalized);
-        } else if (storedFinYear === null) {
-            const currentYear = new Date().getFullYear();
-            const isPastMarch = new Date().getMonth() >= 3;
-            const y = isPastMarch ? currentYear : currentYear - 1;
-            const fy = `${y}-${(y + 1).toString().slice(2)}`;
-            setFinYear(fy);
-            localStorage.setItem("selectedFinYear", fy);
-        }
-    }, [companyInfo]);
+        localStorage.setItem("selectedFinYear", selectedFinYear);
+    }, [selectedFinYear]);
 
     const setSelectedFinYear = (year: string) => {
         setFinYear(year);

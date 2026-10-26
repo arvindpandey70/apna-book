@@ -376,8 +376,8 @@ const Dashboard: React.FC = () => {
     {
       title: "Total Vouchers",
       value: filteredVouchers.length.toString(),
-      subtext: selectedFinYear ? `FY ${selectedFinYear} Entries` : "All recorded entries",
-      badgeText: selectedFinYear ? `FY ${selectedFinYear}` : "Entries",
+      subtext: selectedFinYear ? `TY ${selectedFinYear} Entries` : "All recorded entries",
+      badgeText: selectedFinYear ? `TY ${selectedFinYear}` : "Entries",
       badgeBg: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-200/50 dark:border-emerald-800/50",
       icon: <ShoppingBag className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />,
       bg: "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-100 dark:border-emerald-900/50",
@@ -525,7 +525,7 @@ const Dashboard: React.FC = () => {
               <div className="flex flex-wrap items-center gap-3">
                 {/* Financial Year Selector */}
                 <div className="flex items-center gap-2">
-                  <label className="text-xs font-semibold text-slate-500 dark:text-slate-400">FY:</label>
+                  <label className="text-xs font-semibold text-slate-500 dark:text-slate-400">TY:</label>
                   <select
                     value={selectedFinYear}
                     onChange={(e) => setSelectedFinYear(e.target.value)}
@@ -655,7 +655,7 @@ const Dashboard: React.FC = () => {
                   </h2>
                 </div>
                 <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                  {selectedFinYear ? `FY ${selectedFinYear}` : "All Time"}
+                  {selectedFinYear ? `TY ${selectedFinYear}` : "All Time"}
                 </span>
               </div>
 
@@ -1062,7 +1062,7 @@ const Dashboard: React.FC = () => {
                   <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200/60 dark:border-slate-700/60 space-y-1">
                     <span className="text-slate-400 dark:text-slate-500 font-medium block">Financial Year</span>
                     <span className="font-semibold text-slate-800 dark:text-slate-200 text-sm">
-                      {selectedFinYear ? `FY ${selectedFinYear}` : "All Years"}
+                      {selectedFinYear ? `TY ${selectedFinYear}` : "All Years"}
                     </span>
                   </div>
 
@@ -1267,7 +1267,7 @@ const Dashboard: React.FC = () => {
                   </span>
                   {selectedFinYear && (
                     <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60">
-                      Active Filter: FY {selectedFinYear}
+                      Active Filter: TY {selectedFinYear}
                     </span>
                   )}
                 </div>
@@ -1291,7 +1291,7 @@ const Dashboard: React.FC = () => {
                     }`}
                   >
                     {availableFinYears.map((fy) => (
-                      <option key={fy} value={fy}>FY {fy}</option>
+                      <option key={fy} value={fy}>TY {fy}</option>
                     ))}
                   </select>
                 </div>
