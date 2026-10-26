@@ -514,4 +514,122 @@ router.delete('/import/:id', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/gstr1/invoices
+ * Fetches all GSTR-1 B2B invoices for a company, optionally filtered by return_period or import_id.
+ */
+router.get('/invoices', async (req, res) => {
+  try {
+    const { company_id, companyId, return_period, import_id, search } = req.query;
+    const targetCompanyId = company_id || companyId;
+
+    if (!targetCompanyId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing company_id query parameter.',
+      });
+    }
+
+    let sql = `
+      SELECT b.id, b.import_id, b.company_id, b.sno, b.ctin, b.inum, b.idt, b.idt_norm,
+             b.inv_typ, b.pos, b.rt, b.txval, b.camt, b.samt, b.iamt, b.csamt, b.val,
+             i.return_period, i.financial_year
+      FROM gstr1_b2b_invoices b
+      JOIN gstr1_imports i ON b.import_id = i.id
+      WHERE b.company_id = ?
+    `;
+    const params = [targetCompanyId];
+
+    if (return_period && return_period !== 'all') {
+      sql += ` AND i.return_period = ?`;
+      params.push(return_period);
+    }
+
+    if (import_id) {
+      sql += ` AND b.import_id = ?`;
+      params.push(import_id);
+    }
+
+    if (search) {
+      sql += ` AND (b.ctin LIKE ? OR b.inum LIKE ?)`;
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    sql += ` ORDER BY b.import_id DESC, b.sno ASC`;
+
+    const [rows] = await db.query(sql, params);
+
+    const invoices = rows.map((r) => ({
+      id: r.id,
+      importId: r.import_id,
+      sno: r.sno,
+      ctin: r.ctin,
+      inum: r.inum,
+      idt: r.idt,
+      idt_norm: r.idt_norm,
+      inv_typ: r.inv_typ,
+      pos: r.pos,
+      rt: r.rt,
+      txval: parseFloat(r.txval) || 0,
+      camt: parseFloat(r.camt) || 0,
+      samt: parseFloat(r.samt) || 0,
+      iamt: parseFloat(r.iamt) || 0,
+      csamt: parseFloat(r.csamt) || 0,
+      val: r.val !== null ? parseFloat(r.val) : null,
+      returnPeriod: r.return_period,
+      financialYear: r.financial_year,
+    }));
+
+    return res.json({
+      success: true,
+      count: invoices.length,
+      data: invoices,
+    });
+  } catch (err) {
+    console.error('❌ Error fetching GSTR-1 invoices:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch GSTR-1 invoices',
+      error: err.message,
+    });
+  }
+});
+
+/**
+ * GET /api/gstr1/periods
+ * Returns distinct return periods available for the company
+ */
+router.get('/periods', async (req, res) => {
+  try {
+    const { company_id, companyId } = req.query;
+    const targetCompanyId = company_id || companyId;
+    if (!targetCompanyId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing company_id query parameter.',
+      });
+    }
+
+    const [rows] = await db.query(
+      `SELECT DISTINCT return_period, financial_year, id, created_at
+       FROM gstr1_imports
+       WHERE company_id = ?
+       ORDER BY id DESC`,
+      [targetCompanyId]
+    );
+
+    return res.json({
+      success: true,
+      data: rows,
+    });
+  } catch (err) {
+    console.error('❌ Error fetching GSTR-1 periods:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch GSTR-1 periods',
+      error: err.message,
+    });
+  }
+});
+
 module.exports = router;

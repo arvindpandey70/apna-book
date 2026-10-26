@@ -113,18 +113,19 @@ const Header: React.FC<HeaderProps> = ({ toggleSidebar }) => {
       </div>
 
       <div className="flex items-center space-x-2 md:space-x-3 flex-shrink-0">
-        {/* Global Financial Year Selector */}
+        {/* Global Transaction Year Selector */}
         <div className="flex items-center gap-1.5 px-2.5 py-1 bg-white/10 dark:bg-slate-800/80 rounded-xl border border-white/20 dark:border-slate-700 text-xs">
           <Calendar size={13} className="text-amber-300" />
-          <span className="font-semibold text-xs text-indigo-200 dark:text-indigo-300">FY:</span>
+          <span className="font-semibold text-xs text-indigo-200 dark:text-indigo-300">TY:</span>
           <select
             value={selectedFinYear}
             onChange={(e) => setSelectedFinYear(e.target.value)}
+            aria-label="Transaction year"
             className="bg-transparent text-white dark:text-slate-100 font-bold text-xs outline-none cursor-pointer"
           >
             {availableFinYears.map((fy) => (
               <option key={fy} value={fy} className="bg-slate-900 text-slate-100">
-                FY {fy}
+                TY {fy}
               </option>
             ))}
           </select>

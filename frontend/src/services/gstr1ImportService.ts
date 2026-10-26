@@ -126,3 +126,50 @@ export async function deleteGstr1Import(
   });
   return !!(response.data && response.data.success);
 }
+
+/**
+ * Fetch all GSTR-1 B2B invoices for a company
+ */
+export async function fetchGstr1Invoices(
+  companyId: string | number,
+  returnPeriod?: string,
+  search?: string
+): Promise<GstB2bInvoiceRow[]> {
+  const params: Record<string, any> = { company_id: companyId };
+  if (returnPeriod && returnPeriod !== "all") {
+    params.return_period = returnPeriod;
+  }
+  if (search) {
+    params.search = search;
+  }
+
+  const response = await axiosInstance.get<{
+    success: boolean;
+    count: number;
+    data: GstB2bInvoiceRow[];
+  }>("/gstr1/invoices", { params });
+
+  if (response.data && response.data.success && Array.isArray(response.data.data)) {
+    return response.data.data;
+  }
+  return [];
+}
+
+/**
+ * Fetch available return periods for GSTR-1
+ */
+export async function fetchGstr1Periods(
+  companyId: string | number
+): Promise<Array<{ return_period: string; financial_year: string }>> {
+  const response = await axiosInstance.get<{
+    success: boolean;
+    data: Array<{ return_period: string; financial_year: string }>;
+  }>("/gstr1/periods", {
+    params: { company_id: companyId },
+  });
+
+  if (response.data && response.data.success && Array.isArray(response.data.data)) {
+    return response.data.data;
+  }
+  return [];
+}
