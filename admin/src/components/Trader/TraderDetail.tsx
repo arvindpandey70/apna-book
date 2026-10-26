@@ -65,7 +65,8 @@ const TraderDetail: React.FC = () => {
             await api.patch(`/api/traders/company/${selectedCompany.id}/subscription`, {
                 startDate: newStartDate,
                 endDate: newEndDate,
-                isTrial: newIsTrial
+                isTrial: newIsTrial,
+                status: 'active'
             });
             Swal.fire({
                 icon: 'success',

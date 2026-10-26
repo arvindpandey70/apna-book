@@ -21,7 +21,7 @@ router.get('/', authMiddleware, async (req, res) => {
         e.pan, 
         e.userLimit, 
         e.created_at,
-        (SELECT COUNT(*) FROM tbcompanies WHERE employee_id = e.id) as company_count
+        (SELECT COUNT(*) FROM tbcompanies WHERE employee_id = e.id OR (employee_id IS NULL AND LOWER(TRIM(email)) = LOWER(TRIM(e.email)))) as company_count
       FROM tbemployees e
       ORDER BY e.created_at DESC
     `);

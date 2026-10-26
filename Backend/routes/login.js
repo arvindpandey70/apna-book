@@ -49,9 +49,19 @@ router.post('/', loginLimiter, async (req, res) => {
         employeeId = authUser.source_id;
 
         const [companies] = await db.query(
-          'SELECT * FROM tbcompanies WHERE employee_id = ? ORDER BY id ASC',
-          [authUser.source_id]
+          `SELECT * FROM tbcompanies 
+           WHERE employee_id = ? 
+              OR ((employee_id IS NULL OR employee_id = 0) AND LOWER(TRIM(email)) = LOWER(TRIM(?)))
+           ORDER BY id ASC`,
+          [authUser.source_id, authUser.email]
         );
+        // Auto-heal any orphaned company
+        for (const comp of companies) {
+          if (!comp.employee_id || comp.employee_id === 0) {
+            comp.employee_id = authUser.source_id;
+            await db.query('UPDATE tbcompanies SET employee_id = ? WHERE id = ?', [authUser.source_id, comp.id]).catch(() => {});
+          }
+        }
         companyRow = companies.length > 0 ? companies[0] : null;
         assignedCompanies = companies;
       } else if (role === 'ca') {
@@ -277,12 +287,20 @@ router.post('/', loginLimiter, async (req, res) => {
         let assignedCompanies = [];
 
         if (role === 'employee') {
-          // Critical Security Fix: strictly match employee_id to the user's primary key
-          // NEVER match "OR id = user[idField]", which hijacked existing companies!
           const [companies] = await db.query(
-            'SELECT * FROM tbcompanies WHERE employee_id = ? ORDER BY id ASC',
-            [user[idField]]
+            `SELECT * FROM tbcompanies 
+             WHERE employee_id = ? 
+                OR ((employee_id IS NULL OR employee_id = 0) AND LOWER(TRIM(email)) = LOWER(TRIM(?)))
+             ORDER BY id ASC`,
+            [user[idField], user.email]
           );
+          // Auto-heal any orphaned company
+          for (const comp of companies) {
+            if (!comp.employee_id || comp.employee_id === 0) {
+              comp.employee_id = user[idField];
+              await db.query('UPDATE tbcompanies SET employee_id = ? WHERE id = ?', [user[idField], comp.id]).catch(() => {});
+            }
+          }
           companyRow = companies.length > 0 ? companies[0] : null;
           assignedCompanies = companies;
           user.assignedCompanies = companies;

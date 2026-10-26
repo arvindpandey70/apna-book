@@ -12,6 +12,9 @@ const ALLOWED_PREFIXES = [
   '/api/companies-by-ca',
   '/uploads',
   '/api/payments',
+  '/api/admin',
+  '/api/traders',
+  '/api/adminUser',
 ];
 
 function startsWithAllowed(path) {

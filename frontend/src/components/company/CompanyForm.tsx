@@ -245,7 +245,7 @@ const CompanyForm: React.FC = () => {
 
       try {
         // Fetch latest count from server to be sure
-        const empId = localStorage.getItem("employee_id");
+        const empId = localStorage.getItem("employee_id") || localStorage.getItem("user_id") || user?.id;
         if (!empId) return;
 
         const res = await fetch(
@@ -556,7 +556,7 @@ const CompanyForm: React.FC = () => {
         accessControlEnabled,
         username: accessControlEnabled ? username : null,
         password: accessControlEnabled ? password : null,
-        employeeId: localStorage.getItem("employee_id"), // ✅ this key must match
+        employeeId: localStorage.getItem("employee_id") || localStorage.getItem("user_id") || user?.id, // ✅ robust fallback
       };
 
       // Step 4: Submit to backend

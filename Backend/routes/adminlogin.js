@@ -191,6 +191,48 @@ router.get('/dashboard-stats', authMiddleware, async (req, res) => {
   }
 });
 
+// ✅ Admin All Registered Companies (used by Admin Dashboard)
+router.get('/all-companies', authMiddleware, async (req, res) => {
+  try {
+    const [companies] = await db.query(`
+      SELECT 
+        c.id, 
+        c.name, 
+        c.email, 
+        c.pan_number, 
+        c.gst_number, 
+        c.financial_year,
+        c.created_at,
+        c.employee_id,
+        COALESCE(e.firstName, '') as owner_first_name,
+        COALESCE(e.lastName, '') as owner_last_name,
+        COALESCE(e.email, c.email) as owner_email,
+        s.plan,
+        s.is_trial,
+        s.status as subscription_status,
+        s.end_date as subscription_end_date,
+        DATEDIFF(s.end_date, NOW()) as days_remaining
+      FROM tbcompanies c
+      LEFT JOIN tbemployees e ON (c.employee_id = e.id OR (c.employee_id IS NULL AND LOWER(TRIM(c.email)) = LOWER(TRIM(e.email))))
+      LEFT JOIN (
+        SELECT cs1.*
+        FROM company_subscriptions cs1
+        INNER JOIN (
+          SELECT company_id, MAX(id) as max_id
+          FROM company_subscriptions
+          GROUP BY company_id
+        ) cs2 ON cs1.id = cs2.max_id
+      ) s ON c.id = s.company_id
+      ORDER BY c.created_at DESC
+    `);
+
+    res.json(companies);
+  } catch (err) {
+    console.error('All companies fetch error:', err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+});
+
 // ✅ Admin All Ledgers
 router.get('/all-ledgers', authMiddleware, async (req, res) => {
   try {

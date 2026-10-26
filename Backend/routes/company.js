@@ -36,17 +36,29 @@ router.post('/company', async (req, res) => {
   await connection.beginTransaction();
 
   try {
+    // Ensure employeeId is resolved even if not sent from frontend
+    let resolvedEmployeeId = employeeId;
+    if (!resolvedEmployeeId && email) {
+      const [empRows] = await connection.query(
+        'SELECT id FROM tbemployees WHERE LOWER(TRIM(email)) = LOWER(TRIM(?))',
+        [email]
+      );
+      if (empRows.length > 0) {
+        resolvedEmployeeId = empRows[0].id;
+      }
+    }
+
     // Check user limit before creating company
     const [userRows] = await connection.query(
       'SELECT userLimit FROM tbemployees WHERE id = ?',
-      [employeeId]
+      [resolvedEmployeeId]
     );
 
     const userLimit = userRows.length > 0 ? userRows[0].userLimit : 1;
 
     const [existingCompanies] = await connection.query(
       'SELECT COUNT(*) as count FROM tbcompanies WHERE employee_id = ?',
-      [employeeId]
+      [resolvedEmployeeId]
     );
 
     if (existingCompanies[0].count >= userLimit) {
@@ -133,7 +145,7 @@ router.post('/company', async (req, res) => {
       state,
       country,
       taxType,
-      employeeId,
+      resolvedEmployeeId || employeeId,
       hashedVaultPassword || null,
       maintainBy || null,
       accountantName || null,
@@ -211,7 +223,7 @@ router.post('/company', async (req, res) => {
       await connection.query(`
         INSERT INTO tbusers (company_id, username, password, employee_id, email, role_id, status)
         VALUES (?, ?, ?, ?, ?, ?, 'active')
-      `, [companyId, username, hashedPassword, employeeId, email, roleId]);
+      `, [companyId, username, hashedPassword, resolvedEmployeeId || employeeId, email, roleId]);
     }
 
     // --- Automatically copy Admin template groups to the new company ---
