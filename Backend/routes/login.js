@@ -5,6 +5,155 @@ const bcrypt = require('bcryptjs');
 const { signToken } = require('../utils/jwt');
 const { loginLimiter } = require('../middlewares/rateLimiter');
 
+async function getSubscriptionForUser(companyRow, role, userId) {
+  // 1. Accountant Role: 1 Year (365 Days) Free Partner Access
+  if (role === 'accountant' || role === 'ca' || role === 'new_ca') {
+    return {
+      id: 0,
+      plan: 'Accountant Partner (Free 1-Year)',
+      isTrial: false,
+      status: 'active',
+      startDate: new Date(),
+      endDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      daysRemaining: 365,
+      isExpired: false,
+      hasSubscription: true,
+      isAccountant: true
+    };
+  }
+
+  if (!companyRow || !companyRow.id) return null;
+  const companyId = companyRow.id;
+
+  // Helper to check if this company is accountant-managed
+  const isAccountantManaged = await (async () => {
+    // 1. Check ca_company table
+    const [caRows] = await db.query(
+      'SELECT 1 FROM ca_company WHERE company_id = ? LIMIT 1',
+      [companyId]
+    ).catch(() => [[]]);
+    if (caRows && caRows.length > 0) return true;
+
+    // 2. Check tbcompanies table attributes
+    if (
+      companyRow.fdAccountType === 'accountant' ||
+      (companyRow.fdAccountantName && companyRow.fdAccountantName.trim() !== '') ||
+      companyRow.employee_id === 0 ||
+      companyRow.employee_id === null
+    ) {
+      return true;
+    }
+
+    // 3. Check if company has users provisioned with accountant_id
+    const [uRows] = await db.query(
+      'SELECT 1 FROM tbusers WHERE company_id = ? AND accountant_id IS NOT NULL AND accountant_id > 0 LIMIT 1',
+      [companyId]
+    ).catch(() => [[]]);
+    if (uRows && uRows.length > 0) return true;
+
+    // 4. Check if current user is linked to an accountant
+    if (userId) {
+      const [userRows] = await db.query(
+        'SELECT accountant_id FROM tbusers WHERE id = ? LIMIT 1',
+        [userId]
+      ).catch(() => [[]]);
+      if (userRows && userRows.length > 0 && userRows[0].accountant_id) {
+        return true;
+      }
+    }
+
+    return false;
+  })();
+
+  // 2. Accountant-Allotted User: 0-Days Trial. Must have active REAL VERIFIED PAID subscription
+  if (isAccountantManaged && (role === 'company_user' || !role || role === 'user')) {
+    const [paidRows] = await db.query(
+      `SELECT cs.id, cs.plan, cs.is_trial, cs.status, cs.start_date, cs.end_date, cs.payment_id
+       FROM company_subscriptions cs
+       LEFT JOIN payments p ON cs.payment_id = p.id OR p.company_id = cs.company_id
+       WHERE cs.company_id = ?
+         AND cs.is_trial = 0
+         AND cs.status = 'active'
+         AND cs.plan != 'accountant_partner'
+         AND cs.end_date > NOW()
+         AND (
+           (cs.payment_id IS NOT NULL AND cs.payment_id != '' AND cs.payment_id != '0')
+           OR (p.id IS NOT NULL AND p.status = 'success')
+         )
+       ORDER BY cs.end_date DESC LIMIT 1`,
+      [companyId]
+    ).catch(() => [[]]);
+
+    if (!paidRows || paidRows.length === 0) {
+      return {
+        hasSubscription: false,
+        isTrial: false,
+        status: 'expired',
+        daysRemaining: 0,
+        isExpired: true,
+        isAccountantManaged: true,
+        message: 'This company is managed by an Accountant. To access and work on this company, please purchase a subscription plan.'
+      };
+    }
+
+    const p = paidRows[0];
+    const now = new Date();
+    const end = new Date(p.end_date);
+    const msDiff = end.getTime() - now.getTime();
+    const daysRemaining = Math.ceil(msDiff / (1000 * 60 * 60 * 24));
+    const isExpired = daysRemaining < 0 || p.status === 'expired' || p.status === 'cancelled';
+    return {
+      id: p.id,
+      plan: p.plan,
+      isTrial: false,
+      status: isExpired ? 'expired' : p.status,
+      startDate: p.start_date,
+      endDate: p.end_date,
+      daysRemaining: isExpired ? 0 : Math.max(daysRemaining, 0),
+      isExpired,
+      hasSubscription: true,
+      isAccountantManaged: true
+    };
+  }
+
+  // 3. Regular Direct Website Signup (14-Day Free Trial or Standard Plan)
+  const [subsRows] = await db.query(
+    `SELECT id, plan, is_trial, status, start_date, end_date
+     FROM company_subscriptions
+     WHERE company_id = ?
+     ORDER BY end_date DESC LIMIT 1`,
+    [companyId]
+  ).catch(() => [[]]);
+
+  if (!subsRows || subsRows.length === 0) {
+    return {
+      hasSubscription: false,
+      isTrial: false,
+      status: 'expired',
+      daysRemaining: 0,
+      isExpired: true
+    };
+  }
+
+  const s = subsRows[0];
+  const now = new Date();
+  const end = new Date(s.end_date);
+  const msDiff = end.getTime() - now.getTime();
+  const daysRemaining = Math.ceil(msDiff / (1000 * 60 * 60 * 24));
+  const isExpired = daysRemaining < 0 || s.status === 'expired' || s.status === 'cancelled';
+  return {
+    id: s.id,
+    plan: s.plan,
+    isTrial: !!s.is_trial,
+    status: isExpired ? 'expired' : s.status,
+    startDate: s.start_date,
+    endDate: s.end_date,
+    daysRemaining: isExpired ? 0 : Math.max(daysRemaining, 0),
+    isExpired,
+    hasSubscription: true
+  };
+}
+
 // POST /api/login
 router.post('/', loginLimiter, async (req, res) => {
   const { email, password } = req.body;
@@ -37,7 +186,7 @@ router.post('/', loginLimiter, async (req, res) => {
       if (match) {
         // Exact credential match found via unified identity!
       const role = authUser.role;
-      const supplier = (role === 'ca' || role === 'new_ca') ? 'ca' : 'employee';
+      const supplier = (role === 'new_ca' || role === 'ca') ? 'ca' : (role === 'accountant' ? 'accountant' : 'employee');
       let companyRow = null;
       let assignedCompanies = [];
       let profileUser = {};
@@ -64,18 +213,23 @@ router.post('/', loginLimiter, async (req, res) => {
         }
         companyRow = companies.length > 0 ? companies[0] : null;
         assignedCompanies = companies;
-      } else if (role === 'ca') {
+      } else if (role === 'ca' || role === 'accountant') {
         const [caRows] = await db.query('SELECT * FROM tbca WHERE fdSiNo = ?', [authUser.source_id]);
         profileUser = caRows[0] || {};
+        if (profileUser.fdstatus === 'suspended') {
+          return res.status(403).json({ success: false, message: 'Account is suspended. Please contact Admin.' });
+        }
         employeeId = authUser.source_id;
 
         const [companies] = await db.query(
-          `SELECT c.* FROM tbcompanies c
+          `SELECT DISTINCT c.* FROM tbcompanies c
            LEFT JOIN ca_company cc ON c.id = cc.company_id
+           LEFT JOIN tbusers u ON c.id = u.company_id AND u.accountant_id = ?
            WHERE (c.fdAccountantName = ? AND c.fdAccountantName IS NOT NULL AND c.fdAccountantName != '')
               OR cc.ca_id = ?
-           ORDER BY c.id ASC`,
-          [profileUser.fdname || '', authUser.source_id]
+              OR u.id IS NOT NULL
+           ORDER BY c.name ASC`,
+          [authUser.source_id, profileUser.fdname || '', authUser.source_id]
         );
         companyRow = companies.length > 0 ? companies[0] : null;
         assignedCompanies = companies;
@@ -125,32 +279,7 @@ router.post('/', loginLimiter, async (req, res) => {
       const hasCompany = !!companyRow;
 
       // Subscription / trial info
-      let subscriptionInfo = null;
-      if (companyId) {
-        const [subsRows] = await db.query(
-          `SELECT id, plan, is_trial, status, end_date
-           FROM company_subscriptions
-           WHERE company_id = ?
-           ORDER BY id DESC LIMIT 1`,
-          [companyId]
-        );
-        if (subsRows.length > 0) {
-          const sub = subsRows[0];
-          const now = new Date();
-          const endDate = sub.end_date ? new Date(sub.end_date) : null;
-          const daysRemaining = endDate ? Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)) : 0;
-          subscriptionInfo = {
-            id: sub.id,
-            plan: sub.plan,
-            isTrial: Boolean(sub.is_trial),
-            status: sub.status,
-            endDate,
-            daysRemaining,
-            isExpired: daysRemaining < 0 || sub.status === 'expired',
-            hasSubscription: sub.status === 'active' || (sub.is_trial && daysRemaining >= 0)
-          };
-        }
-      }
+      const subscriptionInfo = await getSubscriptionForUser(companyRow, authUser.role, authUser.source_id);
 
       const token = signToken({
         id: authUser.source_id,
@@ -213,11 +342,11 @@ router.post('/', loginLimiter, async (req, res) => {
       },
       {
         table: 'tbca',
-        role: 'ca',
-        supplier: 'ca',
+        role: 'accountant',
+        supplier: 'accountant',
         passwordField: 'fdpassword',
         idField: 'fdSiNo',
-        nameField: (u) => u.fdname || 'CA',
+        nameField: (u) => u.fdname || 'Accountant',
       },
       {
         table: 'tbcaemployees',
@@ -304,14 +433,19 @@ router.post('/', loginLimiter, async (req, res) => {
           companyRow = companies.length > 0 ? companies[0] : null;
           assignedCompanies = companies;
           user.assignedCompanies = companies;
-        } else if (role === 'ca') {
+        } else if (role === 'ca' || role === 'accountant') {
+          if (user.fdstatus === 'suspended') {
+            return res.status(403).json({ success: false, message: 'Account is suspended. Please contact Admin.' });
+          }
           const [companies] = await db.query(
-            `SELECT c.* FROM tbcompanies c
+            `SELECT DISTINCT c.* FROM tbcompanies c
              LEFT JOIN ca_company cc ON c.id = cc.company_id
+             LEFT JOIN tbusers u ON c.id = u.company_id AND u.accountant_id = ?
              WHERE (c.fdAccountantName = ? AND c.fdAccountantName IS NOT NULL AND c.fdAccountantName != '')
                 OR cc.ca_id = ?
-             ORDER BY c.id ASC`,
-            [user['fdname'], user[idField]]
+                OR u.id IS NOT NULL
+             ORDER BY c.name ASC`,
+            [user[idField], user['fdname'] || '', user[idField]]
           );
           companyRow = companies.length > 0 ? companies[0] : null;
           assignedCompanies = companies;
@@ -345,46 +479,7 @@ router.post('/', loginLimiter, async (req, res) => {
         const userid = 'employee';
 
         // --- Fetch subscription / trial info for this company (if any) ---
-        let subscriptionInfo = null;
-        if (companyId) {
-          const [subsRows] = await db.query(
-            `
-              SELECT 
-                id,
-                plan,
-                is_trial,
-                status,
-                start_date,
-                end_date
-              FROM company_subscriptions
-              WHERE company_id = ?
-              ORDER BY end_date DESC
-              LIMIT 1
-            `,
-            [companyId]
-          ).catch(() => [[]]);
-
-          if (subsRows && subsRows.length > 0) {
-            const s = subsRows[0];
-            const now = new Date();
-            const end = new Date(s.end_date);
-            const msDiff = end.getTime() - now.getTime();
-            const daysRemaining = Math.ceil(msDiff / (1000 * 60 * 60 * 24));
-
-            const isExpired = msDiff < 0 || s.status === 'expired' || s.status === 'cancelled';
-
-            subscriptionInfo = {
-              id: s.id,
-              plan: s.plan,
-              isTrial: !!s.is_trial,
-              status: isExpired ? 'expired' : s.status,
-              startDate: s.start_date,
-              endDate: s.end_date,
-              daysRemaining: isExpired ? 0 : Math.max(daysRemaining, 0),
-              isExpired,
-            };
-          }
-        }
+        const subscriptionInfo = await getSubscriptionForUser(companyRow, role, user[idField]);
 
         const token = signToken({
           id: user[idField],
@@ -442,6 +537,9 @@ router.post('/', loginLimiter, async (req, res) => {
         if (!userRow.password) continue;
         const match = await bcrypt.compare(passwordTrimmed, userRow.password);
         if (match) {
+          if (userRow.status === 'suspended') {
+            return res.status(403).json({ success: false, message: 'User account is suspended. Please contact your accountant or administrator.' });
+          }
           const [[company]] = await db.query('SELECT * FROM tbcompanies WHERE id = ?', [userRow.company_id]);
           const companyRow = company || null;
 
@@ -451,8 +549,11 @@ router.post('/', loginLimiter, async (req, res) => {
             id: userRow.id,
             email: userRow.email || userRow.username,
             role: 'company_user',
-            userType: 'company_user'
+            userType: 'company_user',
+            companyId: userRow.company_id
           });
+
+          const subscriptionInfo = await getSubscriptionForUser(companyRow, 'company_user', userRow.id);
 
           return res.json({
             success: true,
@@ -465,6 +566,7 @@ router.post('/', loginLimiter, async (req, res) => {
             companyId: userRow.company_id,
             hasCompany: true,
             companyInfo: companyRow,
+            subscription: subscriptionInfo,
             companies: [companyRow],
             employee_id: userRow.employee_id,
             user: {

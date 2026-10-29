@@ -147,7 +147,16 @@ const Header: React.FC<HeaderProps> = ({ toggleSidebar }) => {
           {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
         </button>
 
-        {localStorage.getItem('userType') === 'new_ca' ? (
+        {localStorage.getItem('userType') === 'accountant' && (
+          <a
+            href="/accountant/dashboard"
+            className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-lg shadow-xs transition-colors flex items-center gap-1"
+          >
+            ← Accountant Panel
+          </a>
+        )}
+
+        {(localStorage.getItem('userType') === 'new_ca' || localStorage.getItem('userType') === 'ca') ? (
           <span className="px-2.5 py-1 bg-emerald-500 text-white text-xs font-bold rounded-lg shadow-2xs border border-emerald-400">
             CA
           </span>
@@ -157,7 +166,7 @@ const Header: React.FC<HeaderProps> = ({ toggleSidebar }) => {
           </span>
         ) : (
           <span className="px-2.5 py-1 bg-amber-500 text-slate-950 text-xs font-bold rounded-lg shadow-2xs border border-amber-400">
-            Accountant
+            {localStorage.getItem('userType') === 'company_user' ? 'User' : 'Accountant'}
           </span>
         )}
       </div>

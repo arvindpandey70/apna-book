@@ -30,11 +30,16 @@ const MainLayout: React.FC = () => {
       return;
     }
 
+    const isAccountant = user?.userType === 'accountant';
     const isCa = user?.userType === 'ca' || user?.userType === 'new_ca';
     const isOwner = user?.userType === 'employee';
 
     // If authenticated but no company, handle routing based on role
     if (!isLoading && isAuthenticated && !hasCompany) {
+      if (isAccountant) {
+        navigate('/accountant/dashboard');
+        return;
+      }
       if (isCa) {
         // CAs land on /app (CA Portal Dashboard) even if 0 companies are linked yet
         if (location.pathname.startsWith('/app/company') || location.pathname.startsWith('/app/no-company')) {
@@ -60,7 +65,9 @@ const MainLayout: React.FC = () => {
       if (!isOwner) {
         if (location.pathname.startsWith('/app/company') || location.pathname.startsWith('/app/config')) {
           console.warn(`Access denied to ${location.pathname} for non-owner role`);
-          if (isCa || hasCompany) {
+          if (isAccountant) {
+            navigate('/accountant/dashboard');
+          } else if (isCa || hasCompany) {
             navigate('/app');
           } else {
             navigate('/app/no-company');
@@ -104,6 +111,11 @@ const MainLayout: React.FC = () => {
   // Global subscription UI guard: if subscription / trial expired, only allow dashboard
   useEffect(() => {
     if (isLoading || !isAuthenticated || !user) return;
+
+    if (user.userType === 'accountant' || localStorage.getItem('userType') === 'accountant') {
+      setShowSubscriptionModal(false);
+      return;
+    }
 
     const trialDays = user.trialDaysRemaining ?? null;
     const status = user.subscriptionStatus ?? null;

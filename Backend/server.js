@@ -1,5 +1,5 @@
 // ✅ server.js (Updated without express-session) - Trigger restart to run migrations
-require("dotenv").config();
+require("dotenv").config({ path: require("path").resolve(__dirname, ".env") });
 const express = require("express");
 const mysql = require("mysql2");
 const cors = require("cors");
@@ -311,6 +311,8 @@ const AdminUser = require("./routes/AdminUser");
 const Traders = require("./routes/traders");
 app.use("/api/adminUser", authMiddleware, AdminUser);
 app.use("/api/traders", authMiddleware, Traders);
+const accountantRoutes = require("./routes/accountantPanel");
+app.use("/api/accountant", authMiddleware, accountantRoutes);
 const caEmployee = require("./routes/caemployee");
 app.use("/api/", caEmployee);
 
@@ -348,47 +350,11 @@ app.get('/',(req, res)=>{
 
 
 if (require.main === module) {
-  app.listen(PORT, async () => {
+  app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
-
-    try {
-      const { runMigration } = require("./scripts/migrate_auth_security");
-      await runMigration();
-
-    } catch (migErr) {
-      console.error("Migration check failed:", migErr.message);
-    }
-
-    // 🛠️ ONE-TIME REPAIR: Renumber all vouchers to fix chronological issues
-    try {
-      const { renumberVouchers } = require("./utils/generateVoucherNumber");
-      const db = require("./db");
-
-      console.log("🛠️ Starting automatic chronological repair...");
-
-      const [combos] = await db.execute("SELECT DISTINCT company_id, owner_type, owner_id FROM purchase_vouchers");
-      for (const combo of combos) {
-        // Renumber for current and previous FY
-        const datesToFix = [new Date(), new Date(new Date().getFullYear() - 1, 11, 31)];
-        for (const d of datesToFix) {
-          const types = ["purchase", "sales", "payment", "receipt", "contra", "journal", "bank"];
-          for (const t of types) {
-            await renumberVouchers({
-              companyId: combo.company_id,
-              ownerType: combo.owner_type,
-              ownerId: combo.owner_id,
-              voucherType: t,
-              date: d
-            }).catch(err => console.error(`Failed to renumber ${t}:`, err.message));
-          }
-        }
-      }
-      console.log("✅ Chronological repair completed.");
-    } catch (err) {
-      console.error("❌ Repair failed:", err.message);
-    }
   });
 }
 
 module.exports = app;
+
 

@@ -71,8 +71,11 @@ const LoginPage: React.FC = () => {
         const hasCompanyRaw = localStorage.getItem('company');
         const hasCompany = hasCompanyRaw === 'true' || hasCompanyRaw === '1' || hasCompanyRaw === 'True';
 
-        if (userType === 'ca' || userType === 'new_ca') {
-          // CA always lands on the CA Portal Dashboard (/app)
+        if (userType === 'accountant') {
+          // Accountant lands on Accountant Dashboard
+          navigate('/accountant/dashboard');
+        } else if (userType === 'ca' || userType === 'new_ca') {
+          // CA lands on CA Portal Dashboard
           navigate('/app');
         } else if (hasCompany) {
           navigate('/app');
