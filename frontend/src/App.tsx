@@ -297,6 +297,13 @@ import DebitNoteRegiser from "./components/voucherRegister/DebitNoteRegiser";
 import AllSaleHsn from "./components/reports/AllSaleHsn";
 import AllHsnPurachase from "./components/reports/AllHsnPurachase";
 import NoCompanyAssigned from "./components/dashboard/NoCompanyAssigned";
+import AccountantProtectedRoute from "./routes/AccountantProtectedRoute";
+import AccountantLayout from "./components/accountantLayout/AccountantLayout";
+import AccountantDashboard from "./components/accountant/AccountantDashboard";
+import AccountantCompanies from "./components/accountant/AccountantCompanies";
+import AccountantUsers from "./components/accountant/AccountantUsers";
+import AccountantCreateUser from "./components/accountant/AccountantCreateUser";
+import AccountantCreateCompany from "./components/accountant/AccountantCreateCompany";
 
 function App() {
   // Add keyboard shortcut listener for Alt+F1 for company selection
@@ -337,6 +344,25 @@ function App() {
               <Route path="/careers" element={<CareersPage />} />
               <Route path="/contact" element={<ContactPage />} />
               <Route path="/privacy" element={<PrivacyPolicyPage />} />
+
+                            {/* Accountant Panel Routes */}
+              <Route
+                path="/accountant"
+                element={
+                  <AccountantProtectedRoute>
+                    <AccountantLayout />
+                  </AccountantProtectedRoute>
+                }
+              >
+                <Route index element={<AccountantDashboard />} />
+                <Route path="dashboard" element={<AccountantDashboard />} />
+                <Route path="companies" element={<AccountantCompanies />} />
+                <Route path="companies/create" element={<AccountantCreateCompany />} />
+                <Route path="create-company" element={<AccountantCreateCompany />} />
+                <Route path="users" element={<AccountantUsers />} />
+                <Route path="users/create" element={<AccountantCreateUser />} />
+                <Route path="create-user" element={<AccountantCreateUser />} />
+              </Route>
 
               {/* App Routes */}
               <Route path="/app" element={<MainLayout />}>

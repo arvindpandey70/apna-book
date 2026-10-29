@@ -127,9 +127,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     const fetchSubscriptionStatus = async () => {
       if (!user || !companyId) return;
 
+      const userType = user.userType || localStorage.getItem("userType") || "";
+      const userId = user.id || localStorage.getItem("user_id") || "";
+
+      // Accountant / CA partner bypass: 365 days free access
+      if (userType === 'accountant' || userType === 'ca' || userType === 'new_ca') {
+        const updatedUser: User = {
+          ...user,
+          subscriptionStatus: 'active',
+          isTrial: false,
+          trialDaysRemaining: 365,
+          isExpired: false,
+          hasSubscription: true,
+        };
+        setUser(updatedUser);
+        try {
+          localStorage.setItem("user", JSON.stringify(updatedUser));
+        } catch {}
+        return;
+      }
+
       try {
+        const queryParams = new URLSearchParams();
+        if (userType) queryParams.append("user_type", userType);
+        if (userId) queryParams.append("user_id", String(userId));
+        const qs = queryParams.toString() ? `?${queryParams.toString()}` : "";
+
         const res = await fetch(
-          `${import.meta.env.VITE_API_URL}/api/company-subscription/status/${companyId}`
+          `${import.meta.env.VITE_API_URL}/api/company-subscription/status/${companyId}${qs}`,
+          { credentials: "include" }
         );
         if (!res.ok) return;
 
@@ -158,7 +184,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     };
 
     fetchSubscriptionStatus();
-  }, [companyId]);
+  }, [companyId, user?.userType, user?.id]);
 
   const login = async (email: string, password: string): Promise<boolean> => {
     setIsLoading(true);
@@ -205,10 +231,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         userLimit:
           userFromResponse.userLimit ?? 1,
         hasSubscription:
-          !!userFromResponse.hasSubscription || !!data.hasCompany || false,
+          subscription?.hasSubscription !== undefined
+            ? !!subscription.hasSubscription
+            : (!!userFromResponse.hasSubscription),
         subscriptionStatus: subscription?.status,
         isTrial: subscription?.isTrial ?? false,
         trialEndsAt: subscription?.endDate ?? null,
+        trialDaysRemaining: subscription?.daysRemaining !== undefined ? subscription.daysRemaining : (subscription?.isExpired ? 0 : undefined),
         isExpired: subscription?.isExpired ?? false,
         hasCompany: data.hasCompany ?? false,
         companyId: data.companyId?.toString() ?? null,

@@ -241,12 +241,12 @@ const Dashboard: React.FC = () => {
       }
     }
 
-    if (employeeId || caId) {
+    if (employeeId || caId || userType === "accountant" || localStorage.getItem("company_id")) {
       fetchData();
     } else {
       setLoading(false);
     }
-  }, [employeeId, caId, selectedFinYear]);
+  }, [employeeId, caId, userType, selectedFinYear]);
 
   useEffect(() => {
     const employeeId = localStorage.getItem("employee_id");
@@ -491,7 +491,7 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="space-y-6 pb-8 max-w-7xl mx-auto mt-2 sm:mt-3">
-      {suppl === "employee" || suppl === "ca_employee" ? (
+      {suppl === "employee" || suppl === "ca_employee" || suppl === "accountant" ? (
         <>
           {/* Header & Quick Navigation Bar */}
           <div className={`p-6 rounded-2xl border shadow-xs transition-colors ${
@@ -543,7 +543,7 @@ const Dashboard: React.FC = () => {
                 </div>
 
                 {/* Company Switcher if multiple companies exist */}
-                {(userType === "employee" || userType === "new_ca") && allCompanies.length > 1 && (
+                {(userType === "employee" || userType === "new_ca" || userType === "accountant") && allCompanies.length > 1 && (
                   <select
                     value={activeCompanyId || selectedCompany}
                     onChange={(e) => handleCompanyUnlock(e.target.value)}
@@ -595,8 +595,10 @@ const Dashboard: React.FC = () => {
 
           {/* Subscription Banner */}
           {user?.trialDaysRemaining !== undefined && (() => {
-            const isActive = user.trialDaysRemaining >= 0 && !user.isExpired;
-            const isFreeTrial = user.isTrial;
+            const isAccountant = user?.userType === 'accountant' || suppl === 'accountant';
+            const isAllottedUser = !isAccountant && (user?.userType === 'company_user' || Boolean((user as any)?.isAccountantManaged));
+            const isActive = isAccountant || (!isAllottedUser && user.trialDaysRemaining >= 0 && !user.isExpired) || (isAllottedUser && Boolean(user.hasSubscription) && !user.isExpired && (user.trialDaysRemaining || 0) > 0);
+            const isFreeTrial = !isAccountant && !isAllottedUser && user.isTrial;
 
             return (
               <div className={`p-4 sm:p-5 rounded-2xl border shadow-xs transition-colors flex flex-col md:flex-row items-start md:items-center justify-between gap-4 ${
@@ -615,32 +617,53 @@ const Dashboard: React.FC = () => {
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-sm">
-                        {isActive
-                          ? (isFreeTrial ? 'Free Trial — Active' : 'Subscription — Active')
-                          : (isFreeTrial ? 'Free Trial — Ended' : 'Subscription — Ended')}
+                        {isAccountant
+                          ? 'Accountant Partner Edition — 1 Year Free Access'
+                          : isAllottedUser && !isActive
+                            ? 'Subscription Required — Accountant Managed'
+                            : isActive
+                              ? (isFreeTrial ? 'Free Trial — Active' : 'Subscription — Active')
+                              : (isFreeTrial ? 'Free Trial — Ended' : 'Subscription — Ended')}
                       </span>
                       <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold ${
                         isActive
                           ? 'bg-emerald-600 text-white'
                           : 'bg-rose-600 text-white'
                       }`}>
-                        {isActive ? `${user.trialDaysRemaining} days remaining` : 'Action required'}
+                        {isActive
+                          ? `${user.trialDaysRemaining} days remaining`
+                          : isAllottedUser
+                            ? '0 days trial — Payment required'
+                            : 'Action required'}
                       </span>
                     </div>
                     <p className="text-xs opacity-90 mt-0.5">
-                      {isActive
-                        ? `Your ${isFreeTrial ? 'free trial' : 'subscription'} is active. Enjoy full access to all features.`
-                        : `Your ${isFreeTrial ? 'trial period' : 'subscription'} has ended. Please renew to continue seamless access.`}
+                      {isAccountant
+                        ? 'Complimentary 1-year partner access to create and manage client companies & books.'
+                        : isAllottedUser && !isActive
+                          ? 'This company is managed by an Accountant. There is no free trial. Please purchase a subscription plan to access full features.'
+                          : isActive
+                            ? `Your ${isFreeTrial ? 'free trial' : 'subscription'} is active. Enjoy full access to all features.`
+                            : `Your ${isFreeTrial ? 'trial period' : 'subscription'} has ended. Please renew to continue seamless access.`}
                     </p>
                   </div>
                 </div>
 
-                <button
-                  onClick={() => navigate('/app/pricing')}
-                  className="self-stretch md:self-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl shadow-2xs transition-colors cursor-pointer whitespace-nowrap"
-                >
-                  View Plans / Renew
-                </button>
+                {isAccountant ? (
+                  <button
+                    onClick={() => navigate('/accountant/dashboard')}
+                    className="self-stretch md:self-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl shadow-2xs transition-colors cursor-pointer whitespace-nowrap"
+                  >
+                    Accountant Portal
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => navigate('/app/pricing')}
+                    className="self-stretch md:self-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl shadow-2xs transition-colors cursor-pointer whitespace-nowrap"
+                  >
+                    View Plans / Renew
+                  </button>
+                )}
               </div>
             );
           })()}

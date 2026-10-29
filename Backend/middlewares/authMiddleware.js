@@ -38,7 +38,7 @@ function authMiddleware(req, res, next) {
       email: decoded.email || null,
       role: decoded.role || decoded.userType || 'employee',
       userType: decoded.userType || decoded.role || 'employee',
-      type: decoded.type || decoded.role // backward compatibility
+      type: decoded.type || decoded.role, companyId: decoded.companyId || null
     };
     next();
   } catch (err) {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Filter, Edit, Trash2, Ban, Play, Users, MoreVertical, X, ExternalLink, FileText } from 'lucide-react';
+import { Search, Filter, Edit, Trash2, Ban, Play, Users, MoreVertical, X, ExternalLink, FileText, Building2 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useAdmin } from '../../hooks/useAdmin';
 import { format } from 'date-fns';
@@ -11,10 +11,20 @@ interface User {
   name: string;
   phone: string;
   email: string;
-  password: string;
+  password?: string;
   status: 'active' | 'suspended' | 'pending';
   lastLogin?: string | null;
   terms_file?: string | null;
+  company_count?: number;
+  user_count?: number;
+}
+
+interface Company {
+  id: number;
+  name: string;
+  financial_year?: string;
+  pan_number?: string;
+  gst_number?: string;
 }
 
 const UserManagement: React.FC = () => {
@@ -31,7 +41,7 @@ const UserManagement: React.FC = () => {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [caEmployees, setCaEmployees] = useState<any[]>([]);
-  const [employeeCompanies, setEmployeeCompanies] = useState<any[]>([]);
+
 
   const getFileUrl = (filePath: string | null | undefined) => {
     if (!filePath) return '';
@@ -49,7 +59,7 @@ const UserManagement: React.FC = () => {
     terms_file: null as File | null,
   });
 
-  // Fetch users
+  // Fetch users (accountants)
   const fetchUsers = async () => {
     try {
       const res = await api.get('/api/adminUser');
@@ -86,7 +96,7 @@ const UserManagement: React.FC = () => {
     }
 
     Swal.fire({
-      title: 'Adding User...',
+      title: 'Creating Accountant...',
       allowOutsideClick: false,
       didOpen: () => {
         Swal.showLoading();
@@ -109,12 +119,12 @@ const UserManagement: React.FC = () => {
           'Content-Type': 'multipart/form-data',
         },
       });
-      setUsers((prev) => [...prev, res.data]);
+      setUsers((prev) => [res.data, ...prev]);
       resetForm();
       Swal.fire({
         icon: 'success',
-        title: 'User Added',
-        text: 'The new admin has been created successfully.',
+        title: 'Accountant Created',
+        text: 'The accountant account has been created successfully.',
         timer: 2000,
         showConfirmButton: false
       });
@@ -123,7 +133,7 @@ const UserManagement: React.FC = () => {
       Swal.fire({
         icon: 'error',
         title: 'Operation Failed',
-        text: err.response?.data?.error || 'Failed to add user',
+        text: err.response?.data?.error || 'Failed to add accountant',
       });
     }
   };
@@ -141,7 +151,7 @@ const UserManagement: React.FC = () => {
     }
 
     Swal.fire({
-      title: 'Updating User...',
+      title: 'Updating Accountant...',
       allowOutsideClick: false,
       didOpen: () => {
         Swal.showLoading();
@@ -171,8 +181,8 @@ const UserManagement: React.FC = () => {
       resetForm();
       Swal.fire({
         icon: 'success',
-        title: 'User Updated',
-        text: 'User profile has been updated successfully.',
+        title: 'Accountant Updated',
+        text: 'Accountant profile has been updated successfully.',
         timer: 2000,
         showConfirmButton: false
       });
@@ -186,11 +196,10 @@ const UserManagement: React.FC = () => {
     }
   };
 
-
   const handleDeleteUser = async (id: string) => {
     const result = await Swal.fire({
       title: 'Are you sure?',
-      text: "You won't be able to revert this user deletion!",
+      text: "You won't be able to revert this accountant deletion!",
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#d33',
@@ -204,7 +213,7 @@ const UserManagement: React.FC = () => {
         setUsers((prev) => prev.filter((u) => u.id !== id));
         Swal.fire(
           'Deleted!',
-          'User has been removed from the system.',
+          'Accountant has been removed from the system.',
           'success'
         );
       } catch (err: any) {
@@ -220,19 +229,16 @@ const UserManagement: React.FC = () => {
   const handleStatusChange = async (id: string, status: 'active' | 'suspended') => {
     try {
       await api.patch(`/api/adminUser/${id}/status`, { status });
-
-      // Update local state instead of reloading
       setUsers(prev => prev.map(u => u.id === id ? { ...u, status } : u));
 
       Swal.fire({
         toast: true,
         position: 'top-end',
         icon: 'success',
-        title: `User status changed to ${status}`,
+        title: `Accountant status changed to ${status}`,
         showConfirmButton: false,
         timer: 3000
       });
-
     } catch (err: any) {
       console.error('Status update failed:', err);
       Swal.fire({
@@ -241,41 +247,6 @@ const UserManagement: React.FC = () => {
         text: err.response?.data?.error || err.message,
       });
     }
-  };
-
-  const handleShowDetails = async (user: User) => {
-    setSelectedUser(user);
-    setShowDetailsModal(true);
-    setLoadingDetails(true);
-    setCaEmployees([]);
-    setEmployeeCompanies([]);
-
-    try {
-      if (adminData?.role === 'super_admin') {
-        const res = await api.get(`/api/ca-employees-with-companies?ca_id=${user.id}`);
-        setCaEmployees(res.data.employees || []);
-      }
-    } catch (err: any) {
-      console.error('Failed to fetch details:', err);
-    } finally {
-      setLoadingDetails(false);
-    }
-  };
-
-  const handleEdit = (user: User) => {
-    setEditingUser(user);
-    setNewUser({
-      name: user.name || '',
-      phone: user.phone || '',
-      email: user.email || '',
-      password: '',
-      confirmPassword: '',
-      status: user.status || 'active',
-      terms_file: null,
-    });
-    setShowAddForm(true);
-    // Scroll to form
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const resetForm = () => {
@@ -292,16 +263,28 @@ const UserManagement: React.FC = () => {
     setShowAddForm(false);
   };
 
+  const handleEdit = (user: User) => {
+    setEditingUser(user);
+    setNewUser({
+      name: user.name,
+      phone: user.phone || '',
+      email: user.email,
+      password: '',
+      confirmPassword: '',
+      status: user.status,
+      terms_file: null,
+    });
+    setShowAddForm(true);
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'active':
-        return theme === 'dark' ? 'bg-green-900 text-green-100' : 'bg-green-100 text-green-800';
+        return 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300';
       case 'suspended':
-        return theme === 'dark' ? 'bg-red-900 text-red-100' : 'bg-red-100 text-red-800';
-      case 'pending':
-        return theme === 'dark' ? 'bg-yellow-900 text-yellow-100' : 'bg-yellow-100 text-yellow-800';
+        return 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300';
       default:
-        return theme === 'dark' ? 'bg-gray-900 text-gray-100' : 'bg-gray-100 text-gray-800';
+        return 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300';
     }
   };
 
@@ -310,10 +293,18 @@ const UserManagement: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className={`${theme === 'dark' ? 'text-white' : 'text-gray-900'} text-2xl font-bold`}>User Management</h1>
-          <p className={`${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>Manage users</p>
+          <h1 className={`${theme === 'dark' ? 'text-white' : 'text-gray-900'} text-2xl font-bold`}>Accountant Management</h1>
+          <p className={`${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>Manage accountants, company permissions, and credentials</p>
         </div>
-        <button onClick={() => setShowAddForm(true)} className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primaryDark transition-all active:scale-95 shadow-lg shadow-primary/20">Add New User</button>
+        <button
+          onClick={() => {
+            resetForm();
+            setShowAddForm(true);
+          }}
+          className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primaryDark transition-all active:scale-95 shadow-lg shadow-primary/20"
+        >
+          + Add New Accountant
+        </button>
       </div>
 
       {/* Add/Edit Form */}
@@ -321,7 +312,7 @@ const UserManagement: React.FC = () => {
         <div className={`rounded-xl border p-4 sm:p-6 ${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} shadow-xl animate-in fade-in slide-in-from-top-4 duration-300`}>
           <h3 className={`${theme === 'dark' ? 'text-white' : 'text-gray-900'} text-lg font-semibold mb-4 flex items-center`}>
             {editingUser ? <Edit className="w-5 h-5 mr-2 text-primary" /> : <Users className="w-5 h-5 mr-2 text-primary" />}
-            {editingUser ? 'Edit Admin Profile' : 'Create New Admin'}
+            {editingUser ? 'Edit Accountant Profile' : 'Create New Accountant'}
           </h3>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
             {['name', 'phone', 'email', 'password', 'confirmPassword'].map((field) => (
@@ -365,79 +356,63 @@ const UserManagement: React.FC = () => {
                     className={`w-full px-4 py-2.5 border rounded-xl file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold ${theme === 'dark' ? 'border-gray-600 bg-gray-700 text-gray-300 file:bg-gray-600 file:text-primary hover:file:bg-gray-500' : 'border-gray-200 bg-gray-50 text-gray-700 file:bg-blue-50 file:text-primary hover:file:bg-blue-100'} transition-all cursor-pointer`}
                   />
                 </div>
-
-                {/* Immediate Preview Section */}
-                {newUser.terms_file && (
-                  <div className={`shrink-0 w-12 h-12 rounded-xl border-2 border-dashed flex items-center justify-center p-1 ${theme === 'dark' ? 'border-gray-600 bg-gray-800' : 'border-gray-300 bg-white'}`}>
-                    {newUser.terms_file.type === 'application/pdf' ? (
-                      <FileText className="w-6 h-6 text-red-500" />
-                    ) : (
-                      <img
-                        src={URL.createObjectURL(newUser.terms_file)}
-                        alt="Preview"
-                        className="w-full h-full object-cover rounded-lg"
-                      />
-                    )}
-                  </div>
-                )}
               </div>
-
-              {editingUser?.terms_file && !newUser.terms_file && (
-                <p className="text-xs text-gray-400 mt-2 flex items-center gap-1">
-                  <ExternalLink className="w-3 h-3" /> Current file: <a href={getFileUrl(editingUser.terms_file)} target="_blank" rel="noreferrer" className="text-primary hover:underline">View Document</a>
-                </p>
-              )}
             </div>
           </div>
-          <div className="flex flex-col sm:flex-row justify-end gap-3 mt-8 border-t border-gray-700/10 pt-6">
-            <button onClick={resetForm} className={`px-6 py-2.5 border rounded-xl font-medium transition-all ${theme === 'dark' ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>Cancel</button>
-            <button onClick={editingUser ? handleUpdateUser : handleAddUser} className="px-8 py-2.5 bg-primary text-white rounded-xl font-semibold hover:bg-primaryDark active:scale-95 shadow-lg shadow-primary/20">
-              {editingUser ? 'Update Profile' : 'Create Admin'}
+          <div className="mt-6 flex justify-end gap-3">
+            <button
+              onClick={resetForm}
+              className={`px-5 py-2.5 rounded-xl border font-medium ${theme === 'dark' ? 'border-gray-600 hover:bg-gray-700 text-gray-300' : 'border-gray-200 hover:bg-gray-50 text-gray-700'} transition-all`}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={editingUser ? handleUpdateUser : handleAddUser}
+              className="px-6 py-2.5 bg-primary hover:bg-primaryDark text-white font-medium rounded-xl shadow-lg shadow-primary/20 transition-all active:scale-95"
+            >
+              {editingUser ? 'Save Changes' : 'Create Accountant'}
             </button>
           </div>
         </div>
       )}
 
-      {/* Filters */}
-      <div className={`rounded-xl shadow-sm border p-4 sm:p-6 ${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="flex-1 relative">
-            <Search className="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search by name or email..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className={`w-full pl-10 pr-4 py-2 border rounded-xl focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all ${theme === 'dark' ? 'border-gray-600 bg-gray-700 text-white' : 'border-gray-200 bg-white text-gray-900'}`}
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-gray-400" />
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className={`px-4 py-2 border rounded-xl focus:ring-2 focus:ring-primary/50 focus:border-primary cursor-pointer ${theme === 'dark' ? 'border-gray-600 bg-gray-700 text-white' : 'border-gray-200 bg-white text-gray-900'}`}
+      {/* Filter and Search Bar */}
+      <div className={`p-4 rounded-xl border flex flex-col md:flex-row gap-4 items-center justify-between ${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} shadow-sm`}>
+        <div className="relative w-full md:w-96">
+          <Search className="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search accountants by name, email..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className={`w-full pl-10 pr-4 py-2 border rounded-xl focus:ring-2 focus:ring-primary/50 transition-all text-sm ${theme === 'dark' ? 'bg-gray-700 border-gray-600 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'}`}
+          />
+        </div>
+        <div className="flex gap-2 w-full md:w-auto">
+          {['all', 'active', 'suspended', 'pending'].map((filter) => (
+            <button
+              key={filter}
+              onClick={() => setStatusFilter(filter)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-all ${statusFilter === filter ? 'bg-primary text-white shadow-sm' : theme === 'dark' ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
             >
-              <option value="all">All Status</option>
-              <option value="active">Active</option>
-              <option value="suspended">Suspended</option>
-              <option value="pending">Pending</option>
-            </select>
-          </div>
+              {filter}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Users Table */}
-      <div className={`rounded-xl shadow-xl border overflow-hidden ${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+      {/* Accountants Table */}
+      <div className={`rounded-xl border overflow-hidden shadow-sm ${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className={`${theme === 'dark' ? 'bg-gray-700/50' : 'bg-gray-50'}`}>
+            <thead className={`border-b ${theme === 'dark' ? 'bg-gray-700/50 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
               <tr>
-                <th className={`px-6 py-4 text-left font-semibold uppercase tracking-wider ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>Admin User</th>
+                <th className={`px-6 py-4 text-left font-semibold uppercase tracking-wider ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>Accountant</th>
                 <th className={`px-6 py-4 text-left font-semibold uppercase tracking-wider ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>Status</th>
-                <th className={`px-6 py-4 text-left font-semibold uppercase tracking-wider ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>Phone Number</th>
-                <th className={`px-4 sm:px-6 py-3 text-left font-semibold uppercase tracking-wider hidden md:table-cell ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>Last Activity</th>
-                <th className={`px-6 py-4 text-left font-semibold uppercase tracking-wider ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>Terms</th>
+                <th className={`px-6 py-4 text-left font-semibold uppercase tracking-wider ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>Companies Assigned</th>
+                <th className={`px-6 py-4 text-left font-semibold uppercase tracking-wider ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>Users Managed</th>
+                <th className={`px-6 py-4 text-left font-semibold uppercase tracking-wider ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>Phone</th>
+                <th className={`px-6 py-4 text-left font-semibold uppercase tracking-wider ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>Last Login</th>
                 <th className={`px-6 py-4 text-left font-semibold uppercase tracking-wider ${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>Actions</th>
               </tr>
             </thead>
@@ -455,65 +430,36 @@ const UserManagement: React.FC = () => {
                       {user.status.toUpperCase()}
                     </span>
                   </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                      {user.company_count || 0} Company(s)
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+                      {user.user_count || 0} User(s)
+                    </span>
+                  </td>
                   <td className={`px-6 py-4 whitespace-nowrap ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>
                     {user.phone || 'N/A'}
                   </td>
-                  <td className={`px-4 sm:px-6 py-4 whitespace-nowrap hidden md:table-cell ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                  <td className={`px-6 py-4 whitespace-nowrap ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
                     {user.lastLogin ? format(new Date(user.lastLogin), 'MMM dd, yyyy HH:mm') : 'Never'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    {user.terms_file ? (
-                      <div className="flex items-center gap-2">
-                        {/* Thumbnail or Icon */}
-                        <div className={`w-8 h-8 rounded-lg border overflow-hidden flex items-center justify-center ${theme === 'dark' ? 'border-gray-600 bg-gray-700' : 'border-gray-200 bg-gray-50'}`}>
-                          {user.terms_file.toLowerCase().endsWith('.pdf') ? (
-                            <FileText className="w-4 h-4 text-red-500" />
-                          ) : (
-                            <img
-                              src={getFileUrl(user.terms_file)}
-                              alt="Terms"
-                              className="w-full h-full object-cover"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src = 'https://via.placeholder.com/32?text=Doc';
-                              }}
-                            />
-                          )}
-                        </div>
-                        <a
-                          href={getFileUrl(user.terms_file)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className={`px-2 py-1 rounded-md text-[10px] font-bold transition-all ${theme === 'dark' ? 'bg-blue-900/40 text-blue-300 hover:bg-blue-800' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
-                        >
-                          OPEN
-                        </a>
-                      </div>
-                    ) : (
-                      <span className="text-gray-400 italic text-[10px]">No file</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
                       <button
-                        title="Edit Admin"
+                        title="Edit Accountant"
                         onClick={() => handleEdit(user)}
-                        className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition-all transform hover:scale-110 shadow-sm"
+                        className="p-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition-all transform hover:scale-105 shadow-sm"
                       >
                         <Edit className="w-4 h-4" />
                       </button>
 
                       <button
-                        title="View Details"
-                        onClick={() => handleShowDetails(user)}
-                        className="p-2 bg-purple-100 text-purple-600 rounded-lg hover:bg-purple-600 hover:text-white transition-all transform hover:scale-110 shadow-sm"
-                      >
-                        <MoreVertical className="w-4 h-4" />
-                      </button>
-
-                      <button
-                        title={user.status === 'active' ? 'Suspend Account' : 'Activate Account'}
+                        title={user.status === 'active' ? 'Suspend Accountant' : 'Activate Accountant'}
                         onClick={() => handleStatusChange(user.id, user.status === 'active' ? 'suspended' : 'active')}
-                        className={`p-2 rounded-lg transition-all transform hover:scale-110 shadow-sm ${user.status === 'active'
+                        className={`p-2 rounded-lg transition-all transform hover:scale-105 shadow-sm ${user.status === 'active'
                           ? 'bg-amber-100 text-amber-600 hover:bg-amber-600 hover:text-white'
                           : 'bg-green-100 text-green-600 hover:bg-green-600 hover:text-white'
                           }`}
@@ -522,9 +468,9 @@ const UserManagement: React.FC = () => {
                       </button>
 
                       <button
-                        title="Delete Permanently"
+                        title="Delete Accountant"
                         onClick={() => handleDeleteUser(user.id)}
-                        className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-600 hover:text-white transition-all transform hover:scale-110 shadow-sm"
+                        className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-600 hover:text-white transition-all transform hover:scale-105 shadow-sm"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -533,8 +479,8 @@ const UserManagement: React.FC = () => {
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-gray-500 italic">
-                    No users found matching your search...
+                  <td colSpan={7} className="text-center py-12 text-gray-400">
+                    No accountants found matching your criteria.
                   </td>
                 </tr>
               )}
@@ -542,97 +488,7 @@ const UserManagement: React.FC = () => {
           </table>
         </div>
       </div>
-
-      {
-        showDetailsModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
-            <div className={`w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-2xl shadow-2xl ${theme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border flex flex-col`}>
-              {/* Modal Header */}
-              <div className={`px-6 py-4 border-b flex items-center justify-between ${theme === 'dark' ? 'border-gray-700 bg-gray-800/50' : 'border-gray-100 bg-gray-50/50'}`}>
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-primary/10 rounded-lg">
-                    <Users className="w-5 h-5 text-primary" />
-                  </div>
-                  <div>
-                    <h3 className={`text-lg font-bold ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
-                      {adminData?.role === 'super_admin' ? 'CA Employee Details' : 'Assigned Companies'}
-                    </h3>
-                    <p className={`text-xs ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
-                      Viewing information for <span className="font-semibold text-primary">{selectedUser?.name}</span>
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowDetailsModal(false)}
-                  className={`p-2 rounded-lg transition-colors ${theme === 'dark' ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Modal Content */}
-              <div className="flex-1 overflow-auto p-6">
-                {loadingDetails ? (
-                  <div className="flex flex-col items-center justify-center py-20 space-y-4">
-                    <div className="w-10 h-10 border-4 border-primary/30 border-t-primary rounded-full animate-spin"></div>
-                    <p className={`text-sm ${theme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>Fetching details...</p>
-                  </div>
-                ) : (
-                  caEmployees.length > 0 ? (
-                    <div className={`rounded-xl border overflow-hidden ${theme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}>
-                      <table className="w-full text-sm">
-                        <thead className={`${theme === 'dark' ? 'bg-gray-700/50' : 'bg-gray-50'}`}>
-                          <tr>
-                            <th className="px-4 py-3 text-left font-semibold">Employee Name</th>
-                            <th className="px-4 py-3 text-left font-semibold">Username (Email)</th>
-                            <th className="px-4 py-3 text-left font-semibold">Phone</th>
-                            <th className="px-4 py-3 text-left font-semibold">Allotted Companies</th>
-                          </tr>
-                        </thead>
-                        <tbody className={`divide-y ${theme === 'dark' ? 'divide-gray-700' : 'divide-gray-200'}`}>
-                          {caEmployees.map((emp) => (
-                            <tr key={emp.employee_id} className={theme === 'dark' ? 'hover:bg-gray-700/30' : 'hover:bg-gray-50'}>
-                              <td className={`px-4 py-4 font-medium ${theme === 'dark' ? 'text-white' : 'text-gray-900'}`}>{emp.name}</td>
-                              <td className={`${theme === 'dark' ? 'text-gray-300' : 'text-gray-600'} px-4 py-4 italic`}>{emp.email}</td>
-                              <td className={`px-4 py-4 ${theme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>{emp.phone || 'N/A'}</td>
-                              <td className="px-4 py-4">
-                                <div className="flex flex-wrap gap-1">
-                                  {emp.company_names ? emp.company_names.split(',').map((c: string, i: number) => (
-                                    <span key={i} className={`px-2 py-0.5 text-[10px] font-medium rounded-md ${theme === 'dark' ? 'bg-blue-900/40 text-blue-200' : 'bg-blue-50 text-blue-700'}`}>
-                                      {c.trim()}
-                                    </span>
-                                  )) : (
-                                    <span className="text-gray-400 italic text-xs">No companies assigned</span>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="text-center py-20 bg-gray-50/10 rounded-2xl border-2 border-dashed border-gray-700/20">
-                      <p className="text-gray-500 italic">No employees found for this CA admin.</p>
-                    </div>
-                  )
-                )}
-              </div>
-
-              {/* Modal Footer */}
-              <div className={`px-6 py-4 border-t flex justify-end ${theme === 'dark' ? 'border-gray-700 bg-gray-800' : 'border-gray-100 bg-gray-50'}`}>
-                <button
-                  onClick={() => setShowDetailsModal(false)}
-                  className="px-6 py-2 bg-primary text-white rounded-xl font-semibold hover:bg-primaryDark transition-all active:scale-95 shadow-lg shadow-primary/20"
-                >
-                  Close View
-                </button>
-              </div>
-            </div>
-          </div>
-        )
-      }
-    </div >
+    </div>
   );
 };
 

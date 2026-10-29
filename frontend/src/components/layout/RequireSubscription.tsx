@@ -12,20 +12,30 @@ const RequireSubscription: React.FC<RequireSubscriptionProps> = ({
   const { user, companyId } = useAuth();
   const navigate = useNavigate();
 
+  const userType = user?.userType || localStorage.getItem("userType");
+  const isAccountant = userType === 'accountant' || userType === 'ca' || userType === 'new_ca';
+
   // If user object has subscription info (isExpired, hasSubscription), we can use it immediately.
-  const hasSubInfo = user?.hasSubscription !== undefined;
-  const [isChecking, setIsChecking] = useState(!hasSubInfo);
-  const [isBlocked, setIsBlocked] = useState(!!user?.isExpired);
+  const hasSubInfo = isAccountant || user?.hasSubscription !== undefined;
+  const [isChecking, setIsChecking] = useState(!hasSubInfo && !isAccountant);
+  const [isBlocked, setIsBlocked] = useState(isAccountant ? false : !!user?.isExpired);
   const [message, setMessage] = useState<string | null>(
-    user?.isExpired
-      ? user?.isTrial
-        ? "Your free trial has ended. To continue using the product, please renew your subscription."
-        : "Your subscription has expired. Please renew or subscribe to continue using the service."
-      : null
+    isAccountant
+      ? null
+      : user?.isExpired
+        ? user?.isTrial
+          ? "Your free trial has ended. To continue using the product, please renew your subscription."
+          : "Your subscription has expired. Please renew or subscribe to continue using the service."
+        : null
   );
 
   // Sync state with user object changes
   useEffect(() => {
+    if (isAccountant) {
+      setIsBlocked(false);
+      setMessage(null);
+      return;
+    }
     if (user?.hasSubscription !== undefined) {
       setIsBlocked(!!user.isExpired);
       if (user.isExpired) {
@@ -38,13 +48,22 @@ const RequireSubscription: React.FC<RequireSubscriptionProps> = ({
         setMessage(null);
       }
     }
-  }, [user]);
+  }, [user, isAccountant]);
 
   // Always verify live subscription status from server on mount / companyId change
   // This ensures that when the admin extends the subscription, reloading or visiting unblocks immediately!
   useEffect(() => {
     let isMounted = true;
     const check = async () => {
+      if (isAccountant) {
+        if (isMounted) {
+          setIsBlocked(false);
+          setIsChecking(false);
+          setMessage(null);
+        }
+        return;
+      }
+
       const activeCompId = companyId || localStorage.getItem("company_id") || localStorage.getItem("active_company_id");
       if (!activeCompId) {
         if (isMounted) setIsChecking(false);
@@ -52,8 +71,14 @@ const RequireSubscription: React.FC<RequireSubscriptionProps> = ({
       }
 
       try {
+        const userId = user?.id || localStorage.getItem("user_id") || "";
+        const queryParams = new URLSearchParams();
+        if (userType) queryParams.append("user_type", userType);
+        if (userId) queryParams.append("user_id", String(userId));
+        const qs = queryParams.toString() ? `?${queryParams.toString()}` : "";
+
         const res = await fetch(
-          `${import.meta.env.VITE_API_URL}/api/company-subscription/status/${activeCompId}`,
+          `${import.meta.env.VITE_API_URL}/api/company-subscription/status/${activeCompId}${qs}`,
           { credentials: "include" }
         );
 
@@ -69,11 +94,18 @@ const RequireSubscription: React.FC<RequireSubscriptionProps> = ({
           const isCurrentlyExpired = !!status.isExpired;
           setIsBlocked(isCurrentlyExpired);
           if (isCurrentlyExpired) {
-            setMessage(
-              status.isTrial
-                ? "Your free trial has ended. To continue using the product, please renew your subscription."
-                : "Your subscription has expired. Please renew or subscribe to continue using the service."
-            );
+            if (status.isAccountantManaged) {
+              setMessage(
+                status.message ||
+                "This company is managed by an Accountant. To access and work on this company's books, please purchase a subscription plan."
+              );
+            } else {
+              setMessage(
+                status.isTrial
+                  ? "Your free trial has ended. To continue using the product, please renew your subscription."
+                  : "Your subscription has expired. Please renew or subscribe to continue using the service."
+              );
+            }
           } else {
             setMessage(null);
             // Update cached user in localStorage so it doesn't revert to stale expired state
@@ -105,7 +137,7 @@ const RequireSubscription: React.FC<RequireSubscriptionProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [companyId]);
+  }, [companyId, user?.userType, user?.id, isAccountant]);
 
   if (isChecking) {
     return (
@@ -133,7 +165,7 @@ const RequireSubscription: React.FC<RequireSubscriptionProps> = ({
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <button
-              onClick={() => navigate("/pricing")}
+              onClick={() => navigate("/app/pricing")}
               className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition"
             >
               View Plans & Pricing

@@ -107,6 +107,19 @@ router.post('/', upload.single('terms_file'), async (req, res) => {
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `, [name, phone, email, hashedPassword, status || 'active', now, terms_file]);
 
+      await db.query(`
+        INSERT INTO users (email, password_hash, role, source_table, source_id, status)
+        VALUES (?, ?, 'accountant', 'tbca', ?, ?)
+        ON DUPLICATE KEY UPDATE
+          password_hash = VALUES(password_hash),
+          role = 'accountant',
+          source_table = 'tbca',
+          source_id = VALUES(source_id),
+          status = VALUES(status)
+      `, [email, hashedPassword, result.insertId, status || 'active']).catch(err => {
+        console.error('Error syncing accountant to users table:', err.message);
+      });
+
       res.status(201).json({ id: result.insertId, name, phone, email, status: status || 'active', lastLogin: now, terms_file });
     } else {
       res.status(403).json({ error: 'Unauthorized' });
@@ -210,6 +223,72 @@ router.delete('/:userId', async (req, res) => {
     res.json({ message: 'User deleted', id: userId });
   } catch (err) {
     console.error('Error deleting user:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ✅ Get all available companies for Admin assignment
+router.get('/available-companies', async (req, res) => {
+  try {
+    if (req.user.role !== 'super_admin') {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+    const [companies] = await db.query(`
+      SELECT id, name, financial_year, pan_number, gst_number
+      FROM tbcompanies
+      ORDER BY name ASC
+    `);
+    res.json(companies);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ✅ Get companies assigned to an accountant
+router.get('/:userId/companies', async (req, res) => {
+  try {
+    if (req.user.role !== 'super_admin') {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+    const { userId } = req.params;
+    const [rows] = await db.query(`
+      SELECT c.id, c.name, c.financial_year, c.pan_number, c.gst_number
+      FROM tbcompanies c
+      INNER JOIN ca_company cc ON c.id = cc.company_id
+      WHERE cc.ca_id = ?
+      ORDER BY c.name ASC
+    `, [userId]);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ✅ Assign companies to an accountant
+router.post('/:userId/companies', async (req, res) => {
+  try {
+    if (req.user.role !== 'super_admin') {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+    const { userId } = req.params;
+    const companyIds = req.body.companyIds || req.body.company_ids;
+
+    if (!Array.isArray(companyIds)) {
+      return res.status(400).json({ error: 'companyIds must be an array' });
+    }
+
+    await db.query('DELETE FROM ca_company WHERE ca_id = ?', [userId]);
+
+    for (const compId of companyIds) {
+      await db.query(
+        'INSERT INTO ca_company (ca_id, company_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE id=id',
+        [userId, compId]
+      );
+    }
+
+    res.json({ message: 'Companies assigned successfully', count: companyIds.length });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });

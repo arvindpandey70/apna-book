@@ -5,58 +5,55 @@ const db = require('../db');
 router.get('/dashboard-data', async (req, res) => {
   const { employee_id, company_id, user_type, user_id } = req.query;
 
-  if (!employee_id) return res.status(400).json({ success: false, error: 'employee_id required' });
+  if (!employee_id && !user_id && !company_id) {
+    return res.status(400).json({ success: false, error: 'employee_id or user_id required' });
+  }
 
   try {
     let companyInfoQuery;
     let queryParams = [];
 
-    if (user_type === 'new_ca' && user_id) {
-      companyInfoQuery = `SELECT c.* FROM tbcompanies c INNER JOIN ca_company cc ON c.id = cc.company_id WHERE cc.ca_id = ?`;
-      queryParams = [user_id];
+    const isAccountant = user_type === 'accountant' || user_type === 'ca' || user_type === 'new_ca';
+    const effectiveUserId = user_id || employee_id;
+
+    if (company_id) {
+      companyInfoQuery = 'SELECT * FROM tbcompanies WHERE id = ?';
+      queryParams = [company_id];
+    } else if (isAccountant) {
+      companyInfoQuery = `SELECT c.* FROM tbcompanies c INNER JOIN ca_company cc ON c.id = cc.company_id WHERE cc.ca_id = ? ORDER BY c.id DESC LIMIT 1`;
+      queryParams = [effectiveUserId];
     } else {
-      companyInfoQuery = 'SELECT * FROM tbcompanies WHERE employee_id = ?';
+      companyInfoQuery = 'SELECT * FROM tbcompanies WHERE employee_id = ? ORDER BY id DESC LIMIT 1';
       queryParams = [employee_id];
     }
 
     let companiesQuery;
     let companiesQueryParams = [];
 
-    if (user_type === 'new_ca' && user_id) {
-      companiesQuery = `SELECT c.*, 
-        (SELECT COUNT(*) FROM tbusers u WHERE u.company_id = c.id) > 0 as isLocked 
+    if (isAccountant) {
+      companiesQuery = `SELECT DISTINCT c.*, 0 as isLocked 
         FROM tbcompanies c 
         INNER JOIN ca_company cc ON c.id = cc.company_id 
         WHERE cc.ca_id = ?`;
-      companiesQueryParams = [user_id];
+      companiesQueryParams = [effectiveUserId];
+      if (company_id) {
+        companiesQuery += ' AND c.id = ?';
+        companiesQueryParams.push(company_id);
+      }
     } else {
       companiesQuery = `SELECT c.*, 
         (SELECT COUNT(*) FROM tbusers u WHERE u.company_id = c.id) > 0 as isLocked 
         FROM tbcompanies c WHERE c.employee_id = ?`;
       companiesQueryParams = [employee_id];
-    }
-
-    if (company_id) {
-      if (user_type === 'new_ca' && user_id) {
-        companyInfoQuery += ' AND c.id = ?';
-      } else {
-        companyInfoQuery += ' AND id = ?';
-      }
-      queryParams.push(company_id);
-
-      // if filtering companies by company_id
-      if (user_type === 'new_ca' && user_id) {
-        companiesQuery += ' AND c.id = ?';
-        companiesQueryParams.push(company_id);
-      } else {
+      if (company_id) {
         companiesQuery += ' AND c.id = ?';
         companiesQueryParams.push(company_id);
       }
     }
 
     const [[companyInfo]] = await db.query(companyInfoQuery, queryParams);
-    const [userLimitRows] = await db.query('SELECT userLimit FROM tbemployees WHERE id = ?', [employee_id]);
-    const userLimit = userLimitRows && userLimitRows.length > 0 ? userLimitRows[0].userLimit : 1;
+    const [userLimitRows] = await db.query('SELECT userLimit FROM tbemployees WHERE id = ?', [employee_id || 0]);
+    const userLimit = userLimitRows && userLimitRows.length > 0 ? userLimitRows[0].userLimit : 100;
     const [companies] = await db.query(companiesQuery, companiesQueryParams);
 
     // Fetch ledgers and vouchers for the specific company (using the first one found or the company_id provided)
