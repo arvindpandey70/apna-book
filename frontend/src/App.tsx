@@ -99,6 +99,7 @@ import AccountSummary from "./components/reports/AccountSummary";
 import DayBook from "./components/reports/DayBook";
 import LedgerReport from "./components/reports/LedgerReport";
 import LedgerConfirmationReport from "./components/reports/LedgerConfirmationReport";
+import CreditorsStatement from "./components/reports/CreditorsStatement";
 import TrialBalance from "./components/reports/TrialBalance";
 // import TradingAccount from './components/reports/TradingAccount';
 // import ProfitLoss from './components/accounting/ProfitLoss';
@@ -1980,6 +1981,26 @@ function App() {
                     <RequireCompany>
                       <RequireSubscription>
                         <LedgerConfirmationReport />
+                      </RequireSubscription>
+                    </RequireCompany>
+                  }
+                />
+                <Route
+                  path="reports/creditors-statement"
+                  element={
+                    <RequireCompany>
+                      <RequireSubscription>
+                        <CreditorsStatement />
+                      </RequireSubscription>
+                    </RequireCompany>
+                  }
+                />
+                <Route
+                  path="reports/creditors-statement/:id"
+                  element={
+                    <RequireCompany>
+                      <RequireSubscription>
+                        <CreditorsStatement />
                       </RequireSubscription>
                     </RequireCompany>
                   }
