@@ -90,10 +90,6 @@ router.get('/status/:companyId', async (req, res) => {
            AND cs.status = 'active'
            AND cs.plan != 'accountant_partner'
            AND cs.end_date > NOW()
-           AND (
-             (cs.payment_id IS NOT NULL AND cs.payment_id != '' AND cs.payment_id != '0')
-             OR (p.id IS NOT NULL AND p.status = 'success')
-           )
          ORDER BY cs.end_date DESC
          LIMIT 1`,
         [companyId]
