@@ -186,6 +186,7 @@ const Profile: React.FC = () => {
     taxType: "GST",
     maintainBy: "self",
     accountantName: "",
+    accountantId: "",
     caId: "",
     assesseeName: "",
     companyType: "",
@@ -243,6 +244,7 @@ const Profile: React.FC = () => {
           taxType: data.taxType || "GST",
           maintainBy: data.maintainBy || "self",
           accountantName: data.accountantName || "",
+          accountantId: data.accountantId || "",
           caId: data.caId || "",
           assesseeName: data.assesseeName || "",
           companyType: data.companyType || "",
@@ -324,7 +326,22 @@ const Profile: React.FC = () => {
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => {
     const { name, value } = e.target;
-    setCompany((prev) => ({ ...prev, [name]: value }));
+    if (name === "accountantName") {
+      const selectedAcc = accountantsList.find((a) => a.fdname === value);
+      setCompany((prev) => ({
+        ...prev,
+        accountantName: value,
+        accountantId: selectedAcc ? selectedAcc.fdSiNo : "",
+      }));
+    } else if (name === "maintainBy") {
+      setCompany((prev) => ({
+        ...prev,
+        maintainBy: value as "self" | "accountant",
+        ...(value === "self" ? { accountantName: "", accountantId: "" } : {}),
+      }));
+    } else {
+      setCompany((prev) => ({ ...prev, [name]: value }));
+    }
 
     // Clear errors when user types
     if (errors[name]) {

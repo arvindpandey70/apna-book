@@ -27,6 +27,7 @@ router.post('/company', async (req, res) => {
     employeeId,
     maintainBy,
     accountantName,
+    accountantId,
     caId,
     assesseeName,
     companyType
@@ -161,6 +162,25 @@ router.post('/company', async (req, res) => {
         `INSERT INTO ca_company (ca_id, company_id) VALUES (?, ?)`,
         [caId, companyId]
       );
+    }
+
+    if (maintainBy === 'accountant') {
+      let targetAccountantId = req.body.accountantId || null;
+      if (!targetAccountantId && accountantName && accountantName.trim()) {
+        const [accRows] = await connection.query(
+          'SELECT fdSiNo FROM tbca WHERE fdname = ? LIMIT 1',
+          [accountantName.trim()]
+        );
+        if (accRows.length > 0) {
+          targetAccountantId = accRows[0].fdSiNo;
+        }
+      }
+      if (targetAccountantId) {
+        await connection.query(
+          `INSERT INTO ca_company (ca_id, company_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE id=id`,
+          [targetAccountantId, companyId]
+        );
+      }
     }
 
     // --- Ensure company_subscriptions table exists (for trials/subscriptions) ---
@@ -312,6 +332,7 @@ router.put('/company/:companyId', async (req, res) => {
     employeeId,
     maintainBy,
     accountantName,
+    accountantId,
     caId,
     assesseeName,
     companyType
@@ -408,12 +429,49 @@ router.put('/company/:companyId', async (req, res) => {
       companyId
     ]);
 
-    await connection.query(`DELETE FROM ca_company WHERE company_id = ?`, [companyId]);
-    if (caId) {
+    // 1. Manage CA assignment (from ca_users)
+    await connection.query(
+      `DELETE FROM ca_company WHERE company_id = ? AND ca_id IN (SELECT id FROM ca_users)`,
+      [companyId]
+    ).catch(() => {});
+
+    const parsedCaId = (caId && caId !== 'undefined' && caId !== 'null') ? Number(caId) : null;
+    if (parsedCaId && !isNaN(parsedCaId) && parsedCaId > 0) {
       await connection.query(
-        `INSERT INTO ca_company (ca_id, company_id) VALUES (?, ?)`,
-        [caId, companyId]
+        `INSERT INTO ca_company (ca_id, company_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE id=id`,
+        [parsedCaId, companyId]
       );
+    }
+
+    // 2. Manage Accountant assignment (from tbca)
+    if (maintainBy === 'accountant') {
+      let targetAccountantId = (accountantId && accountantId !== 'undefined' && accountantId !== 'null') ? Number(accountantId) : null;
+      if (!targetAccountantId && accountantName && accountantName.trim()) {
+        const [accRows] = await connection.query(
+          'SELECT fdSiNo FROM tbca WHERE fdname = ? LIMIT 1',
+          [accountantName.trim()]
+        );
+        if (accRows.length > 0) {
+          targetAccountantId = accRows[0].fdSiNo;
+        }
+      }
+
+      if (targetAccountantId && !isNaN(targetAccountantId) && targetAccountantId > 0) {
+        await connection.query(
+          `DELETE FROM ca_company WHERE company_id = ? AND ca_id IN (SELECT fdSiNo FROM tbca) AND ca_id != ?`,
+          [companyId, targetAccountantId]
+        ).catch(() => {});
+
+        await connection.query(
+          `INSERT INTO ca_company (ca_id, company_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE id=id`,
+          [targetAccountantId, companyId]
+        );
+      }
+    } else {
+      await connection.query(
+        `DELETE FROM ca_company WHERE company_id = ? AND ca_id IN (SELECT fdSiNo FROM tbca)`,
+        [companyId]
+      ).catch(() => {});
     }
 
     if (accessControlEnabled && username) {
@@ -555,14 +613,14 @@ router.get('/company/:companyId', async (req, res) => {
         c.company_type AS companyType,
         c.fdAccountType AS maintainBy,
         c.fdAccountantName AS accountantName,
+        (SELECT a.fdSiNo FROM tbca a WHERE a.fdname = c.fdAccountantName LIMIT 1) AS accountantId,
         c.vault_password IS NOT NULL as vaultEnabled,
         c.back_date_allowed as backDateAllowed,
         u.username,
         (u.id IS NOT NULL) as accessControlEnabled,
-        cc.ca_id AS caId
+        (SELECT cc.ca_id FROM ca_company cc INNER JOIN ca_users cu ON cc.ca_id = cu.id WHERE cc.company_id = c.id LIMIT 1) AS caId
       FROM tbcompanies c
       LEFT JOIN tbusers u ON c.id = u.company_id
-      LEFT JOIN ca_company cc ON c.id = cc.company_id
       WHERE c.id = ?
       LIMIT 1
     `, [companyId]);

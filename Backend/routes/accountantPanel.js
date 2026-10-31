@@ -19,8 +19,12 @@ async function checkAccountantCompanyAccess(accountantId, companyId) {
     SELECT 1 FROM ca_company WHERE ca_id = ? AND company_id = ?
     UNION
     SELECT 1 FROM tbusers WHERE accountant_id = ? AND company_id = ?
+    UNION
+    SELECT 1 FROM tbcompanies c
+    INNER JOIN tbca a ON c.fdAccountantName = a.fdname
+    WHERE a.fdSiNo = ? AND c.id = ? AND c.fdAccountType = 'accountant'
     LIMIT 1
-  `, [accountantId, companyId, accountantId, companyId]);
+  `, [accountantId, companyId, accountantId, companyId, accountantId, companyId]);
 
   return rows.length > 0;
 }
@@ -47,9 +51,10 @@ router.get('/dashboard', async (req, res) => {
       FROM tbcompanies c
       LEFT JOIN ca_company cc ON c.id = cc.company_id AND cc.ca_id = ?
       LEFT JOIN tbusers u ON c.id = u.company_id AND u.accountant_id = ?
-      WHERE cc.id IS NOT NULL OR u.id IS NOT NULL
+      LEFT JOIN tbca a ON c.fdAccountantName = a.fdname AND a.fdSiNo = ?
+      WHERE cc.id IS NOT NULL OR u.id IS NOT NULL OR (c.fdAccountType = 'accountant' AND a.fdSiNo IS NOT NULL)
       ORDER BY c.name ASC
-    `, [accountantId, accountantId, accountantId]);
+    `, [accountantId, accountantId, accountantId, accountantId]);
 
     // Users created by this accountant
     const [userStats] = await db.query(`
@@ -108,9 +113,10 @@ router.get('/companies', async (req, res) => {
       FROM tbcompanies c
       LEFT JOIN ca_company cc ON c.id = cc.company_id AND cc.ca_id = ?
       LEFT JOIN tbusers u ON c.id = u.company_id AND u.accountant_id = ?
-      WHERE cc.id IS NOT NULL OR u.id IS NOT NULL
+      LEFT JOIN tbca a ON c.fdAccountantName = a.fdname AND a.fdSiNo = ?
+      WHERE cc.id IS NOT NULL OR u.id IS NOT NULL OR (c.fdAccountType = 'accountant' AND a.fdSiNo IS NOT NULL)
       ORDER BY c.name ASC
-    `, [accountantId, accountantId, accountantId]);
+    `, [accountantId, accountantId, accountantId, accountantId]);
 
     res.json({ success: true, companies });
   } catch (err) {
