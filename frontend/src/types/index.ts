@@ -32,6 +32,7 @@ export type CompanyInfo = {
   taxLiabilityOnAdvanceReceipts?: boolean;
   maintainBy?: "self" | "accountant";
   accountantName?: string;
+  accountantId?: number | string;
   caId?: number | string;
   godowns?: Godown[];
   assesseeName?: string;

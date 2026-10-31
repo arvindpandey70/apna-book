@@ -141,6 +141,8 @@ app.use("/api/purchase-orders", purchaseOrders);
 
 const salesVoucher = require("./routes/salevoucher");
 app.use("/api/sales-vouchers", salesVoucher);
+const gstSyncRoutes = require("./routes/gstSyncRoutes");
+app.use("/api/gst-sync", gstSyncRoutes);
 const DebitNoteVoucher = require("./routes/DebitNoteVoucher");
 app.use("/api/DebitNoteVoucher", DebitNoteVoucher);
 
@@ -338,6 +340,9 @@ app.use("/api/voucher-detail", voucherDetailRouter);
 
 const purchaseVouchersRouter = require("./routes/purchase_report");
 app.use("/api/purchase-report", purchaseVouchersRouter);
+
+const creditorsStatementRouter = require("./routes/creditorsStatement");
+app.use("/api/creditors-statement", creditorsStatementRouter);
 
 // ✅ Start Server
 const PORT = process.env.PORT || 5000;

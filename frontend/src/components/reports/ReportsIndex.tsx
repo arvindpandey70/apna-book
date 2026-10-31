@@ -12,7 +12,8 @@ import {
   TrendingUp,
   AlertTriangle,
   BookCopy,
-  ShieldCheck
+  ShieldCheck,
+  Users
 } from 'lucide-react';
 
 interface ReportItem {
@@ -39,6 +40,7 @@ const ReportsIndex: React.FC = () => {
         { icon: <BookOpen size={20} />, name: 'Day Book', path: '/app/reports/day-book' },
         { icon: <FileText size={20} />, name: 'Ledger', path: '/app/reports/ledger' },
         { icon: <FileText size={20} />, name: 'Ledger Confirmation', path: '/app/reports/ledger-confirmation' },
+        { icon: <Users size={20} />, name: 'Creditors Statement', path: '/app/reports/creditors-statement' },
         { icon: <FileText size={20} />, name: 'Group Summary', path: '/app/reports/group-summary' },
         { icon: <BarChart2 size={20} />, name: 'Trial Balance', path: '/app/reports/trial-balance' },
         { icon: <TrendingUp size={20} />, name: 'Profit & Loss', path: '/app/reports/profit-loss' },
