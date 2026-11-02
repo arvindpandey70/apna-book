@@ -49,7 +49,7 @@ module.exports = async function checkSubscription(req, res, next) {
       }
     }
 
-    // 1. Accountants have 1 Year (365 days) free partner access on all companies
+    // 1. Accountants have free partner access on all companies they manage
     if (
       userRole === 'accountant' ||
       userRole === 'ca' ||
@@ -115,16 +115,45 @@ module.exports = async function checkSubscription(req, res, next) {
       return false;
     })();
 
-    // 2. Accountant-Allotted Normal User: 0-day trial! Must have active REAL VERIFIED PAID subscription
+    // 2. Accountant-Managed Company access check
     if (isAccountantManaged) {
+      // Safety net: if the logged-in user IS an accountant/CA (check DB role as well),
+      // grant free access even if Check 1 above was bypassed due to a token field mismatch.
+      if (userId) {
+        // Check ca_company: is this user the accountant linked to this company?
+        const [caLinkRows] = await db.query(
+          'SELECT 1 FROM ca_company WHERE ca_id = ? AND company_id = ? LIMIT 1',
+          [userId, companyId]
+        ).catch(() => [[]]);
+        if (caLinkRows && caLinkRows.length > 0) {
+          // This user is the accountant/CA who owns this company – free access
+          return next();
+        }
+
+        // Also check DB role of the current user
+        const [caUserRows] = await db.query(
+          'SELECT role, userType FROM tbusers WHERE id = ? LIMIT 1',
+          [userId]
+        ).catch(() => [[]]);
+        if (caUserRows && caUserRows.length > 0) {
+          const dbRole = (caUserRows[0].role || caUserRows[0].userType || '').toLowerCase();
+          if (dbRole === 'accountant' || dbRole === 'ca' || dbRole === 'new_ca') {
+            // Accountant is accessing their managed company – free access
+            return next();
+          }
+        }
+      }
+
+      // Normal (non-accountant) user accessing an accountant-managed company
+      // must have an active paid subscription.
       const [paidRows] = await db.query(
-        `SELECT cs.id, cs.plan, cs.is_trial, cs.status, cs.start_date, cs.end_date, cs.payment_id
+        `SELECT cs.id, cs.plan, cs.is_trial, cs.status, cs.start_date, cs.end_date
          FROM company_subscriptions cs
-         LEFT JOIN payments p ON cs.payment_id = p.id OR p.company_id = cs.company_id
          WHERE cs.company_id = ?
            AND cs.is_trial = 0
            AND cs.status = 'active'
            AND cs.plan != 'accountant_partner'
+           AND cs.plan != 'accountant_client'
            AND cs.end_date > NOW()
          ORDER BY cs.end_date DESC LIMIT 1`,
         [companyId]
