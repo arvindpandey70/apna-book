@@ -274,7 +274,7 @@ const LedgerList: React.FC = () => {
       const res = await fetch(
         `${import.meta.env.VITE_API_URL
         }/api/ledger/${id}?company_id=${companyId}&owner_type=${ownerType}&owner_id=${ownerId}`,
-        { method: "DELETE" }
+        { method: "DELETE", headers: { ...(localStorage.getItem("token") ? { Authorization: `Bearer ${localStorage.getItem("token")}` } : {}), ...(localStorage.getItem("userType") ? { "x-user-type": localStorage.getItem("userType") } : {}), ...(companyId ? { "x-company-id": companyId } : {}) } }
       );
 
       const data = await res.json();
