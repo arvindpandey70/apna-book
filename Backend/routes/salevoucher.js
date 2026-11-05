@@ -1,7 +1,11 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db"); // Make sure db is using mysql2.promise()
-const { generateVoucherNumber, renumberVouchers } = require("../utils/generateVoucherNumber");
+const {
+  generateVoucherNumber,
+  generateSalesVoucherNumber,
+  renumberVouchers,
+} = require("../utils/generateVoucherNumber");
 const { getFinancialYear } = require("../utils/financialYear");
 
 // GET Ledgers
@@ -21,6 +25,34 @@ router.get("/items", async (req, res) => {
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/next-number", async (req, res) => {
+  const { company_id, owner_type, owner_id, sales_type_id } = req.query;
+
+  if (!company_id || !owner_type || !owner_id || !sales_type_id) {
+    return res.status(400).json({
+      success: false,
+      message: "company_id, owner_type, owner_id, and sales_type_id are required",
+    });
+  }
+
+  try {
+    const voucherNumber = await generateSalesVoucherNumber({
+      companyId: String(company_id),
+      ownerType: String(owner_type),
+      ownerId: String(owner_id),
+      salesTypeId: String(sales_type_id),
+    });
+
+    return res.json({ success: true, voucherNumber });
+  } catch (err) {
+    console.error("Sales voucher next-number error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to generate sales voucher number",
+    });
   }
 });
 
@@ -272,6 +304,7 @@ router.post("/", async (req, res) => {
       entries,
       items,
       sales_type_id,
+      sales_type_code,
       bill_no,
       mode,
       discountLedgerId: overallDiscountLedgerIdRaw,
@@ -417,23 +450,30 @@ router.post("/", async (req, res) => {
 
     // ================= GENERATE NUMBER =================
     let finalNumber = number;
-    if (!finalNumber) {
+    const selectedSalesTypeId = sales_type_code || sales_type_id;
+    if (selectedSalesTypeId && selectedSalesTypeId !== "custom") {
+      finalNumber = await generateSalesVoucherNumber({
+        companyId,
+        ownerType,
+        ownerId,
+        salesTypeId: String(selectedSalesTypeId),
+      });
+    } else if (!finalNumber) {
       finalNumber = await generateVoucherNumber({
         companyId,
         ownerType,
         ownerId,
         voucherType: "sales",
         date,
-        salesTypeId: sales_type_id,
+        salesTypeId: selectedSalesTypeId,
       });
     }
 
+    voucherValues[0] = finalNumber;
+    voucherValues[23] = finalNumber;
     const [voucherResult] = await db.execute(
       insertVoucherSQL,
-      [
-        finalNumber,
-        ...voucherValues.slice(1)
-      ]
+      voucherValues
     );
 
     const voucherId = voucherResult.insertId;
@@ -529,13 +569,14 @@ router.post("/", async (req, res) => {
       ownerId,
       voucherType: "sales",
       date,
-      salesTypeId: sales_type_id,
+      salesTypeId: selectedSalesTypeId,
     });
 
     return res.status(200).json({
       success: true,
       message: "Sales voucher saved successfully",
       id: voucherId,
+      voucherNumber: finalNumber,
       gstType: isIntra ? "INTRA" : "INTER",
     });
   } catch (err) {

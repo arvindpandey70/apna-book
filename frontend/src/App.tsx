@@ -305,6 +305,7 @@ import AccountantCompanies from "./components/accountant/AccountantCompanies";
 import AccountantUsers from "./components/accountant/AccountantUsers";
 import AccountantCreateUser from "./components/accountant/AccountantCreateUser";
 import AccountantCreateCompany from "./components/accountant/AccountantCreateCompany";
+import AccountantPricing from "./components/accountant/AccountantPricing";
 
 function App() {
   // Add keyboard shortcut listener for Alt+F1 for company selection
@@ -363,6 +364,7 @@ function App() {
                 <Route path="users" element={<AccountantUsers />} />
                 <Route path="users/create" element={<AccountantCreateUser />} />
                 <Route path="create-user" element={<AccountantCreateUser />} />
+                <Route path="pricing" element={<AccountantPricing />} />
               </Route>
 
               {/* App Routes */}

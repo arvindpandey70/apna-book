@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { getAccountantSubscriptionStatus } = require('../utils/accountantTrial');
 
 // Get subscription / trial status for a company
 router.get('/status/:companyId', async (req, res) => {
@@ -13,7 +14,27 @@ router.get('/status/:companyId', async (req, res) => {
 
   try {
     // 1. Accountant Role: 1 Year (365 Days) Free Access on all created companies
-    if (user_type === 'accountant' || user_type === 'ca' || user_type === 'new_ca') {
+    if (user_type === 'accountant' || user_type === 'ca') {
+      const accStatus = await getAccountantSubscriptionStatus(user_id);
+      return res.json({
+        success: true,
+        data: {
+          id: 0,
+          plan: accStatus.plan || 'Accountant Panel',
+          isTrial: accStatus.isTrial,
+          status: accStatus.status,
+          startDate: accStatus.startDate || new Date(),
+          endDate: accStatus.endDate || null,
+          daysRemaining: accStatus.daysRemaining,
+          isExpired: accStatus.isExpired,
+          hasSubscription: accStatus.hasAccess,
+          isAccountant: true,
+          isPaid: accStatus.isPaid,
+          message: accStatus.message
+        }
+      });
+    }
+    if (user_type === 'new_ca') {
       return res.json({
         success: true,
         data: {

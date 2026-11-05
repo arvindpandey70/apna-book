@@ -12,7 +12,9 @@ import {
   ShieldCheck,
   CheckCircle2,
   AlertCircle,
-  FileText
+  FileText,
+  Clock,
+  Sparkles
 } from 'lucide-react';
 
 interface DashboardData {
@@ -50,8 +52,11 @@ const AccountantDashboard: React.FC = () => {
     fetch(`${import.meta.env.VITE_API_URL}/api/accountant/dashboard`, {
       headers: { Authorization: `Bearer ${token}` }
     })
-      .then(res => res.json())
-      .then(resData => {
+      .then(async (res) => {
+        const resData = await res.json();
+        if (!res.ok || resData.isExpired) {
+          throw new Error(resData.message || resData.error || 'Your free trial period has expired. Please subscribe to continue using the Accountant Panel.');
+        }
         if (resData.success) {
           setData(resData);
         } else {
@@ -79,6 +84,36 @@ const AccountantDashboard: React.FC = () => {
   }
 
   if (error || !data) {
+    const isSubscriptionError =
+      error?.toLowerCase().includes('trial') ||
+      error?.toLowerCase().includes('subscribe') ||
+      error?.toLowerCase().includes('subscription');
+
+    if (isSubscriptionError) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-[450px] text-center p-6 animate-in fade-in duration-300">
+          <div className="max-w-md w-full bg-white dark:bg-slate-800 rounded-3xl p-8 border border-slate-200 dark:border-slate-700 shadow-2xl">
+            <div className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center border border-amber-500/20 shadow-inner">
+              <Clock className="w-8 h-8" />
+            </div>
+            <h2 className="text-2xl font-extrabold text-slate-900 dark:text-slate-100 mb-2">
+              Subscription Required
+            </h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">
+              Your free trial period has expired. Please subscribe to continue using the Accountant Panel.
+            </p>
+            <button
+              onClick={() => navigate('/accountant/pricing')}
+              className="w-full py-3.5 px-5 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-bold text-sm shadow-lg shadow-indigo-600/30 transition-all transform active:scale-95 cursor-pointer flex items-center justify-center gap-2"
+            >
+              <Sparkles size={16} />
+              Subscribe Now
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="p-6 rounded-2xl border border-red-200 bg-red-50 dark:bg-red-950/40 dark:border-red-800 text-red-600">
         <h3 className="font-bold flex items-center gap-2">

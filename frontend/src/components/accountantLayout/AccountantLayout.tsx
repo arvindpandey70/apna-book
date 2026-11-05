@@ -16,7 +16,11 @@ import {
   Sun,
   Moon,
   Building,
-  PlusCircle
+  PlusCircle,
+  Clock,
+  Sparkles,
+  AlertCircle,
+  CreditCard
 } from 'lucide-react';
 
 interface AuthorizedCompany {
@@ -25,6 +29,7 @@ interface AuthorizedCompany {
   financial_year?: string;
   pan_number?: string;
   gst_number?: string;
+  employee_id?: number;
 }
 
 const AccountantLayout: React.FC = () => {
@@ -39,9 +44,50 @@ const AccountantLayout: React.FC = () => {
     return localStorage.getItem('company_id') || '';
   });
 
+  // Accountant Free Trial & Subscription live status
+  const [subscriptionInfo, setSubscriptionInfo] = useState<any>(null);
+  const [checkingSubscription, setCheckingSubscription] = useState(true);
+
   const isDark = theme === 'dark';
 
-  // Fetch authorized companies for accountant
+  // Fetch live accountant subscription & trial status on load
+  useEffect(() => {
+    let isMounted = true;
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setCheckingSubscription(false);
+      return;
+    }
+
+    fetch(`${import.meta.env.VITE_API_URL}/api/accountant/subscription-status`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (isMounted) {
+          if (data.success && data.subscription) {
+            setSubscriptionInfo(data.subscription);
+          } else {
+            setSubscriptionInfo({ isExpired: true, hasAccess: false });
+          }
+        }
+      })
+      .catch(err => {
+        console.error('Failed to load accountant subscription status:', err);
+        if (isMounted) {
+          setSubscriptionInfo({ isExpired: true, hasAccess: false });
+        }
+      })
+      .finally(() => {
+        if (isMounted) setCheckingSubscription(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Fetch authorized companies only if trial is active
   useEffect(() => {
     localStorage.setItem('supplier', 'accountant');
     const token = localStorage.getItem('token');
@@ -81,10 +127,120 @@ const AccountantLayout: React.FC = () => {
     { label: 'Create Company', path: '/accountant/companies/create', icon: PlusCircle },
     { label: 'Managed Users', path: '/accountant/users', icon: Users },
     { label: 'Create User', path: '/accountant/users/create', icon: UserPlus },
+    { label: 'Subscription Plans', path: '/accountant/pricing', icon: CreditCard },
   ];
 
   const isActive = (path: string) => location.pathname === path;
 
+  // Determine if accountant free trial or subscription is expired/disabled
+  const isTrialExpired = Boolean(
+    subscriptionInfo !== null
+      ? (subscriptionInfo.isExpired || !subscriptionInfo.hasAccess)
+      : (user?.isExpired || user?.hasSubscription === false)
+  );
+
+  // 1. Loading screen while verifying live subscription status
+  if (checkingSubscription) {
+    return (
+      <div className={`min-h-screen flex flex-col items-center justify-center ${isDark ? 'bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-xs font-semibold tracking-wide text-slate-400">Verifying Free Trial & Subscription Access...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. If Free Trial is Disabled or Expired and not on Accountant Pricing page:
+  if (isTrialExpired && location.pathname !== '/accountant/pricing') {
+    return (
+      <div className={`min-h-screen flex flex-col ${isDark ? 'bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
+        {/* Minimal Top Header */}
+        <header className={`h-16 border-b flex items-center justify-between px-4 sm:px-6 z-30 sticky top-0 ${
+          isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+        }`}>
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20">
+              <ShieldCheck size={20} />
+            </div>
+            <div>
+              <div className="font-extrabold text-base tracking-tight leading-none bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">
+                ApnaBook
+              </div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 mt-0.5">
+                Accountant Portal
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={toggleTheme}
+              className="p-2 rounded-xl text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+            >
+              {isDark ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
+            <button
+              onClick={() => {
+                logout();
+                navigate('/login');
+              }}
+              title="Sign Out"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
+            >
+              <LogOut size={16} />
+              Sign Out
+            </button>
+          </div>
+        </header>
+
+        {/* Subscription Required Block Screen */}
+        <div className="flex-1 flex items-center justify-center p-4">
+          <div
+            className={`max-w-md w-full rounded-3xl border shadow-2xl p-6 sm:p-8 text-center transition-all animate-in fade-in duration-300 ${
+              isDark ? 'bg-slate-800/95 border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-900'
+            }`}
+          >
+            <div className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center border border-amber-500/20 shadow-inner">
+              <Clock className="w-8 h-8" />
+            </div>
+
+            <h2 className="text-2xl font-extrabold tracking-tight mb-2">
+              Subscription Required
+            </h2>
+
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">
+              Your free trial period has expired. Please subscribe to continue using the Accountant Panel.
+            </p>
+
+            <div className="space-y-3">
+              <button
+                onClick={() => navigate('/accountant/pricing')}
+                className="w-full py-3.5 px-5 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-bold text-sm shadow-lg shadow-indigo-600/30 transition-all transform active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Sparkles size={16} />
+                Subscribe Now
+              </button>
+
+              <button
+                onClick={() => {
+                  logout();
+                  navigate('/login');
+                }}
+                className={`w-full py-2.5 px-4 rounded-xl text-xs font-semibold transition cursor-pointer ${
+                  isDark ? 'text-slate-400 hover:text-white hover:bg-slate-700' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                Log Out
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Normal Active Trial / Paid Subscription: Render Full Accountant Portal
   return (
     <div className={`min-h-screen flex flex-col ${isDark ? 'bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       {/* Top Navbar */}
@@ -114,36 +270,48 @@ const AccountantLayout: React.FC = () => {
           </Link>
         </div>
 
-        {/* Center: Active Client Company Selector */}
-        <div className="hidden sm:flex items-center gap-2">
-          <span className="text-xs font-semibold text-slate-400 flex items-center gap-1">
-            <Building size={14} className="text-indigo-500" />
-            Active Company:
-          </span>
-          {companies.length > 0 ? (
-            <select
-              value={activeCompanyId}
-              onChange={(e) => handleCompanyChange(e.target.value)}
-              className={`text-xs font-semibold px-3 py-1.5 rounded-xl border outline-none cursor-pointer max-w-[220px] truncate ${
-                isDark 
-                  ? 'bg-slate-800 border-slate-700 text-slate-200 focus:border-indigo-500' 
-                  : 'bg-slate-100 border-slate-300 text-slate-800 focus:border-indigo-500'
-              }`}
-            >
-              {companies.map(c => (
-                <option key={c.id} value={c.id.toString()}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <Link
-              to="/accountant/companies/create"
-              className="text-xs text-indigo-600 dark:text-indigo-400 font-bold hover:underline flex items-center gap-1"
-            >
-              + Create First Company
-            </Link>
+        {/* Center: Active Client Company Selector & Trial Badge */}
+        <div className="hidden sm:flex items-center gap-4">
+          {/* Active Free Trial Status Pill (Shown only when trial is active) */}
+          {subscriptionInfo?.isTrial && (
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shadow-xs">
+              <Sparkles size={13} className="text-emerald-500" />
+              <span>
+                Free Trial: {subscriptionInfo.daysRemaining !== null && subscriptionInfo.daysRemaining !== undefined ? `${subscriptionInfo.daysRemaining} Days Left` : 'Active'}
+              </span>
+            </div>
           )}
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-slate-400 flex items-center gap-1">
+              <Building size={14} className="text-indigo-500" />
+              Active Company:
+            </span>
+            {companies.length > 0 ? (
+              <select
+                value={activeCompanyId}
+                onChange={(e) => handleCompanyChange(e.target.value)}
+                className={`text-xs font-semibold px-3 py-1.5 rounded-xl border outline-none cursor-pointer max-w-[220px] truncate ${
+                  isDark 
+                    ? 'bg-slate-800 border-slate-700 text-slate-200 focus:border-indigo-500' 
+                    : 'bg-slate-100 border-slate-300 text-slate-800 focus:border-indigo-500'
+                }`}
+              >
+                {companies.map(c => (
+                  <option key={c.id} value={c.id.toString()}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <Link
+                to="/accountant/companies/create"
+                className="text-xs text-indigo-600 dark:text-indigo-400 font-bold hover:underline flex items-center gap-1"
+              >
+                + Create First Company
+              </Link>
+            )}
+          </div>
         </div>
 
         {/* Right Actions */}
@@ -194,7 +362,7 @@ const AccountantLayout: React.FC = () => {
       </header>
 
       {/* Main Body */}
-      <div className="flex flex-1">
+      <div className="flex flex-1 relative">
         {/* Mobile Sidebar Backdrop */}
         {sidebarOpen && (
           <div

@@ -5,6 +5,7 @@ const bcrypt = require('bcryptjs');
 const upload = require('../middlewares/userUpload');
 const cloudinary = require('../utils/cloudnary');
 const streamifier = require('streamifier');
+const { computeTrialDetails, getAccountantSubscriptionStatus } = require('../utils/accountantTrial');
 
 // Helper to upload to Cloudinary
 const uploadToCloudinary = (fileBuffer, folder = 'user_terms') => {
@@ -40,40 +41,192 @@ const ensureTermsColumn = async () => {
 };
 ensureTermsColumn();
 
-// ✅ Get all users (Role-aware)
+// Role-aware Users Route (Accountant Management)
 router.get('/', async (req, res) => {
-
   try {
     const { id, role } = req.user;
     let users;
 
     if (role === 'super_admin') {
-      // Super Admin sees all CAs
-      [users] = await db.query(`
-        SELECT
-          fdSiNo AS id,
-          fdname AS name,
-          fdphone AS phone,
-          email,
-          fdstatus AS status,
-          fdlast_login AS last_login,
-          fdterms_file AS terms_file
-        FROM tbca
-      `);
+      // Super Admin sees all CAs / Accountants
+      try {
+        [users] = await db.query(`
+          SELECT
+            fdSiNo AS id,
+            fdname AS name,
+            fdphone AS phone,
+            email,
+            fdstatus AS status,
+            fdlast_login AS last_login,
+            fdterms_file AS terms_file,
+            is_free_trial_enabled,
+            trial_start_date,
+            trial_expiry_date,
+            trial_granted_by,
+            updated_at
+          FROM tbca
+          ORDER BY fdSiNo DESC
+        `);
+      } catch (trialColErr) {
+        // Safe fallback if manual SQL script hasn't been executed yet
+        [users] = await db.query(`
+          SELECT
+            fdSiNo AS id,
+            fdname AS name,
+            fdphone AS phone,
+            email,
+            fdstatus AS status,
+            fdlast_login AS last_login,
+            fdterms_file AS terms_file
+          FROM tbca
+          ORDER BY fdSiNo DESC
+        `);
+      }
     } else {
       return res.status(403).json({ error: 'Unauthorized' });
     }
 
-    // Ensure dates are valid
+    const now = new Date();
+    // Ensure dates and trial details are formatted
     const formattedUsers = users.map(u => ({
       ...u,
-      lastLogin: u.last_login ? new Date(u.last_login).toISOString() : null
+      lastLogin: u.last_login ? new Date(u.last_login).toISOString() : null,
+      ...computeTrialDetails(u, now),
     }));
-
 
     res.json(formattedUsers);
   } catch (err) {
     console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ✅ Get trial details for a single accountant
+router.get('/:userId/trial', async (req, res) => {
+  try {
+    const { role } = req.user;
+    if (role !== 'super_admin') {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    const { userId } = req.params;
+    let caRows = [];
+    try {
+      [caRows] = await db.query(`
+        SELECT
+          fdSiNo AS id,
+          fdname AS name,
+          email,
+          is_free_trial_enabled,
+          trial_start_date,
+          trial_expiry_date,
+          trial_granted_by,
+          updated_at
+        FROM tbca
+        WHERE fdSiNo = ?
+        LIMIT 1
+      `, [userId]);
+    } catch (colErr) {
+      return res.status(400).json({
+        error: 'Free trial columns not found. Please execute manual_free_trial_setup.sql.'
+      });
+    }
+
+    if (!caRows || caRows.length === 0) {
+      return res.status(404).json({ error: 'Accountant not found' });
+    }
+
+    const u = caRows[0];
+    const trialDetails = computeTrialDetails(u, new Date());
+    const subStatus = await getAccountantSubscriptionStatus(userId);
+
+    res.json({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      ...trialDetails,
+      subscription_status: subStatus,
+    });
+  } catch (err) {
+    console.error('Error fetching accountant trial:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ✅ Update trial access for an accountant (Admin-controlled)
+router.put('/:userId/trial', async (req, res) => {
+  try {
+    const { role, id: adminId } = req.user;
+    if (role !== 'super_admin') {
+      return res.status(403).json({ error: 'Unauthorized: Only Super Admin can manage free trials' });
+    }
+
+    const { userId } = req.params;
+    const { is_free_trial_enabled, trial_expiry_date } = req.body;
+
+    const isEnabled = Boolean(is_free_trial_enabled);
+    let expiryDateVal = null;
+    if (trial_expiry_date) {
+      expiryDateVal = new Date(trial_expiry_date);
+      if (isNaN(expiryDateVal.getTime())) {
+        return res.status(400).json({ error: 'Invalid trial expiry date format' });
+      }
+    }
+
+    // Verify accountant exists in tbca
+    let userRows;
+    try {
+      [userRows] = await db.query(
+        'SELECT fdSiNo, email, fdname, is_free_trial_enabled, trial_start_date FROM tbca WHERE fdSiNo = ?',
+        [userId]
+      );
+    } catch (colErr) {
+      return res.status(400).json({
+        error: 'Free trial columns not found in database. Please run manual_free_trial_setup.sql first.'
+      });
+    }
+
+    if (!userRows || userRows.length === 0) {
+      return res.status(404).json({ error: 'Accountant not found' });
+    }
+
+    const existing = userRows[0];
+    let startDate = existing.trial_start_date;
+    if (isEnabled && !startDate) {
+      startDate = new Date();
+    }
+
+    // Execute update without touching any paid subscription tables
+    await db.query(
+      `UPDATE tbca
+       SET is_free_trial_enabled = ?,
+           trial_start_date = ?,
+           trial_expiry_date = ?,
+           trial_granted_by = ?,
+           updated_at = NOW()
+       WHERE fdSiNo = ?`,
+      [isEnabled ? 1 : 0, startDate, expiryDateVal, adminId, userId]
+    );
+
+    // Compute updated trial details
+    const updatedRow = {
+      is_free_trial_enabled: isEnabled,
+      trial_start_date: startDate,
+      trial_expiry_date: expiryDateVal,
+      trial_granted_by: adminId,
+    };
+    const details = computeTrialDetails(updatedRow, new Date());
+
+    res.json({
+      success: true,
+      message: isEnabled ? 'Free trial enabled successfully' : 'Free trial disabled successfully',
+      data: {
+        id: userId,
+        ...details,
+      }
+    });
+  } catch (err) {
+    console.error('Error updating accountant trial:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -226,7 +379,6 @@ router.delete('/:userId', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 
 // ✅ Get all available companies for Admin assignment
 router.get('/available-companies', async (req, res) => {
