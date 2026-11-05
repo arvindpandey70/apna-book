@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const bcrypt = require('bcryptjs');
+const { getAccountantSubscriptionStatus } = require('../utils/accountantTrial');
 
 // Middleware: ensure caller has accountant role
 function ensureAccountant(req, res, next) {
@@ -9,6 +10,24 @@ function ensureAccountant(req, res, next) {
     return res.status(403).json({ success: false, error: 'Forbidden: Accountant access only.' });
   }
   next();
+}
+
+// Middleware: ensure accountant has active free trial or paid subscription for mutations
+async function ensureActiveTrialOrSubscription(req, res, next) {
+  try {
+    const status = await getAccountantSubscriptionStatus(req.user.id);
+    if (!status.hasAccess) {
+      return res.status(403).json({
+        success: false,
+        isExpired: true,
+        message: 'Your free trial period has expired. Please subscribe to continue using the Accountant Panel.'
+      });
+    }
+    req.accountantSubscription = status;
+    next();
+  } catch (err) {
+    next();
+  }
 }
 
 router.use(ensureAccountant);
@@ -28,6 +47,119 @@ async function checkAccountantCompanyAccess(accountantId, companyId) {
 
   return rows.length > 0;
 }
+
+// -----------------------------------------------------------------------------
+// 0. GET /api/accountant/subscription-status
+// Real-time trial & subscription status for the logged-in accountant
+// -----------------------------------------------------------------------------
+router.get('/subscription-status', async (req, res) => {
+  try {
+    const status = await getAccountantSubscriptionStatus(req.user.id);
+    res.json({
+      success: true,
+      subscription: status
+    });
+  } catch (err) {
+    console.error('Error fetching accountant subscription status:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// 0.1 GET /api/accountant/plans
+// Dedicated Accountant Subscription Plans (Accessible even when trial is expired)
+// -----------------------------------------------------------------------------
+router.get('/plans', async (req, res) => {
+  try {
+    let dbPlans = [];
+    try {
+      const [rows] = await db.query(
+        "SELECT * FROM subscription_plans WHERE isActive = 1 AND (LOWER(name) LIKE '%accountant%' OR LOWER(name) LIKE '%ca%') ORDER BY price ASC"
+      );
+      if (rows && rows.length > 0) {
+        dbPlans = rows.map(r => ({
+          id: r.id.toString(),
+          name: r.name,
+          price: parseFloat(r.price),
+          duration: r.duration,
+          features: typeof r.features === 'string' ? JSON.parse(r.features) : r.features,
+          isActive: Boolean(r.isActive)
+        }));
+      }
+    } catch (e) {}
+
+    const defaultPlans = [
+      {
+        id: 'acc_starter',
+        name: 'Accountant Starter',
+        description: 'Perfect for independent accountants managing small business clients.',
+        monthlyPrice: 999,
+        yearlyPrice: 9999,
+        duration: 'yearly',
+        features: [
+          'Manage up to 5 Client Companies',
+          'Up to 10 Managed Client Users',
+          'Full Books & Financial Reports Access',
+          'GSTR-1, GSTR-3B & Tax Assessment',
+          'Voucher & Ledger Import / Export',
+          'Email & Community Support'
+        ],
+        popular: false,
+        recommendedFor: 'Solo Practice'
+      },
+      {
+        id: 'acc_pro',
+        name: 'Accountant Professional',
+        description: 'Best value for growing accounting practices and chartered accountancy firms.',
+        monthlyPrice: 1999,
+        yearlyPrice: 19999,
+        duration: 'yearly',
+        features: [
+          'Manage up to 25 Client Companies',
+          'Unlimited Managed Client Users',
+          'Multi-Company Consolidated Audit Dashboard',
+          'Automated Bank Statement AI & Tally Sync',
+          'Role & Permission Control per Client Staff',
+          'Fast Cloud Backup & Excel Export',
+          'Priority 24/7 Phone & Email Support'
+        ],
+        popular: true,
+        recommendedFor: 'Growing Practice'
+      },
+      {
+        id: 'acc_enterprise',
+        name: 'Accountant Enterprise',
+        description: 'Ultimate power for established firms managing high volume corporate portfolios.',
+        monthlyPrice: 3999,
+        yearlyPrice: 39999,
+        duration: 'yearly',
+        features: [
+          'Unlimited Client Companies',
+          'Unlimited Managed Users & Staff Members',
+          'Custom Firm Branding on Reports & Invoices',
+          'Advanced Audit Trail & Action Logs',
+          'Bulk Voucher Processing & Multi-GST Filing',
+          'Dedicated Account Manager',
+          'Direct WhatsApp & Instant Phone Assistance'
+        ],
+        popular: false,
+        recommendedFor: 'Large CA Firms'
+      }
+    ];
+
+    res.json({
+      success: true,
+      plans: defaultPlans,
+      customPlans: dbPlans
+    });
+  } catch (err) {
+    console.error('Error fetching accountant plans:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Guard all accountant panel endpoints with trial/subscription verification
+router.use(ensureActiveTrialOrSubscription);
 
 // -----------------------------------------------------------------------------
 // 1. GET /api/accountant/dashboard
@@ -78,9 +210,12 @@ router.get('/dashboard', async (req, res) => {
       LIMIT 5
     `, [accountantId]);
 
+    const subStatus = await getAccountantSubscriptionStatus(accountantId);
+
     res.json({
       success: true,
       accountant: accountantInfo,
+      subscription: subStatus,
       stats: {
         totalCompanies: companies.length,
         totalUsers: userStats[0]?.total_users || 0,
@@ -129,7 +264,7 @@ router.get('/companies', async (req, res) => {
 // 2b. POST /api/accountant/companies
 // Creates a new company owned by this accountant
 // -----------------------------------------------------------------------------
-router.post('/companies', async (req, res) => {
+router.post('/companies', ensureActiveTrialOrSubscription, async (req, res) => {
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
@@ -271,7 +406,7 @@ router.post('/companies', async (req, res) => {
 // 2c. PUT /api/accountant/companies/:companyId
 // Updates an existing authorized company
 // -----------------------------------------------------------------------------
-router.put('/companies/:companyId', async (req, res) => {
+router.put('/companies/:companyId', ensureActiveTrialOrSubscription, async (req, res) => {
   try {
     const accountantId = req.user.id;
     const { companyId } = req.params;
@@ -405,7 +540,7 @@ router.get('/users', async (req, res) => {
 // 4. POST /api/accountant/users
 // Creates a normal user for an authorized company
 // -----------------------------------------------------------------------------
-router.post('/users', async (req, res) => {
+router.post('/users', ensureActiveTrialOrSubscription, async (req, res) => {
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
@@ -546,7 +681,7 @@ router.post('/users', async (req, res) => {
 // 5. PATCH /api/accountant/users/:userId/status
 // Suspends or activates a user created by this accountant
 // -----------------------------------------------------------------------------
-router.patch('/users/:userId/status', async (req, res) => {
+router.patch('/users/:userId/status', ensureActiveTrialOrSubscription, async (req, res) => {
   try {
     const accountantId = req.user.id;
     const { userId } = req.params;
@@ -587,7 +722,7 @@ router.patch('/users/:userId/status', async (req, res) => {
 // 6. DELETE /api/accountant/users/:userId
 // Deletes a user created by this accountant
 // -----------------------------------------------------------------------------
-router.delete('/users/:userId', async (req, res) => {
+router.delete('/users/:userId', ensureActiveTrialOrSubscription, async (req, res) => {
   try {
     const accountantId = req.user.id;
     const { userId } = req.params;

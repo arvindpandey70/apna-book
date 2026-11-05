@@ -13,49 +13,51 @@ const RequireSubscription: React.FC<RequireSubscriptionProps> = ({
   const navigate = useNavigate();
 
   const userType = user?.userType || localStorage.getItem("userType");
-  const isAccountant = userType === 'accountant' || userType === 'ca' || userType === 'new_ca';
+  const isAccountant = userType === 'accountant' || userType === 'ca';
+  const isNewCa = userType === 'new_ca';
 
-  // If user object has subscription info (isExpired, hasSubscription), we can use it immediately.
-  const hasSubInfo = isAccountant || user?.hasSubscription !== undefined;
-  const [isChecking, setIsChecking] = useState(!hasSubInfo && !isAccountant);
-  const [isBlocked, setIsBlocked] = useState(isAccountant ? false : !!user?.isExpired);
+  const [isChecking, setIsChecking] = useState(!user);
+  const [isBlocked, setIsBlocked] = useState(Boolean(user?.isExpired));
   const [message, setMessage] = useState<string | null>(
-    isAccountant
-      ? null
-      : user?.isExpired
-        ? user?.isTrial
+    user?.isExpired
+      ? isAccountant
+        ? "Your free trial period has expired. Please subscribe to continue using the Accountant Panel."
+        : user?.isTrial
           ? "Your free trial has ended. To continue using the product, please renew your subscription."
           : "Your subscription has expired. Please renew or subscribe to continue using the service."
-        : null
+      : null
   );
 
   // Sync state with user object changes
   useEffect(() => {
-    if (isAccountant) {
+    if (isNewCa) {
       setIsBlocked(false);
       setMessage(null);
       return;
     }
-    if (user?.hasSubscription !== undefined) {
-      setIsBlocked(!!user.isExpired);
-      if (user.isExpired) {
+
+    if (user?.isExpired !== undefined) {
+      const expired = Boolean(user.isExpired);
+      setIsBlocked(expired);
+      if (expired) {
         setMessage(
-          user.isTrial
-            ? "Your free trial has ended. To continue using the product, please renew your subscription."
-            : "Your subscription has expired. Please renew or subscribe to continue using the service."
+          isAccountant
+            ? "Your free trial period has expired. Please subscribe to continue using the Accountant Panel."
+            : user.isTrial
+              ? "Your free trial has ended. To continue using the product, please renew your subscription."
+              : "Your subscription has expired. Please renew or subscribe to continue using the service."
         );
       } else {
         setMessage(null);
       }
     }
-  }, [user, isAccountant]);
+  }, [user, isAccountant, isNewCa]);
 
-  // Always verify live subscription status from server on mount / companyId change
-  // This ensures that when the admin extends the subscription, reloading or visiting unblocks immediately!
+  // Verify live subscription / trial status from backend
   useEffect(() => {
     let isMounted = true;
     const check = async () => {
-      if (isAccountant) {
+      if (isNewCa) {
         if (isMounted) {
           setIsBlocked(false);
           setIsChecking(false);
@@ -64,6 +66,35 @@ const RequireSubscription: React.FC<RequireSubscriptionProps> = ({
         return;
       }
 
+      // 1. Accountant Verification
+      if (isAccountant) {
+        const token = localStorage.getItem('token');
+        try {
+          const res = await fetch(`${import.meta.env.VITE_API_URL}/api/accountant/subscription-status`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const sub = data.subscription;
+            if (sub && isMounted) {
+              const expired = Boolean(sub.isExpired);
+              setIsBlocked(expired);
+              if (expired) {
+                setMessage("Your free trial period has expired. Please subscribe to continue using the Accountant Panel.");
+              } else {
+                setMessage(null);
+              }
+            }
+          }
+        } catch (e) {
+          console.error("Accountant subscription verification failed:", e);
+        } finally {
+          if (isMounted) setIsChecking(false);
+        }
+        return;
+      }
+
+      // 2. Direct Website / Company Users Verification
       const activeCompId = companyId || localStorage.getItem("company_id") || localStorage.getItem("active_company_id");
       if (!activeCompId) {
         if (isMounted) setIsChecking(false);
@@ -108,7 +139,6 @@ const RequireSubscription: React.FC<RequireSubscriptionProps> = ({
             }
           } else {
             setMessage(null);
-            // Update cached user in localStorage so it doesn't revert to stale expired state
             try {
               const savedUser = localStorage.getItem("user");
               if (savedUser) {
@@ -137,7 +167,7 @@ const RequireSubscription: React.FC<RequireSubscriptionProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [companyId, user?.userType, user?.id, isAccountant]);
+  }, [companyId, user?.userType, user?.id, isAccountant, isNewCa]);
 
   if (isChecking) {
     return (
@@ -168,7 +198,7 @@ const RequireSubscription: React.FC<RequireSubscriptionProps> = ({
               onClick={() => navigate("/app/pricing")}
               className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-medium hover:bg-indigo-700 transition"
             >
-              View Plans & Pricing
+              Subscribe Now
             </button>
             <button
               onClick={() => window.location.reload()}

@@ -125,13 +125,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   // Keep subscription / trial info in sync with backend for current company
   useEffect(() => {
     const fetchSubscriptionStatus = async () => {
-      if (!user || !companyId) return;
+      if (!user) return;
+      if (user.userType !== 'accountant' && user.userType !== 'ca' && !companyId) return;
 
       const userType = user.userType || localStorage.getItem("userType") || "";
       const userId = user.id || localStorage.getItem("user_id") || "";
 
       // Accountant / CA partner bypass: 365 days free access
-      if (userType === 'accountant' || userType === 'ca' || userType === 'new_ca') {
+      if (userType === 'accountant' || userType === 'ca') {
+        const token = localStorage.getItem('token');
+        try {
+          const res = await fetch(`${import.meta.env.VITE_API_URL}/api/accountant/subscription-status`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {}
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const sub = data.subscription;
+            if (sub) {
+              const updatedUser: User = {
+                ...user,
+                subscriptionStatus: sub.status,
+                isTrial: !!sub.isTrial,
+                trialEndsAt: sub.endDate ?? null,
+                trialDaysRemaining: sub.daysRemaining,
+                isExpired: !!sub.isExpired,
+                hasSubscription: !!sub.hasAccess,
+              };
+              setUser(updatedUser);
+              try {
+                localStorage.setItem("user", JSON.stringify(updatedUser));
+              } catch {}
+              return;
+            }
+          }
+        } catch (e) {
+          console.error("Error fetching accountant subscription status:", e);
+        }
+        return;
+      }
+      if (userType === 'new_ca') {
         const updatedUser: User = {
           ...user,
           subscriptionStatus: 'active',

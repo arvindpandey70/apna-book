@@ -1,5 +1,6 @@
 const db = require('../db');
 const { verifyToken } = require('../utils/jwt');
+const { getAccountantSubscriptionStatus } = require('../utils/accountantTrial');
 
 // Paths or prefixes that should be allowed even if subscription is expired
 const ALLOWED_PREFIXES = [
@@ -49,13 +50,24 @@ module.exports = async function checkSubscription(req, res, next) {
       }
     }
 
-    // 1. Accountants have free partner access on all companies they manage
+    // 1. Accountant Role: Validate Admin-Controlled Free Trial & Paid Subscription Priority
     if (
       userRole === 'accountant' ||
       userRole === 'ca' ||
-      userRole === 'new_ca' ||
       req.headers['x-user-type'] === 'accountant'
     ) {
+      const accStatus = await getAccountantSubscriptionStatus(userId);
+      if (accStatus.hasAccess) {
+        return next();
+      }
+      return res.status(403).json({
+        success: false,
+        isExpired: true,
+        message: 'Your free trial period has expired. Please subscribe to continue using the Accountant Panel.'
+      });
+    }
+
+    if (userRole === 'new_ca') {
       return next();
     }
 
@@ -117,17 +129,24 @@ module.exports = async function checkSubscription(req, res, next) {
 
     // 2. Accountant-Managed Company access check
     if (isAccountantManaged) {
-      // Safety net: if the logged-in user IS an accountant/CA (check DB role as well),
-      // grant free access even if Check 1 above was bypassed due to a token field mismatch.
+      // Safety net: if the logged-in user IS an accountant/CA, check their trial/subscription
       if (userId) {
         // Check ca_company: is this user the accountant linked to this company?
         const [caLinkRows] = await db.query(
           'SELECT 1 FROM ca_company WHERE ca_id = ? AND company_id = ? LIMIT 1',
           [userId, companyId]
         ).catch(() => [[]]);
+
         if (caLinkRows && caLinkRows.length > 0) {
-          // This user is the accountant/CA who owns this company – free access
-          return next();
+          const accStatus = await getAccountantSubscriptionStatus(userId);
+          if (accStatus.hasAccess) {
+            return next();
+          }
+          return res.status(403).json({
+            success: false,
+            isExpired: true,
+            message: 'Your free trial period has expired. Please subscribe to continue using the Accountant Panel.'
+          });
         }
 
         // Also check DB role of the current user
@@ -137,9 +156,16 @@ module.exports = async function checkSubscription(req, res, next) {
         ).catch(() => [[]]);
         if (caUserRows && caUserRows.length > 0) {
           const dbRole = (caUserRows[0].role || caUserRows[0].userType || '').toLowerCase();
-          if (dbRole === 'accountant' || dbRole === 'ca' || dbRole === 'new_ca') {
-            // Accountant is accessing their managed company – free access
-            return next();
+          if (dbRole === 'accountant' || dbRole === 'ca') {
+            const accStatus = await getAccountantSubscriptionStatus(userId);
+            if (accStatus.hasAccess) {
+              return next();
+            }
+            return res.status(403).json({
+              success: false,
+              isExpired: true,
+              message: 'Your free trial period has expired. Please subscribe to continue using the Accountant Panel.'
+            });
           }
         }
       }

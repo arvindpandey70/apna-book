@@ -4,10 +4,28 @@ const db = require('../db'); // Promise-based MySQL pool
 const bcrypt = require('bcryptjs');
 const { signToken } = require('../utils/jwt');
 const { loginLimiter } = require('../middlewares/rateLimiter');
+const { getAccountantSubscriptionStatus } = require('../utils/accountantTrial');
 
 async function getSubscriptionForUser(companyRow, role, userId) {
   // 1. Accountant Role: 1 Year (365 Days) Free Partner Access
-  if (role === 'accountant' || role === 'ca' || role === 'new_ca') {
+  if (role === 'accountant' || role === 'ca') {
+    const accStatus = await getAccountantSubscriptionStatus(userId);
+    return {
+      id: 0,
+      plan: accStatus.plan || 'Accountant Panel',
+      isTrial: accStatus.isTrial,
+      status: accStatus.status,
+      startDate: accStatus.startDate || new Date(),
+      endDate: accStatus.endDate || null,
+      daysRemaining: accStatus.daysRemaining,
+      isExpired: accStatus.isExpired,
+      hasSubscription: accStatus.hasAccess,
+      isAccountant: true,
+      isPaid: accStatus.isPaid,
+      message: accStatus.message
+    };
+  }
+  if (role === 'new_ca') {
     return {
       id: 0,
       plan: 'Accountant Partner (Free 1-Year)',
