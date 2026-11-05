@@ -167,14 +167,18 @@ async function generateVoucherNumber({
     if (rows.length > 0) {
       const lastNumber = rows[0].lastNumber;
       if (lastNumber) {
-        const parts = lastNumber.split("/");
-        const lastSeq = parseInt(parts[parts.length - 1]);
+        const value = String(lastNumber);
+        const sequence =
+          useTypeFilter && value.startsWith(prefix) && value.endsWith(suffix)
+            ? value.slice(prefix.length, suffix ? -suffix.length : undefined)
+            : value.split("/").pop();
+        const lastSeq = parseInt(sequence, 10);
         nextNo = (isNaN(lastSeq) ? 0 : lastSeq) + 1;
       }
     }
 
     if (useTypeFilter) {
-      return `${prefix}${suffix}/${nextNo}`;
+      return `${prefix}${nextNo}${suffix}`;
     }
 
     return `${prefix}/${fy}/${String(nextNo).padStart(6, "0")}`;
@@ -182,6 +186,57 @@ async function generateVoucherNumber({
     console.error("Error generating voucher number:", err);
     throw err;
   }
+}
+
+async function generateSalesVoucherNumber({
+  companyId,
+  ownerType,
+  ownerId,
+  salesTypeId,
+}) {
+  const salesTypeConfig = await resolveSalesTypeConfig({
+    salesTypeId,
+    companyId,
+    ownerType,
+    ownerId,
+  });
+  const prefix = salesTypeConfig?.prefix || "";
+  const suffix = salesTypeConfig?.suffix || "";
+
+  let sql = `
+    SELECT number
+    FROM sales_vouchers
+    WHERE company_id = ? AND owner_type = ? AND owner_id = ?
+  `;
+  const params = [companyId, ownerType, ownerId];
+
+  if (prefix) {
+    sql += " AND number LIKE ?";
+    params.push(`${prefix}%`);
+  } else if (suffix) {
+    sql += " AND number LIKE ?";
+    params.push(`%${suffix}`);
+  } else {
+    sql += " AND number REGEXP '^[0-9]+$'";
+  }
+
+  const [rows] = await db.execute(sql, params);
+  let highestNumber = 0;
+
+  for (const row of rows) {
+    const number = String(row.number || "");
+    if (!number.startsWith(prefix) || (suffix && !number.endsWith(suffix))) {
+      continue;
+    }
+
+    const end = suffix ? number.length - suffix.length : number.length;
+    const sequence = number.slice(prefix.length, end);
+    if (!/^\d+$/.test(sequence)) continue;
+
+    highestNumber = Math.max(highestNumber, Number(sequence));
+  }
+
+  return `${prefix}${highestNumber + 1}${suffix}`;
 }
 
 /**
@@ -250,7 +305,7 @@ async function renumberVouchers(
       let newNumber;
 
       if (useTypeFilter) {
-        newNumber = `${prefix}${suffix}/${newSeq}`;
+        newNumber = `${prefix}${newSeq}${suffix}`;
       } else {
         newNumber = `${prefix}/${fy}/${String(newSeq).padStart(6, "0")}`;
       }
@@ -308,4 +363,9 @@ async function renumberVouchers(
   }
 }
 
-module.exports = { generateVoucherNumber, renumberVouchers, resolveSalesTypeConfig };
+module.exports = {
+  generateVoucherNumber,
+  generateSalesVoucherNumber,
+  renumberVouchers,
+  resolveSalesTypeConfig,
+};
