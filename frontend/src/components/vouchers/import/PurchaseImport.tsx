@@ -9,7 +9,6 @@ import {
     RefreshCw,
     FileSpreadsheet,
     ShoppingCart,
-    Layers,
     Grid,
     List,
     X,
@@ -42,6 +41,8 @@ interface ManualItemRow {
     itemTotal: number;
     godown: string;
     purchaseLedger: string;
+    slabLine?: boolean;
+    taxKind?: "exempt" | "inter" | "intra";
     _matchedItemId?: string | number;
     _matchedHsnId?: string | number;
     itemFound: boolean;
@@ -104,9 +105,54 @@ interface ManualGroupedVoucher {
     partyStateName: string;
     items: ManualItemRow[];
     accountingEntries: ManualAccountingRow[];
+    slabImport?: boolean;
 }
 
 // Helper: Normalize tax inputs (e.g. 18, "18%", 0.18 -> 18)
+const ITEM_SLABS: { purchase: string; kind: "exempt" | "inter" | "intra"; rate: number; tax?: string; cgst?: string; sgst?: string }[] = [
+    { purchase: "exempt purchase", kind: "exempt", rate: 0 },
+    { purchase: "3% inter state purchase", kind: "inter", rate: 3, tax: "igst3%" },
+    { purchase: "3% intra state purchase", kind: "intra", rate: 3, cgst: "cgst1.5%", sgst: "sgst1.5%" },
+    { purchase: "5% inter state purchase", kind: "inter", rate: 5, tax: "igst5%" },
+    { purchase: "5% intra state purchase", kind: "intra", rate: 5, cgst: "cgst2.5%", sgst: "sgst2.5%" },
+    { purchase: "18% inter state purchase", kind: "inter", rate: 18, tax: "igst18%" },
+    { purchase: "18% intra state purchase", kind: "intra", rate: 18, cgst: "cgst9%", sgst: "sgst9%" },
+    { purchase: "28% inter state purchase", kind: "inter", rate: 28, tax: "igst28%" },
+    { purchase: "28% intra state purchase", kind: "intra", rate: 28, cgst: "cgst14%", sgst: "sgst14%" },
+];
+
+const ACCOUNTING_HEADERS = [
+    "Voucher Date", "", "Supplier Invoice", "Invoice Date", "Transaction Mode",
+    "Ledger 1", "Amount 1", "Type 1", "",
+    "Ledger 2", "Amount 2", "Type 2",
+    "Ledger 3", "Amount 3", "Type 3",
+    "Ledger 4", "Amount 4", "Type 4",
+];
+
+const ITEM_TEMPLATE_HEADERS = [
+    "GSTIN of supplier", "SupplierName", "Invoice number", "Invoice Date", "Invoice Value (₹)",
+    "Place of supply", "Supply Attract Reverse Charge", "", "Quantity", "Rate",
+    "Exempt purchase", "3% inter state purchase", "Igst3%", "3% intra state purchase", "cgst1.5%", "sgst1.5%",
+    "5% inter state purchase", "Igst5%", "5% intra state purchase", "cgst2.5%", "sgst2.5%",
+    "18% inter state purchase", "Igst18%", "18% intra state purchase", "cgst9%", "sgst9%",
+    "28% inter state purchase", "Igst28%", "28% intra state purchase", "cgst14%", "sgst14%",
+    "Discount",
+];
+
+const formulaHeaders = new Set([
+    "Invoice Value (₹)",
+    "Igst3%", "cgst1.5%", "sgst1.5%",
+    "Igst5%", "cgst2.5%", "sgst2.5%",
+    "Igst18%", "cgst9%", "sgst9%",
+    "Igst28%", "cgst14%", "sgst14%",
+]);
+
+const cellNumber = (val: any): number => {
+    if (val === undefined || val === null || val === "") return 0;
+    const parsed = parseFloat(String(val).replace(/,/g, "").replace(/%/g, "").trim());
+    return isNaN(parsed) ? 0 : parsed;
+};
+
 const parseTaxRate = (val: any): number => {
     if (val === undefined || val === null || val === "") return 0;
     if (typeof val === "number") {
@@ -411,6 +457,125 @@ const PurchaseImport: React.FC = () => {
 
             const rawGroups: { [key: string]: any } = {};
 
+            const rowText = (row: any[]) => (row || []).map(c => String(c || "").toLowerCase().trim());
+            const slabHeaderIndex = rawRows.findIndex(row => {
+                const cells = rowText(row);
+                return cells.some(c => c.includes("gstin of supplier")) && cells.some(c => c.includes("exempt purchase"));
+            });
+            const accountingHeaderIndex = rawRows.findIndex(row => {
+                const cells = rowText(row);
+                return cells.some(c => c.includes("ledger 1")) && cells.some(c => c.includes("voucher date") || c === "voucher date");
+            });
+
+            let activeMode = selectedMode;
+            const useSlabLayout = slabHeaderIndex !== -1 && (selectedMode === "Item Invoice" || accountingHeaderIndex === -1);
+            if (useSlabLayout) activeMode = "Item Invoice";
+            else if (accountingHeaderIndex !== -1) activeMode = "Accounting Invoice";
+            if (activeMode !== selectedMode) setSelectedMode(activeMode);
+
+            if (useSlabLayout) {
+                const header = rowText(rawRows[slabHeaderIndex]);
+                const col = (name: string) => header.findIndex(c => c === name);
+                const gstinCol = col("gstin of supplier");
+                const supplierCol = header.findIndex(c => c === "suppliername" || c === "supplier name" || c === "party / supplier name");
+                const invoiceCol = header.findIndex(c => c === "invoice number" || c === "supplier invoice");
+                const invoiceDateCol = col("invoice date");
+                const posCol = col("place of supply");
+                const qtyCol = col("quantity");
+                const rateCol = col("rate");
+                const discountCol = col("discount");
+
+                for (let r = slabHeaderIndex + 1; r < rawRows.length; r++) {
+                    const row = rawRows[r] || [];
+                    const supplierName = String(supplierCol >= 0 ? row[supplierCol] : "").replace(/\s+/g, " ").trim();
+                    const invoiceNo = String(invoiceCol >= 0 ? row[invoiceCol] : "").trim();
+                    const gstin = String(gstinCol >= 0 ? row[gstinCol] : "").trim();
+                    if (!supplierName && !invoiceNo && !gstin) continue;
+                    if (["invoice number", "suppliername", "gstin of supplier"].includes(supplierName.toLowerCase())) continue;
+
+                    const invoiceDate = formatDate(invoiceDateCol >= 0 ? row[invoiceDateCol] : "") || new Date().toISOString().split("T")[0];
+                    const groupKey = `${invoiceDate}-${invoiceNo || gstin}-${supplierName || gstin}`;
+                    if (!rawGroups[groupKey]) {
+                        rawGroups[groupKey] = {
+                            id: `v-${r}`,
+                            voucherDate: invoiceDate,
+                            supplierInvoice: invoiceNo || `INV-${Object.keys(rawGroups).length + 1}`,
+                            invoiceDate,
+                            partyName: supplierName || gstin || "Supplier",
+                            gstin,
+                            pos: String(posCol >= 0 ? row[posCol] : "").trim(),
+                            mode: "Item Invoice",
+                            godownTracking: "Enabled (Yes)",
+                            slabImport: true,
+                            items: [],
+                            accountingEntries: []
+                        };
+                    }
+
+                    const sheetQty = qtyCol >= 0 ? cellNumber(row[qtyCol]) : 0;
+                    const sheetRate = rateCol >= 0 ? cellNumber(row[rateCol]) : 0;
+                    const discount = discountCol >= 0 ? cellNumber(row[discountCol]) : 0;
+                    let discountAssigned = rawGroups[groupKey].items.some((it: any) => Number(it.discount) > 0);
+
+                    ITEM_SLABS.forEach(slab => {
+                        const purchaseCol = col(slab.purchase);
+                        if (purchaseCol < 0) return;
+                        const taxable = cellNumber(row[purchaseCol]);
+                        if (taxable <= 0) return;
+
+                        let cgstAmount = 0;
+                        let sgstAmount = 0;
+                        let igstAmount = 0;
+                        if (slab.kind === "inter" && slab.tax) {
+                            const taxCol = col(slab.tax);
+                            const cached = taxCol >= 0 ? cellNumber(row[taxCol]) : 0;
+                            igstAmount = cached > 0 ? cached : Number(((taxable * slab.rate) / 100).toFixed(2));
+                        } else if (slab.kind === "intra" && slab.cgst && slab.sgst) {
+                            const cgstCol = col(slab.cgst);
+                            const sgstCol = col(slab.sgst);
+                            const cachedCgst = cgstCol >= 0 ? cellNumber(row[cgstCol]) : 0;
+                            const cachedSgst = sgstCol >= 0 ? cellNumber(row[sgstCol]) : 0;
+                            const half = Number(((taxable * (slab.rate / 2)) / 100).toFixed(2));
+                            cgstAmount = cachedCgst > 0 ? cachedCgst : half;
+                            sgstAmount = cachedSgst > 0 ? cachedSgst : half;
+                        }
+
+                        const quantity = sheetQty > 0 ? sheetQty : 1;
+                        const rate = sheetRate > 0 && ITEM_SLABS.filter(s => {
+                            const idx = col(s.purchase);
+                            return idx >= 0 && cellNumber(row[idx]) > 0;
+                        }).length === 1
+                            ? sheetRate
+                            : Number((taxable / quantity).toFixed(2));
+
+                        rawGroups[groupKey].items.push({
+                            srNo: rawGroups[groupKey].items.length + 1,
+                            itemName: slab.purchase.replace(/\b\w/g, (ch: string) => ch.toUpperCase()),
+                            hsnCode: "",
+                            quantity,
+                            unit: "",
+                            rate,
+                            discount: !discountAssigned ? discount : 0,
+                            rawGstRate: slab.rate,
+                            gstRate: slab.rate,
+                            sgstRate: slab.kind === "intra" ? slab.rate / 2 : 0,
+                            cgstRate: slab.kind === "intra" ? slab.rate / 2 : 0,
+                            igstRate: slab.kind === "inter" ? slab.rate : 0,
+                            sgstAmount,
+                            cgstAmount,
+                            igstAmount,
+                            taxableValue: taxable,
+                            itemTotal: taxable + cgstAmount + sgstAmount + igstAmount,
+                            godown: "Main Location",
+                            purchaseLedger: slab.purchase.replace(/\b\w/g, (ch: string) => ch.toUpperCase()),
+                            slabLine: true,
+                            taxKind: slab.kind,
+                        });
+                        if (discount > 0) discountAssigned = true;
+                    });
+                }
+            }
+
             // Check if sheet uses 2-Section Block Layout (where header block and item/accounting details are in separate rows)
             let isBlockLayout = false;
             for (let r = 0; r < Math.min(10, rawRows.length); r++) {
@@ -427,7 +592,7 @@ const PurchaseImport: React.FC = () => {
 
             let firstVoucherDate = new Date().toISOString().split("T")[0];
 
-            if (isBlockLayout) {
+            if (!useSlabLayout && isBlockLayout) {
                 let currentGroup: any = null;
                 for (let r = 0; r < rawRows.length; r++) {
                     const row = rawRows[r] || [];
@@ -458,7 +623,7 @@ const PurchaseImport: React.FC = () => {
                         const suppInv = String(valRow[suppInvCol] || "").trim();
                         const invDate = formatDate(valRow[invDateCol] || vDate);
                         const partyName = String(valRow[partyCol] || "").replace(/\s+/g, " ").trim();
-                        const modeStr = String(valRow[modeCol] || selectedMode).trim();
+                        const modeStr = String(valRow[modeCol] || activeMode).trim();
                         const godownTrkStr = String(valRow[godownCol] || "Enabled (Yes)").trim();
 
                         const mode: "Item Invoice" | "Accounting Invoice" = modeStr.toLowerCase().includes("accounting") ? "Accounting Invoice" : "Item Invoice";
@@ -539,7 +704,7 @@ const PurchaseImport: React.FC = () => {
                         }
                     }
                 }
-            } else {
+            } else if (!useSlabLayout) {
                 // Fallback Tabular sheet parsing (Single-row header format with multi-item inheritance)
                 const jsonData = XLSX.utils.sheet_to_json(worksheet) as any[];
                 let lastHeader: any = null;
@@ -562,7 +727,23 @@ const PurchaseImport: React.FC = () => {
                     let invDate = "";
                     let partyName = "";
                     let godownTrk = "Enabled (Yes)";
-                    let mode = selectedMode;
+                    const dateProbe = String(rawVDate || "").toLowerCase();
+                    const invoiceProbe = String(rawSuppInv || "").toLowerCase();
+                    const typeProbe = String(row["Type 1"] || "").toLowerCase();
+                    const modeProbe = String(rawMode || "").toLowerCase();
+                    const looksLikeAccountingRow = modeProbe.includes("accounting") || typeProbe.startsWith("d") || typeProbe.startsWith("c") || row["Ledger"] || row["Particulars (Ledger Name)"];
+                    if (
+                        dateProbe.includes("gstin") ||
+                        dateProbe.includes("suppliername") ||
+                        dateProbe.includes("column map") ||
+                        invoiceProbe === "invoice number" ||
+                        invoiceProbe.includes("column map") ||
+                        (activeMode === "Accounting Invoice" && !looksLikeAccountingRow)
+                    ) {
+                        return;
+                    }
+
+                    let mode = activeMode;
                     let groupKey = "";
 
                     if (hasExplicitHeader || !lastHeader) {
@@ -616,7 +797,7 @@ const PurchaseImport: React.FC = () => {
                         };
                     }
 
-                    if (selectedMode === "Item Invoice" || mode === "Item Invoice") {
+                    if (activeMode === "Item Invoice" || mode === "Item Invoice") {
                         const itemName = String(row["Item"] || row["Item Name"] || "").trim();
                         const qty = Number(row["Quantity"] || row["Qty"] || 0);
                         const rate = Number(row["Rate"] || row["Item Rate (₹)"] || 0);
@@ -707,11 +888,13 @@ const PurchaseImport: React.FC = () => {
                 });
             }
 
+            // Validate Each Voucher & Assign Auto Voucher Number
+            const groupList = Object.values(rawGroups).filter((group: any) => !group.slabImport || (group.items || []).length > 0);
+            const slabDate = (groupList.find((group: any) => group.voucherDate) as any)?.voucherDate;
+            if (useSlabLayout && slabDate) firstVoucherDate = slabDate;
+
             // Fetch starting Voucher Number from manual Purchase Voucher API logic
             const startingVoucherNum = await fetchStartingVoucherNumber(firstVoucherDate);
-
-            // Validate Each Voucher & Assign Auto Voucher Number
-            const groupList = Object.values(rawGroups);
             const validatedVouchers: ManualGroupedVoucher[] = [];
 
             groupList.forEach((group, idx) => {
@@ -728,15 +911,17 @@ const PurchaseImport: React.FC = () => {
                 }
                 const cleanPartyName = partyName.toLowerCase().replace(/\s+/g, " ").trim();
 
-                const matchedPartyLedger = partyName
+                const sheetGstin = String(group.gstin || "").toUpperCase().replace(/\s+/g, "").trim();
+                const matchedPartyLedger = partyName || sheetGstin
                     ? ledgers.find(l => {
                         const lName = (l.name || "").toLowerCase().replace(/\s+/g, " ").trim();
-                        return lName === cleanPartyName;
+                        return cleanPartyName && lName === cleanPartyName;
                     }) || ledgers.find(l => {
                         const lGst = (l.gst_number || l.gstNumber || "").toUpperCase().replace(/\s+/g, "").trim();
-                        return lGst && lGst === partyName.toUpperCase().replace(/\s+/g, "").trim();
+                        return lGst && (lGst === partyName.toUpperCase().replace(/\s+/g, "").trim() || (sheetGstin && lGst === sheetGstin));
                     })
                     : null;
+                if (matchedPartyLedger?.name) partyName = matchedPartyLedger.name;
 
                 const partyMatch = !!matchedPartyLedger;
 
@@ -753,13 +938,13 @@ const PurchaseImport: React.FC = () => {
                 let isDifferentState = false;
                 let gstType: "same-state" | "different-state" | "unknown" = "unknown";
 
-                if (!companyStateRes.code) {
+                if (!group.slabImport && !companyStateRes.code) {
                     errors.push(`Company GSTIN or State is missing/invalid in Company Profile. State cannot be determined.`);
                 }
 
                 if (!partyMatch) {
                     errors.push(`Party / Supplier Name '${partyName}' Not Found in Ledger Master`);
-                } else if (!partyStateRes.code) {
+                } else if (!group.slabImport && !partyStateRes.code) {
                     errors.push(`Party '${partyName}' GSTIN ('${partyGstin || 'Missing'}') or State is missing/invalid. State cannot be determined.`);
                 }
 
@@ -780,6 +965,60 @@ const PurchaseImport: React.FC = () => {
 
                 if (group.mode === "Item Invoice") {
                     group.items.forEach((it: any) => {
+                        if (it.slabLine) {
+                            const cleanPLedger = (it.purchaseLedger || "").toLowerCase().replace(/\s+/g, " ").trim();
+                            const matchedPL = cleanPLedger
+                                ? ledgers.find(l => (l.name || "").toLowerCase().replace(/\s+/g, " ").trim() === cleanPLedger)
+                                    || matchLedgerFlexibly(it.purchaseLedger, ledgers)
+                                : null;
+                            const purchaseLedgerFound = !!matchedPL;
+                            if (!purchaseLedgerFound) errors.push(`Purchase-Ledger '${it.purchaseLedger}' Not Found in Ledger Master`);
+
+                            const rawGstRate = Number(it.rawGstRate ?? it.gstRate ?? 0);
+                            const cgstRate = it.taxKind === "intra" ? Number((rawGstRate / 2).toFixed(2)) : 0;
+                            const sgstRate = cgstRate;
+                            const igstRate = it.taxKind === "inter" ? rawGstRate : 0;
+                            const cgstRes = cgstRate > 0 ? resolveTaxLedger("CGST", cgstRate, ledgers) : { found: true, ledgerName: "" };
+                            const sgstRes = sgstRate > 0 ? resolveTaxLedger("SGST", sgstRate, ledgers) : { found: true, ledgerName: "" };
+                            const igstRes = igstRate > 0 ? resolveTaxLedger("IGST", igstRate, ledgers) : { found: true, ledgerName: "" };
+                            const taxableValue = Number(it.taxableValue || 0);
+                            const discountAmt = Number(it.discount || 0);
+                            const cgstAmount = Number(it.cgstAmount || 0);
+                            const sgstAmount = Number(it.sgstAmount || 0);
+                            const igstAmount = Number(it.igstAmount || 0);
+                            const itemTotal = Math.max(0, taxableValue + sgstAmount + cgstAmount + igstAmount - discountAmt);
+
+                            itemsValidated.push({
+                                ...it,
+                                itemName: matchedPL?.name || it.purchaseLedger,
+                                rawGstRate,
+                                gstRate: rawGstRate,
+                                cgstRate,
+                                sgstRate,
+                                igstRate,
+                                cgstAmount,
+                                sgstAmount,
+                                igstAmount,
+                                taxableValue,
+                                discount: discountAmt,
+                                itemTotal,
+                                itemFound: true,
+                                hsnFound: true,
+                                unitFound: true,
+                                cgstLedgerFound: cgstRes.found,
+                                sgstLedgerFound: sgstRes.found,
+                                igstLedgerFound: igstRes.found,
+                                matchedCgstLedgerName: cgstRes.ledgerName,
+                                matchedSgstLedgerName: sgstRes.ledgerName,
+                                matchedIgstLedgerName: igstRes.ledgerName,
+                                purchaseLedgerFound,
+                                purchaseLedger: matchedPL?.name || it.purchaseLedger,
+                                slabLine: true,
+                            });
+                            totalDebit += itemTotal;
+                            return;
+                        }
+
                         const cleanItemName = (it.itemName || "").toLowerCase().replace(/\s+/g, " ").trim();
                         const cleanHsn = (it.hsnCode || "").toLowerCase().replace(/\s+/g, "").trim();
 
@@ -886,6 +1125,13 @@ const PurchaseImport: React.FC = () => {
                     });
 
                     totalCredit = totalDebit;
+                    if (group.slabImport) {
+                        const hasIgst = itemsValidated.some(item => Number(item.igstAmount) > 0);
+                        const hasLocalTax = itemsValidated.some(item => Number(item.cgstAmount) > 0 || Number(item.sgstAmount) > 0);
+                        if (hasIgst && !hasLocalTax) gstType = "different-state";
+                        else if (hasLocalTax) gstType = "same-state";
+                        else gstType = "same-state";
+                    }
                 } else {
                     // Accounting Invoice Mode
                     let accEntriesValidated: ManualAccountingRow[] = [];
@@ -947,6 +1193,7 @@ const PurchaseImport: React.FC = () => {
                     partyStateName: partyStateRes.name || "Unknown",
                     items: itemsValidated,
                     accountingEntries: group.accountingEntries || [],
+                    slabImport: !!group.slabImport,
                 });
             });
 
@@ -1065,47 +1312,151 @@ const PurchaseImport: React.FC = () => {
         }
     };
 
-    // Download Excel Templates in Single Horizontal Header Row Format
+    const styleCell = (cell: any, style: any) => {
+        cell.s = style;
+        return cell;
+    };
+
+    const ensureCell = (worksheet: XLSX.WorkSheet, row: number, col: number, value: string | number = "") => {
+        const ref = XLSX.utils.encode_cell({ r: row, c: col });
+        if (!worksheet[ref]) {
+            worksheet[ref] = typeof value === "number"
+                ? { t: "n", v: value }
+                : { t: "s", v: value };
+        }
+        return worksheet[ref];
+    };
+
+    // Download Excel templates matching Purchase_Accounting_Invoice_Template
     const downloadTemplate = (mode: 'Item Invoice' | 'Accounting Invoice') => {
         if (mode === 'Item Invoice') {
-            const sheetData = [
-                // SINGLE HORIZONTAL HEADER ROW WITH SINGLE GST COLUMN
-                [
-                    "Voucher Date", "Supplier Invoice", "Invoice Date", "Party / Supplier Name",
-                    "Transaction Mode", "Godown Tracking", "Sr No", "Item", "HSN/SAC",
-                    "Quantity", "Unit", "Rate", "GST", "Discount", "Taxable", "Godown", "Purchase-Ledger"
-                ],
-                // SAMPLE DATA ROWS
-                ["2026-02-16", "MSL/25-26/14420", "2026-02-16", "MONGIA STEEL LIMITED", "Item Invoice", "Enabled (Yes)", 1, "Biscute", "5555", 100, "PCS", 4000, 18, 100, 400000, "Main Location", "18% intra state purchase"],
-                ["", "", "", "", "", "", 2, "Steel Bar", "7214", 50, "KG", 1200, 18, 0, 60000, "Main Location", "18% intra state purchase"],
-                ["2026-02-20", "MSL/25-26/14425", "2026-02-20", "MONGIA STEEL LIMITED", "Item Invoice", "Enabled (Yes)", 1, "Cement", "2523", 200, "BAG", 350, 18, 50, 70000, "Main Location", "18% Inter State Purchase"]
+            const headers = ITEM_TEMPLATE_HEADERS.filter((header) => header !== "");
+            const colLetter = (name: string) => XLSX.utils.encode_col(headers.indexOf(name));
+            const formulaByHeader: Record<string, (rowNumber: number) => string> = {
+                "Invoice Value (₹)": (rowNumber) => `SUM(${colLetter("Exempt purchase")}${rowNumber}:${colLetter("sgst14%")}${rowNumber})-${colLetter("Discount")}${rowNumber}`,
+                "Igst3%": (rowNumber) => `${colLetter("3% inter state purchase")}${rowNumber}*3%`,
+                "cgst1.5%": (rowNumber) => `${colLetter("3% intra state purchase")}${rowNumber}*1.5%`,
+                "sgst1.5%": (rowNumber) => `${colLetter("3% intra state purchase")}${rowNumber}*1.5%`,
+                "Igst5%": (rowNumber) => `${colLetter("5% inter state purchase")}${rowNumber}*5%`,
+                "cgst2.5%": (rowNumber) => `${colLetter("5% intra state purchase")}${rowNumber}*2.5%`,
+                "sgst2.5%": (rowNumber) => `${colLetter("5% intra state purchase")}${rowNumber}*2.5%`,
+                "Igst18%": (rowNumber) => `${colLetter("18% inter state purchase")}${rowNumber}*18%`,
+                "cgst9%": (rowNumber) => `${colLetter("18% intra state purchase")}${rowNumber}*9%`,
+                "sgst9%": (rowNumber) => `${colLetter("18% intra state purchase")}${rowNumber}*9%`,
+                "Igst28%": (rowNumber) => `${colLetter("28% inter state purchase")}${rowNumber}*28%`,
+                "cgst14%": (rowNumber) => `${colLetter("28% intra state purchase")}${rowNumber}*14%`,
+                "sgst14%": (rowNumber) => `${colLetter("28% intra state purchase")}${rowNumber}*14%`,
+            };
+            const groups: { label: string; from: string; to: string; fill: string }[] = [
+                { label: "Supplier and invoice", from: "GSTIN of supplier", to: "Rate", fill: "1E3A5F" },
+                { label: "Exempt", from: "Exempt purchase", to: "Exempt purchase", fill: "64748B" },
+                { label: "3% Inter", from: "3% inter state purchase", to: "Igst3%", fill: "1D4E89" },
+                { label: "3% Intra", from: "3% intra state purchase", to: "sgst1.5%", fill: "0F6E56" },
+                { label: "5% Inter", from: "5% inter state purchase", to: "Igst5%", fill: "1D4E89" },
+                { label: "5% Intra", from: "5% intra state purchase", to: "sgst2.5%", fill: "0F6E56" },
+                { label: "18% Inter", from: "18% inter state purchase", to: "Igst18%", fill: "1D4E89" },
+                { label: "18% Intra", from: "18% intra state purchase", to: "sgst9%", fill: "0F6E56" },
+                { label: "28% Inter", from: "28% inter state purchase", to: "Igst28%", fill: "1D4E89" },
+                { label: "28% Intra", from: "28% intra state purchase", to: "sgst14%", fill: "0F6E56" },
+                { label: "Discount", from: "Discount", to: "Discount", fill: "B45309" },
             ];
+            const example: Record<string, string | number> = {
+                "GSTIN of supplier": "20AABCM4621M1ZR",
+                "SupplierName": "MONGIA STEEL LIMITED",
+                "Invoice number": "EXAMPLE-001",
+                "Invoice Date": "2026-11-19",
+                "Place of supply": "Jharkhand",
+                "Supply Attract Reverse Charge": "N",
+                "Quantity": 1,
+                "Rate": 10000,
+                "18% intra state purchase": 10000,
+            };
+            const lastCol = headers.length - 1;
+            const sheetData: any[][] = [
+                ["Purchase Item Invoice"],
+                ["Yellow cells are for entry. Grey cells calculate tax and invoice value. Delete the example row before import."],
+                headers.map(() => ""),
+                headers,
+                headers.map((header) => example[header] ?? ""),
+            ];
+            for (let i = 0; i < 15; i++) sheetData.push(headers.map(() => ""));
 
             const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
-            worksheet['!cols'] = [
-                { wch: 14 }, { wch: 22 }, { wch: 14 }, { wch: 28 },
-                { wch: 18 }, { wch: 18 }, { wch: 8 }, { wch: 20 },
-                { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 12 },
-                { wch: 10 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 26 }
+            const lastRow = sheetData.length;
+            worksheet["!ref"] = `A1:${XLSX.utils.encode_col(lastCol)}${lastRow}`;
+            worksheet["!cols"] = headers.map((header) => ({
+                wch: Math.min(28, Math.max(12, header.length + 2)),
+            }));
+            worksheet["!rows"] = [{ hpt: 24 }, { hpt: 20 }, { hpt: 18 }, { hpt: 36 }];
+            worksheet["!merges"] = [
+                { s: { r: 0, c: 0 }, e: { r: 0, c: lastCol } },
+                { s: { r: 1, c: 0 }, e: { r: 1, c: lastCol } },
+                ...groups.map((group) => ({
+                    s: { r: 2, c: headers.indexOf(group.from) },
+                    e: { r: 2, c: headers.indexOf(group.to) },
+                })),
             ];
+            worksheet["!views"] = [{
+                state: "frozen",
+                ySplit: 4,
+                xSplit: 3,
+                topLeftCell: "D5",
+                activePane: "bottomRight",
+            }];
 
-            worksheet['!rows'] = [{ hpt: 26 }]; // Header row height
-
-            const headerStyle = {
-                font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11 },
-                fill: { fgColor: { rgb: "1E3A8A" } },
-                alignment: { horizontal: "center", vertical: "center", wrapText: true },
-                border: {
-                    top: { style: "medium", color: { rgb: "0F172A" } },
-                    bottom: { style: "medium", color: { rgb: "0F172A" } },
-                    left: { style: "thin", color: { rgb: "334155" } },
-                    right: { style: "thin", color: { rgb: "334155" } }
-                }
+            const border = {
+                top: { style: "thin", color: { rgb: "D6DEE8" } },
+                bottom: { style: "thin", color: { rgb: "D6DEE8" } },
+                left: { style: "thin", color: { rgb: "D6DEE8" } },
+                right: { style: "thin", color: { rgb: "D6DEE8" } },
             };
+            const paint = (rgb: string, font?: any) => ({
+                font: { sz: 10, name: "Calibri", ...(font || {}) },
+                fill: { fgColor: { rgb } },
+                alignment: { horizontal: "center", vertical: "center", wrapText: true },
+                border,
+            });
 
-            for (let c = 0; c < 17; c++) {
-                const cellRef = XLSX.utils.encode_cell({ r: 0, c });
-                if (worksheet[cellRef]) worksheet[cellRef].s = headerStyle;
+            for (let c = 0; c <= lastCol; c++) {
+                styleCell(ensureCell(worksheet, 0, c, c === 0 ? "Purchase Item Invoice" : ""), paint("1E3A5F", { bold: true, color: { rgb: "FFFFFF" }, sz: 16 }));
+                styleCell(ensureCell(worksheet, 1, c, c === 0 ? "Yellow cells are for entry. Grey cells calculate tax and invoice value. Delete the example row before import." : ""), paint("F8FAFC", { color: { rgb: "475569" }, sz: 10 }));
+            }
+            groups.forEach((group) => {
+                const from = headers.indexOf(group.from);
+                const to = headers.indexOf(group.to);
+                for (let c = from; c <= to; c++) {
+                    styleCell(ensureCell(worksheet, 2, c, c === from ? group.label : ""), paint(group.fill, { bold: true, color: { rgb: "FFFFFF" }, sz: 10 }));
+                }
+            });
+            headers.forEach((header, c) => {
+                const isFormula = Boolean(formulaByHeader[header]);
+                styleCell(
+                    ensureCell(worksheet, 3, c, header),
+                    paint(isFormula ? "E8EEF5" : "FFF4CC", { bold: true, color: { rgb: "1E293B" }, sz: 9 })
+                );
+            });
+
+            for (let r = 4; r < lastRow; r++) {
+                const excelRow = r + 1;
+                headers.forEach((header, c) => {
+                    const formula = formulaByHeader[header];
+                    if (formula) {
+                        const cell = ensureCell(worksheet, r, c, 0);
+                        cell.t = "n";
+                        cell.f = formula(excelRow);
+                        cell.z = "#,##0.00;-#,##0.00;";
+                        cell.s = paint("F8FAFC", { color: { rgb: "64748B" } });
+                        return;
+                    }
+                    const sampleValue = r === 4 ? example[header] : "";
+                    const cell = ensureCell(worksheet, r, c, sampleValue === undefined ? "" : sampleValue);
+                    if (typeof sampleValue === "number") {
+                        cell.t = "n";
+                        cell.v = sampleValue;
+                        cell.z = "#,##0.00";
+                    }
+                    cell.s = paint("FFFBEB", { color: { rgb: "1E293B" } });
+                });
             }
 
             const workbook = XLSX.utils.book_new();
@@ -1113,57 +1464,31 @@ const PurchaseImport: React.FC = () => {
             XLSX.writeFile(workbook, `Purchase_Item_Invoice_Template.xlsx`);
         } else {
             const sheetData = [
-                // SINGLE HORIZONTAL ROW PER ACCOUNTING INVOICE (WITHOUT PARTY NAME & GODOWN TRACKING)
-                [
-                    "Voucher Date", "Supplier Invoice", "Invoice Date", "Transaction Mode",
-                    "Ledger 1", "Amount 1", "Type 1",
-                    "Ledger 2", "Amount 2", "Type 2",
-                    "Ledger 3", "Amount 3", "Type 3",
-                    "Ledger 4", "Amount 4", "Type 4"
-                ],
-                // SAMPLE DATA ROWS (ONE COMPLETE INVOICE PER ROW)
-                [
-                    "2026-03-30", "INV-123", "2026-03-30", "Accounting Invoice",
-                    "18% Intra State Purchase", 10000, "Debit",
-                    "CGST", 900, "Debit",
-                    "SGST", 900, "Debit",
-                    "nuvoico trader", 11800, "Credit"
-                ],
-                [
-                    "2026-03-31", "INV-124", "2026-03-31", "Accounting Invoice",
-                    "18% Inter State Purchase", 50000, "Debit",
-                    "IGST", 9000, "Debit",
-                    "MONGIA STEEL LIMITED", 59000, "Credit",
-                    "", "", ""
-                ]
+                ACCOUNTING_HEADERS,
+                ["2026-03-30", "", "INV-123", "2026-03-30", "Accounting Invoice", "18% Intra State Purchase", 10000, "Debit", "", "CGST", 900, "Debit", "SGST", 900, "Debit", "nuvoico trader", 11800, "Credit"],
+                ["2026-03-31", "", "INV-124", "2026-03-31", "Accounting Invoice", "18% Inter State Purchase", 50000, "Debit", "", "IGST", 9000, "Debit", "MONGIA STEEL LIMITED", 59000, "Credit", "", "", ""],
             ];
 
             const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
-            worksheet['!cols'] = [
-                { wch: 14 }, { wch: 22 }, { wch: 14 }, { wch: 18 },
-                { wch: 26 }, { wch: 14 }, { wch: 10 },
-                { wch: 16 }, { wch: 14 }, { wch: 10 },
-                { wch: 16 }, { wch: 14 }, { wch: 10 },
-                { wch: 26 }, { wch: 14 }, { wch: 10 }
-            ];
-
-            worksheet['!rows'] = [{ hpt: 26 }]; // Header row height
+            worksheet["!cols"] = ACCOUNTING_HEADERS.map((header, index) => ({
+                wch: header.toLowerCase().includes("ledger") ? 28 : index === 2 ? 22 : 16,
+            }));
+            worksheet["!rows"] = [{ hpt: 26 }];
 
             const headerStyle = {
-                font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11 },
+                font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11, name: "Calibri" },
                 fill: { fgColor: { rgb: "312E81" } },
                 alignment: { horizontal: "center", vertical: "center", wrapText: true },
                 border: {
                     top: { style: "medium", color: { rgb: "1E1B4B" } },
                     bottom: { style: "medium", color: { rgb: "1E1B4B" } },
                     left: { style: "thin", color: { rgb: "3730A3" } },
-                    right: { style: "thin", color: { rgb: "3730A3" } }
-                }
+                    right: { style: "thin", color: { rgb: "3730A3" } },
+                },
             };
 
-            for (let c = 0; c < 16; c++) {
-                const cellRef = XLSX.utils.encode_cell({ r: 0, c });
-                if (worksheet[cellRef]) worksheet[cellRef].s = headerStyle;
+            for (let c = 0; c < ACCOUNTING_HEADERS.length; c++) {
+                styleCell(ensureCell(worksheet, 0, c, ACCOUNTING_HEADERS[c]), headerStyle);
             }
 
             const workbook = XLSX.utils.book_new();
@@ -1267,8 +1592,10 @@ const PurchaseImport: React.FC = () => {
                             <h3 className="text-xl font-bold text-gray-900 mb-2">
                                 Upload Purchase Excel Sheet ({selectedMode})
                             </h3>
-                            <p className="text-xs text-gray-500 mb-6 max-w-md mx-auto">
-                                Excel headers: Voucher Date, Supplier Invoice, Invoice Date, Party Name, Mode, Godown Tracking (Voucher No. is auto-generated).
+                            <p className="text-xs text-gray-500 mb-6 max-w-2xl mx-auto">
+                                {selectedMode === "Accounting Invoice"
+                                    ? "Accounting template: blue header row with Voucher Date, Supplier Invoice, Invoice Date, Transaction Mode, then Ledger / Amount / Type columns."
+                                    : "Item template: GSTIN, Supplier Name, Invoice number, then Exempt / 3% / 5% / 18% / 28% purchase columns. Tax and invoice value calculate in Excel."}
                             </p>
                             <button
                                 onClick={() => fileInputRef.current?.click()}
@@ -1439,7 +1766,7 @@ const PurchaseImport: React.FC = () => {
                                                                 ({voucher.partyStateName} - {voucher.partyStateCode || 'No Code'})
                                                             </span>
                                                         </span>
-                                                        {voucher.partyMatch && voucher.partyStateCode ? (
+                                                        {voucher.partyMatch && (voucher.slabImport || voucher.partyStateCode) ? (
                                                             <span className="text-[10px] text-green-700 bg-green-50 px-2 py-0.5 rounded font-bold">✓ Party & State Valid</span>
                                                         ) : (
                                                             <span className="text-[10px] text-red-700 bg-red-50 px-2 py-0.5 rounded font-bold">✗ {voucher.partyMatch ? 'State Missing' : 'Party Not Found'}</span>
@@ -1526,7 +1853,7 @@ const PurchaseImport: React.FC = () => {
                                                                     <td className="px-3 py-2 text-right font-bold text-blue-800">{item.gstRate}%</td>
                                                                     {/* Tax Split & Ledger Mapping with Green Tick */}
                                                                     <td className="px-3 py-2 min-w-[200px]">
-                                                                        {voucher.gstType === "same-state" ? (
+                                                                        {(item.taxKind === "intra" || (!item.slabLine && voucher.gstType === "same-state")) ? (
                                                                             <div className="flex flex-col gap-1 text-[11px]">
                                                                                 <div className="flex items-center justify-between gap-2">
                                                                                     <span className="font-semibold text-gray-700">CGST {item.cgstRate}% (₹{item.cgstAmount.toLocaleString()})</span>
@@ -1553,7 +1880,7 @@ const PurchaseImport: React.FC = () => {
                                                                                     )}
                                                                                 </div>
                                                                             </div>
-                                                                        ) : voucher.gstType === "different-state" ? (
+                                                                        ) : (item.taxKind === "inter" || (!item.slabLine && voucher.gstType === "different-state")) ? (
                                                                             <div className="flex flex-col gap-1 text-[11px]">
                                                                                 <div className="flex items-center justify-between gap-2">
                                                                                     <span className="font-semibold text-gray-700">IGST {item.igstRate}% (₹{item.igstAmount.toLocaleString()})</span>
@@ -1569,8 +1896,8 @@ const PurchaseImport: React.FC = () => {
                                                                                 </div>
                                                                             </div>
                                                                         ) : (
-                                                                            <span className="text-[10px] text-red-700 bg-red-50 px-2 py-0.5 rounded font-bold">
-                                                                                ✗ State Detection Failed
+                                                                            <span className="text-[10px] text-amber-800 bg-amber-50 px-2 py-0.5 rounded font-bold">
+                                                                                {item.taxKind === "exempt" || item.gstRate === 0 ? "Exempt" : "✗ State Detection Failed"}
                                                                             </span>
                                                                         )}
                                                                     </td>
@@ -1695,60 +2022,105 @@ const PurchaseImport: React.FC = () => {
                     </div>
                 )}
 
-                {/* TAB 3: DOWNLOAD EXCEL TEMPLATES (WITHOUT VOUCHER NO COLUMN) */}
                 {activeTab === "templates" && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl mx-auto">
-                        {/* Item Invoice Card */}
-                        <div className="bg-white p-8 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
-                            <div className="flex items-center gap-3 mb-4">
-                                <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
-                                    <ShoppingCart size={24} />
-                                </div>
+                    <div className="space-y-8">
+                        <section className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
                                 <div>
-                                    <h4 className="text-lg font-bold text-gray-900">Item Invoice Excel Template</h4>
-                                    <span className="text-xs text-blue-600 font-semibold bg-blue-50 px-2 py-0.5 rounded">
-                                        Single GST Column & Auto State Detection
-                                    </span>
+                                    <h4 className="text-lg font-bold text-gray-900">Accounting Invoice</h4>
+                                    <p className="text-xs text-gray-500">Blue header. One invoice on one row. Ledger, amount and type sit side by side.</p>
                                 </div>
+                                <button
+                                    onClick={() => downloadTemplate("Accounting Invoice")}
+                                    className="flex items-center justify-center gap-2 px-5 py-2.5 bg-[#312E81] text-white rounded-xl hover:bg-[#1E1B4B] font-bold"
+                                >
+                                    <Download size={18} />
+                                    Download Accounting Template
+                                </button>
                             </div>
-                            <p className="text-xs text-gray-600 mb-4 leading-relaxed">
-                                <strong>Single Header Row:</strong> Voucher Date, Supplier Invoice, Invoice Date, Party Name, Mode, Godown Tracking, Sr No, Item, HSN/SAC, Quantity, Unit, Rate, GST, Discount, Taxable, Godown, Purchase-Ledger.<br />
-                                <span className="text-blue-700 font-medium">Tip: Enter total GST rate (e.g. 18). The system automatically determines Intra-State (CGST + SGST) vs Inter-State (IGST) based on Party & Company GSTIN state codes.</span>
-                            </p>
-                            <button
-                                onClick={() => downloadTemplate('Item Invoice')}
-                                className="w-full flex items-center justify-center space-x-2 px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-bold transition-all shadow-md active:scale-95"
-                            >
-                                <Download size={18} />
-                                <span>Download Item Invoice Template (.xlsx)</span>
-                            </button>
-                        </div>
+                            <div className="overflow-x-auto border border-[#312E81]">
+                                <table className="min-w-max text-[11px] border-collapse">
+                                    <thead>
+                                        <tr className="bg-[#312E81] text-white">
+                                            {ACCOUNTING_HEADERS.map((header, index) => (
+                                                <th key={`acc-h-${index}`} className="px-2 py-2 border border-[#3730A3] font-bold text-center min-w-[92px]">
+                                                    {header || " "}
+                                                </th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {[
+                                            ["2026-03-30", "", "INV-123", "2026-03-30", "Accounting Invoice", "18% Intra State Purchase", "10000", "Debit", "", "CGST", "900", "Debit", "SGST", "900", "Debit", "nuvoico trader", "11800", "Credit"],
+                                            ["2026-03-31", "", "INV-124", "2026-03-31", "Accounting Invoice", "18% Inter State Purchase", "50000", "Debit", "", "IGST", "9000", "Debit", "MONGIA STEEL LIMITED", "59000", "Credit", "", "", ""],
+                                        ].map((row, rowIndex) => (
+                                            <tr key={`acc-r-${rowIndex}`}>
+                                                {row.map((value, colIndex) => (
+                                                    <td key={`acc-${rowIndex}-${colIndex}`} className="px-2 py-1.5 border border-gray-200 text-center bg-white">
+                                                        {value}
+                                                    </td>
+                                                ))}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </section>
 
-                        {/* Accounting Invoice Card */}
-                        <div className="bg-white p-8 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
-                            <div className="flex items-center gap-3 mb-4">
-                                <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl">
-                                    <Layers size={24} />
-                                </div>
+                        <section className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-2">
                                 <div>
-                                    <h4 className="text-lg font-bold text-gray-900">Accounting Invoice Excel Template</h4>
-                                    <span className="text-xs text-indigo-600 font-semibold bg-indigo-50 px-2 py-0.5 rounded">
-                                        Single Horizontal Row Layout (1 Row per Invoice)
-                                    </span>
+                                    <h4 className="text-lg font-bold text-gray-900">Item Invoice</h4>
+                                    <p className="text-xs text-gray-500">Fill GSTIN, supplier and invoice, then enter the taxable amount in the matching purchase column. Tax columns and invoice value are formulas.</p>
                                 </div>
+                                <button
+                                    onClick={() => downloadTemplate("Item Invoice")}
+                                    className="flex items-center justify-center gap-2 px-5 py-2.5 bg-[#4F81BD] text-white rounded-xl hover:bg-[#3d6ea8] font-bold"
+                                >
+                                    <Download size={18} />
+                                    Download Item Template
+                                </button>
                             </div>
-                            <p className="text-xs text-gray-600 mb-4 leading-relaxed">
-                                <strong>Single Header Row (Horizontal Layout):</strong> Voucher Date, Supplier Invoice, Invoice Date, Party Name, Mode, Godown Tracking, Ledger 1, Amount 1, Type 1, Ledger 2, Amount 2, Type 2, Ledger 3, Amount 3, Type 3, Party Ledger, Credit Amount, Credit Type.<br />
-                                <span className="text-indigo-700 font-medium">Tip: Every accounting invoice's complete Debit/Credit entries are arranged horizontally on a single row for easy Excel copy-pasting.</span>
-                            </p>
-                            <button
-                                onClick={() => downloadTemplate('Accounting Invoice')}
-                                className="w-full flex items-center justify-center space-x-2 px-6 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-bold transition-all shadow-md active:scale-95"
-                            >
-                                <Download size={18} />
-                                <span>Download Accounting Invoice Template (.xlsx)</span>
-                            </button>
-                        </div>
+                            <p className="text-xs text-slate-500 mb-3">Yellow columns are typed. Grey columns are formulas. The sheet has one example row for 18% intra state.</p>
+                            <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                                <table className="min-w-max text-[11px] border-collapse">
+                                    <thead>
+                                        <tr className="bg-[#1E3A5F] text-white">
+                                            {ITEM_TEMPLATE_HEADERS.filter(Boolean).map((header) => (
+                                                <th key={`item-h-${header}`} className={`px-2 py-2 border border-slate-300 font-bold text-center min-w-[110px] ${formulaHeaders.has(header) ? "bg-slate-200 text-slate-700" : "bg-[#FFF4CC] text-slate-800"}`}>
+                                                    {header}
+                                                </th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            {ITEM_TEMPLATE_HEADERS.filter(Boolean).map((header) => {
+                                                const sampleValues: Record<string, string> = {
+                                                    "GSTIN of supplier": "20AABCM4621M1ZR",
+                                                    "SupplierName": "MONGIA STEEL LIMITED",
+                                                    "Invoice number": "EXAMPLE-001",
+                                                    "Invoice Date": "2026-11-19",
+                                                    "Place of supply": "Jharkhand",
+                                                    "Supply Attract Reverse Charge": "N",
+                                                    "Quantity": "1",
+                                                    "Rate": "10000",
+                                                    "18% intra state purchase": "10000",
+                                                    "cgst9%": "900",
+                                                    "sgst9%": "900",
+                                                    "Invoice Value (₹)": "11800",
+                                                };
+                                                return (
+                                                    <td key={`sample-${header}`} className={`px-2 py-1.5 border border-slate-200 text-center ${formulaHeaders.has(header) ? "bg-slate-50 text-slate-500" : "bg-amber-50"}`}>
+                                                        {sampleValues[header] || ""}
+                                                    </td>
+                                                );
+                                            })}
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </section>
                     </div>
                 )}
             </div>
