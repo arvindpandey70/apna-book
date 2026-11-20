@@ -2176,6 +2176,15 @@ router.post("/sales_summary_import", async (req, res) => {
         }
 
         if (!partyId) {
+            const rawCustomerGst = voucher["GSTIN of Customer"] || voucher["GSTIN of supplier"] || "";
+            const gst = String(rawCustomerGst).toUpperCase().replace(/\s+/g, "").trim();
+            if (gst && gst !== "NULL" && gst !== "UNDEFINED" && gst !== "NAN") {
+                const byGst = ledgers.find(l => String(l.gst_number || "").toUpperCase().replace(/\s+/g, "").trim() === gst);
+                if (byGst) partyId = byGst.id;
+            }
+        }
+
+        if (!partyId) {
             return res.json({ success: false, errors: [`Customer '${partyName || 'in entries'}' not found in ledgers`] });
         }
 
@@ -2188,6 +2197,9 @@ router.post("/sales_summary_import", async (req, res) => {
 
         const processedItems = [];
         const processedAccountingEntries = [];
+        const overallDiscountAmt = Number(voucher.overallDiscount || 0);
+        const overallLedgerName = String(voucher.overallDiscountLedger || voucher["Overall Discount Ledger"] || "").toLowerCase().trim();
+        let overallEntrySkipped = false;
 
         if (importMode === 'item') {
             for (const item of (voucher.items || [])) {
@@ -2216,7 +2228,7 @@ router.post("/sales_summary_import", async (req, res) => {
                 };
 
                 const discountPct = Number(item["Discount (%)"] || 0);
-                const discountAmt = Number(item["Discount (₹)"] || 0);
+                const discountAmt = Number(item["Discount (₹)"] || item["Discount"] || 0);
 
                 let discountLedgerId = 0;
                 if (discountAmt > 0) {
@@ -2267,7 +2279,15 @@ router.post("/sales_summary_import", async (req, res) => {
                     else subtotal += amount;
                 } else if (type === 'debit' && particulars) {
                     const lName = String(particulars || "").toLowerCase();
-                    if (lName.includes("discount")) discountTotal += amount;
+                    const isOverallEntry = Boolean(ae.isOverallDiscount) || (
+                        !overallEntrySkipped
+                        && overallDiscountAmt > 0
+                        && overallLedgerName
+                        && lName === overallLedgerName
+                        && Math.abs(amount - overallDiscountAmt) < 0.05
+                    );
+                    if (isOverallEntry) overallEntrySkipped = true;
+                    else if (lName.includes("discount")) discountTotal += amount;
                 }
 
                 let finalLedgerId = 0;
@@ -2284,7 +2304,6 @@ router.post("/sales_summary_import", async (req, res) => {
                 });
             }
         }
-        const overallDiscountAmt = Number(voucher.overallDiscount || 0);
         const totalVal = subtotal + cgstTotal + sgstTotal + igstTotal - discountTotal - overallDiscountAmt;
 
         // 🔹 DETERMINE B2B VS B2C SALES TYPE ID Strictly Based on Excel Data
@@ -2411,7 +2430,7 @@ router.post("/sales_summary_import", async (req, res) => {
             }
         }
 
-        if (overallDiscountAmt > 0) {
+        if (overallDiscountAmt > 0 && !(importMode === "accounting" && overallEntrySkipped)) {
             const reqDiscLedger = voucher.overallDiscountLedger || voucher["Overall Discount Ledger"] || voucher["Discount Ledger"];
             let discountLedger = reqDiscLedger ? ledgers.find(ld => ld.name.toLowerCase().trim() === String(reqDiscLedger).toLowerCase().trim()) : null;
             if (!discountLedger) {

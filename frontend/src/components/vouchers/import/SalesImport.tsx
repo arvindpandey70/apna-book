@@ -41,6 +41,9 @@ interface ManualItemRow {
     itemTotal: number;
     godown: string;
     salesLedger: string;
+    slabLine?: boolean;
+    namedOnSheet?: boolean;
+    taxKind?: "exempt" | "inter" | "intra";
     _matchedItemId?: string | number;
     _matchedHsnId?: string | number;
     itemFound: boolean;
@@ -139,6 +142,66 @@ const formatPartyDisplayName = (traderName: string, gstin?: string): { displayNa
         return { displayName: `${cleanGst} - ${cleanName}`, hasGst: true, cleanGstin: cleanGst };
     }
     return { displayName: cleanName, hasGst: false, cleanGstin: "" };
+};
+
+const SALES_SLABS: { purchase: string; kind: "exempt" | "inter" | "intra"; rate: number; tax?: string; cgst?: string; sgst?: string }[] = [
+    { purchase: "exempt purchase", kind: "exempt", rate: 0 },
+    { purchase: "3% inter state purchase", kind: "inter", rate: 3, tax: "igst3%" },
+    { purchase: "3% intra state purchase", kind: "intra", rate: 3, cgst: "cgst1.5%", sgst: "sgst1.5%" },
+    { purchase: "5% inter state purchase", kind: "inter", rate: 5, tax: "igst5%" },
+    { purchase: "5% intra state purchase", kind: "intra", rate: 5, cgst: "cgst2.5%", sgst: "sgst2.5%" },
+    { purchase: "18% inter state purchase", kind: "inter", rate: 18, tax: "igst18%" },
+    { purchase: "18% intra state purchase", kind: "intra", rate: 18, cgst: "cgst9%", sgst: "sgst9%" },
+    { purchase: "28% inter state purchase", kind: "inter", rate: 28, tax: "igst28%" },
+    { purchase: "28% intra state purchase", kind: "intra", rate: 28, cgst: "cgst14%", sgst: "sgst14%" },
+];
+
+const SALES_SLAB_HEADERS = [
+    "Exempt purchase", "3% inter state purchase", "Igst3%", "3% intra state purchase", "cgst1.5%", "sgst1.5%",
+    "5% inter state purchase", "Igst5%", "5% intra state purchase", "cgst2.5%", "sgst2.5%",
+    "18% inter state purchase", "Igst18%", "18% intra state purchase", "cgst9%", "sgst9%",
+    "28% inter state purchase", "Igst28%", "28% intra state purchase", "cgst14%", "sgst14%",
+    "Discount",
+];
+
+const SALES_ACCOUNTING_HEADERS = [
+    "GSTIN of supplier", "SupplierName", "Invoice number", "Invoice Date", "Invoice Value (₹)",
+    "Place of supply", "Supply Attract Reverse Charge",
+    ...SALES_SLAB_HEADERS,
+];
+
+const SALES_ITEM_HEADERS = [
+    "GSTIN of supplier", "SupplierName", "Invoice number", "Invoice Date", "Invoice Value (₹)",
+    "Place of supply", "Supply Attract Reverse Charge", "Item Name", "Quantity", "Rate",
+    ...SALES_SLAB_HEADERS,
+];
+
+const SALES_SAMPLE: Record<string, string> = {
+    "GSTIN of supplier": "20AABCM4621M1ZR",
+    "SupplierName": "ABC CUSTOMER CORP",
+    "Invoice number": "EXAMPLE-001",
+    "Invoice Date": "2026-11-19",
+    "Place of supply": "Jharkhand",
+    "Supply Attract Reverse Charge": "N",
+    "Item Name": "MS Plate",
+    "Quantity": "1",
+    "Rate": "10000",
+    "18% intra state purchase": "10000",
+    "cgst9%": "900",
+    "sgst9%": "900",
+    "Invoice Value (₹)": "11800",
+};
+
+const cellNumber = (val: any): number => {
+    if (val === undefined || val === null || val === "") return 0;
+    const parsed = parseFloat(String(val).replace(/,/g, "").replace(/%/g, "").trim());
+    return isNaN(parsed) ? 0 : parsed;
+};
+
+const cellText = (value: any): string => {
+    if (value === undefined || value === null) return "";
+    const text = String(value).replace(/\s+/g, " ").trim();
+    return text.toLowerCase() === "undefined" ? "" : text;
 };
 
 const SalesImport: React.FC = () => {
@@ -353,9 +416,10 @@ const SalesImport: React.FC = () => {
             if (found) return found;
         }
 
-        // 4. Substring / Alias fallback
+        // 4. Substring / Alias fallback. Empty or very short names must not match every ledger.
         found = ledgersList.find(l => {
             const lName = (l.name || l.ledger_name || "").toLowerCase().replace(/\s+/g, " ").trim();
+            if (!lName || lName.length < 3 || cleanInput.length < 3) return false;
             return lName.includes(cleanInput) || cleanInput.includes(lName);
         });
 
@@ -539,9 +603,196 @@ const SalesImport: React.FC = () => {
                 }
             }
 
+            const headerRow = rawRows.find((row) => (row || []).some((cell) => String(cell || "").toLowerCase().includes("voucher date"))) || [];
+            const headerNames = headerRow.map((cell) => String(cell || "").toLowerCase().trim());
+            const sheetHasItemColumns = headerNames.some((name) => name === "item" || name === "item name" || name === "quantity" || name === "qty" || name === "rate");
+            const sheetHasLedgerTypeColumns = headerNames.some((name) => /^ledger(?:\s+\d+)?$/.test(name) || /^type(?:\s+\d+)?$/.test(name));
+            const sheetStyle: "item" | "ledger" | "accounting" = sheetHasItemColumns ? "item" : sheetHasLedgerTypeColumns ? "ledger" : "accounting";
+
             let firstVoucherDate = new Date().toISOString().split("T")[0];
 
-            if (isBlockLayout) {
+            const rowText = (row: any[]) => (row || []).map((cell) => String(cell || "").toLowerCase().trim());
+            const slabHeaderIndex = rawRows.findIndex((row) => {
+                const cells = rowText(row);
+                return cells.some((cell) => cell.includes("gstin of supplier") || cell.includes("gstin of customer"))
+                    && cells.some((cell) => cell.includes("exempt purchase") || cell.includes("exempt sales"));
+            });
+            const useSlabLayout = slabHeaderIndex !== -1;
+
+            if (useSlabLayout) {
+                const header = rowText(rawRows[slabHeaderIndex]);
+                const rawHeader = (rawRows[slabHeaderIndex] || []).map((cell) => String(cell || "").trim());
+                const colAlias = (name: string) => {
+                    const aliases = new Set([
+                        name,
+                        name.replace(/purchase/g, "sales"),
+                        name.replace(/sales/g, "purchase"),
+                        name.replace(/supplier/g, "customer"),
+                        name.replace(/customer/g, "supplier"),
+                    ]);
+                    return header.findIndex((cell) => aliases.has(cell));
+                };
+                const headerLabel = (name: string) => {
+                    const index = colAlias(name);
+                    return index >= 0 ? (rawHeader[index] || name) : name;
+                };
+                const slabIsItem = header.some((cell) => cell === "item name" || cell === "quantity" || cell === "rate");
+                const gstinCol = colAlias("gstin of supplier");
+                const partyCol = header.findIndex((cell) => ["suppliername", "supplier name", "customername", "customer name"].includes(cell));
+                const invoiceCol = header.findIndex((cell) => cell === "invoice number" || cell === "supplier invoice");
+                const invoiceDateCol = colAlias("invoice date");
+                const posCol = colAlias("place of supply");
+                const itemNameCol = colAlias("item name");
+                const qtyCol = colAlias("quantity");
+                const rateCol = colAlias("rate");
+                const discountCol = colAlias("discount");
+
+                const salesLedgerForSlab = (label: string, rate: number, kind: "exempt" | "inter" | "intra", gstin: string) => {
+                    const salesLabel = label.replace(/purchase/ig, "sales");
+                    const exact = ledgers.find((ledger) => (ledger.name || ledger.ledger_name || "").toLowerCase().replace(/\s+/g, " ").trim() === salesLabel.toLowerCase());
+                    if (exact) return exact.name || exact.ledger_name;
+                    const hasCustomerGst = Boolean(gstin && !["NULL", "UNDEFINED", "NAN"].includes(gstin.toUpperCase()));
+                    const resolved = resolveB2BOrB2CSalesLedger(hasCustomerGst, rate, kind !== "inter", ledgers, salesTypes, "");
+                    return resolved.matchedLedger?.name || resolved.matchedLedger?.ledger_name || salesLabel;
+                };
+                const outputTaxName = (taxType: "CGST" | "SGST" | "IGST", rate: number, fallback: string) => {
+                    const resolved = resolveTaxLedger(taxType, rate, ledgers);
+                    return resolved.found && resolved.ledgerName ? resolved.ledgerName : fallback;
+                };
+
+                for (let r = slabHeaderIndex + 1; r < rawRows.length; r++) {
+                    const row = rawRows[r] || [];
+                    const partyName = cellText(partyCol >= 0 ? row[partyCol] : "");
+                    const invoiceNo = cellText(invoiceCol >= 0 ? row[invoiceCol] : "");
+                    const gstin = cellText(gstinCol >= 0 ? row[gstinCol] : "").toUpperCase().replace(/\s+/g, "");
+                    if (!partyName && !invoiceNo && !gstin) continue;
+                    if (["invoice number", "suppliername", "customername", "gstin of supplier", "gstin of customer"].includes(partyName.toLowerCase())) continue;
+
+                    const invoiceDate = formatDate(invoiceDateCol >= 0 ? row[invoiceDateCol] : "") || new Date().toISOString().split("T")[0];
+                    if (Object.keys(rawGroups).length === 0) firstVoucherDate = invoiceDate;
+                    const groupKey = `${invoiceDate}-${invoiceNo || gstin}-${partyName || gstin}`;
+                    const sheetItemName = itemNameCol >= 0 ? cellText(row[itemNameCol]) : "";
+                    const sheetQty = qtyCol >= 0 ? cellNumber(row[qtyCol]) : 0;
+                    const sheetRate = rateCol >= 0 ? cellNumber(row[rateCol]) : 0;
+                    const discount = discountCol >= 0 ? cellNumber(row[discountCol]) : 0;
+                    const filledSlabs = SALES_SLABS.filter((slab) => {
+                        const index = colAlias(slab.purchase);
+                        return index >= 0 && cellNumber(row[index]) > 0;
+                    });
+                    if (filledSlabs.length === 0) continue;
+
+                    if (!rawGroups[groupKey]) {
+                        rawGroups[groupKey] = {
+                            id: `v-${r}`,
+                            voucherDate: invoiceDate,
+                            supplierInvoice: invoiceNo || `INV-${Object.keys(rawGroups).length + 1}`,
+                            invoiceDate,
+                            partyName: partyName || gstin || "Customer",
+                            rawGstin: gstin,
+                            pos: cellText(posCol >= 0 ? row[posCol] : ""),
+                            mode: slabIsItem ? "Item Invoice" : "Accounting Invoice",
+                            godownTracking: "Enabled (Yes)",
+                            items: [],
+                            accountingLines: [],
+                            accountingEntries: [],
+                            overallDiscountLedger: "",
+                            overallDiscountPct: 0,
+                            overallDiscountAmt: 0,
+                            salesLedger: "",
+                        };
+                    }
+
+                    let discountAssigned = rawGroups[groupKey].items.some((it: any) => Number(it.discount) > 0) || rawGroups[groupKey].accountingEntries.some((entry: any) => entry._isDiscount);
+                    let creditTotal = 0;
+                    const pushAccounting = (ledgerName: string, amount: number, type: "Debit" | "Credit", extra: any = {}) => {
+                        if (!ledgerName || amount <= 0) return;
+                        rawGroups[groupKey].accountingEntries.push({
+                            srNo: rawGroups[groupKey].accountingEntries.length + 1,
+                            ledgerName,
+                            amount,
+                            type,
+                            ...extra,
+                        });
+                    };
+
+                    filledSlabs.forEach((slab) => {
+                        const amountCol = colAlias(slab.purchase);
+                        const taxable = cellNumber(row[amountCol]);
+                        let cgstAmount = 0;
+                        let sgstAmount = 0;
+                        let igstAmount = 0;
+                        if (slab.kind === "inter" && slab.tax) {
+                            const taxCol = colAlias(slab.tax);
+                            const cached = taxCol >= 0 ? cellNumber(row[taxCol]) : 0;
+                            igstAmount = cached > 0 ? cached : Number(((taxable * slab.rate) / 100).toFixed(2));
+                        } else if (slab.kind === "intra" && slab.cgst && slab.sgst) {
+                            const cachedCgst = colAlias(slab.cgst) >= 0 ? cellNumber(row[colAlias(slab.cgst)]) : 0;
+                            const cachedSgst = colAlias(slab.sgst) >= 0 ? cellNumber(row[colAlias(slab.sgst)]) : 0;
+                            const half = Number(((taxable * (slab.rate / 2)) / 100).toFixed(2));
+                            cgstAmount = cachedCgst > 0 ? cachedCgst : half;
+                            sgstAmount = cachedSgst > 0 ? cachedSgst : half;
+                        }
+
+                        const salesLedger = salesLedgerForSlab(headerLabel(slab.purchase), slab.rate, slab.kind, gstin);
+                        if (!rawGroups[groupKey].salesLedger) rawGroups[groupKey].salesLedger = salesLedger;
+
+                        if (!slabIsItem) {
+                            pushAccounting(salesLedger, taxable, "Credit");
+                            creditTotal += taxable;
+                            if (igstAmount > 0) {
+                                pushAccounting(outputTaxName("IGST", slab.rate, headerLabel(slab.tax || "IGST")), igstAmount, "Credit");
+                                creditTotal += igstAmount;
+                            }
+                            if (cgstAmount > 0) {
+                                pushAccounting(outputTaxName("CGST", slab.rate / 2, headerLabel(slab.cgst || "CGST")), cgstAmount, "Credit");
+                                creditTotal += cgstAmount;
+                            }
+                            if (sgstAmount > 0) {
+                                pushAccounting(outputTaxName("SGST", slab.rate / 2, headerLabel(slab.sgst || "SGST")), sgstAmount, "Credit");
+                                creditTotal += sgstAmount;
+                            }
+                            return;
+                        }
+
+                        const quantity = sheetQty > 0 ? sheetQty : 1;
+                        const rate = sheetRate > 0 && filledSlabs.length === 1 ? sheetRate : Number((taxable / quantity).toFixed(2));
+                        const lineDiscount = !discountAssigned ? discount : 0;
+                        rawGroups[groupKey].items.push({
+                            srNo: rawGroups[groupKey].items.length + 1,
+                            itemName: sheetItemName || salesLedger,
+                            hsnCode: "",
+                            quantity,
+                            unit: "PCS",
+                            rate,
+                            discount: lineDiscount,
+                            rawGstRate: slab.rate,
+                            gstRate: slab.rate,
+                            sgstRate: slab.kind === "intra" ? slab.rate / 2 : 0,
+                            cgstRate: slab.kind === "intra" ? slab.rate / 2 : 0,
+                            igstRate: slab.kind === "inter" ? slab.rate : 0,
+                            sgstAmount,
+                            cgstAmount,
+                            igstAmount,
+                            taxableValue: taxable,
+                            itemTotal: taxable + cgstAmount + sgstAmount + igstAmount,
+                            godown: "Main Location",
+                            salesLedger,
+                            slabLine: true,
+                            namedOnSheet: !!sheetItemName,
+                            taxKind: slab.kind,
+                        });
+                        if (discount > 0) discountAssigned = true;
+                    });
+
+                    if (!slabIsItem && creditTotal > 0) {
+                        const rowDiscount = discountAssigned ? 0 : discount;
+                        if (rowDiscount > 0) pushAccounting(headerLabel("discount"), rowDiscount, "Debit", { _isDiscount: true });
+                        pushAccounting(partyName || gstin || rawGroups[groupKey].partyName || "Customer", Math.max(0, Number((creditTotal - rowDiscount).toFixed(2))), "Debit", { _isParty: true });
+                    }
+                }
+            }
+
+            if (!useSlabLayout && isBlockLayout) {
                 let currentGroup: any = null;
                 for (let r = 0; r < rawRows.length; r++) {
                     const row = rawRows[r] || [];
@@ -569,8 +820,8 @@ const SalesImport: React.FC = () => {
                         const vDate = formatDate(valRow[vDateCol]);
                         const suppInv = String(valRow[suppInvCol] || "").trim();
                         const invDate = formatDate(valRow[invDateCol] || vDate);
-                        const partyName = String(valRow[partyCol] || "").replace(/\s+/g, " ").trim();
-                        const rawGstin = gstinCol !== -1 ? String(valRow[gstinCol] || "").trim() : "";
+                        const partyName = cellText(valRow[partyCol]);
+                        const rawGstin = gstinCol !== -1 ? cellText(valRow[gstinCol]) : "";
                         const modeStr = String(valRow[modeCol] || selectedMode).trim();
                         const godownTrkStr = String(valRow[godownCol] || "Enabled (Yes)").trim();
 
@@ -589,6 +840,7 @@ const SalesImport: React.FC = () => {
                             mode,
                             godownTracking: godownTrkStr.toLowerCase().includes("no") ? "Disabled (No)" : "Enabled (Yes)",
                             items: [],
+                            accountingLines: [],
                             accountingEntries: [],
                             overallDiscountLedger: "",
                             overallDiscountPct: 0,
@@ -655,20 +907,20 @@ const SalesImport: React.FC = () => {
                         }
                     }
                 }
-            } else {
+            } else if (!useSlabLayout) {
                 // Tabular sheet parsing
                 const jsonData = XLSX.utils.sheet_to_json(worksheet) as any[];
                 let lastHeader: any = null;
 
                 jsonData.forEach((row, index) => {
                     const rawVDate = row["Voucher Date"] || row["Date"] || row["Invoice Date"];
-                    const rawSuppInv = row["Invoice number"] || row["Invoice No"] || row["Customer Invoice"] || row["Ref No"] || row["Reference No"] || row["Supplier Invoice"];
-                    const rawPartyName = row["Trade/Legal name of the Customer"] || row["Party / Customer Name"] || row["Customer Name"] || row["Party Name"] || row["Trade/Legal name of the Supplier"];
-                    const rawGstin = row["GSTIN of Customer"] || row["GSTIN of customer"] || row["GSTIN"] || row["GSTIN of supplier"] || "";
+                    const rawSuppInv = cellText(row["Invoice number"] || row["Invoice No"] || row["Customer Invoice"] || row["Ref No"] || row["Reference No"] || row["Supplier Invoice"]);
+                    const rawPartyName = cellText(row["Trade/Legal name of the Customer"] || row["Party / Customer Name"] || row["Customer Name"] || row["Party Name"] || row["Trade/Legal name of the Supplier"]);
+                    const rawGstin = cellText(row["GSTIN of Customer"] || row["GSTIN of customer"] || row["GSTIN"] || row["GSTIN of supplier"] || "");
                     const rawMode = row["Transaction Mode"] || row["Mode"];
                     const rawGodownTrk = row["Godown Tracking"];
 
-                    const rawOvDiscLedger = String(row["Overall Discount Ledger"] || row["Discount Ledger"] || row["Overall Discount Ledger Name"] || (lastHeader ? lastHeader.ovDiscLedger : "") || "").trim();
+                    const rawOvDiscLedger = cellText(row["Overall Discount Ledger"] || row["Discount Ledger"] || row["Overall Discount Ledger Name"] || (lastHeader ? lastHeader.ovDiscLedger : "") || "");
                     const rawOvDiscPct = parseTaxRate(row["Overall Discount (%)"] || row["Overall Discount %"] || (lastHeader ? lastHeader.ovDiscPct : 0));
                     const rawOvDiscAmt = Number(row["Overall Discount (₹)"] || row["Overall Discount Amount"] || row["Overall all Discount (₹)"] || row["Overall Discount"] || (lastHeader ? lastHeader.ovDiscAmt : 0) || 0);
 
@@ -692,7 +944,11 @@ const SalesImport: React.FC = () => {
                         invDate = formatDate(row["Invoice Date"] || vDate || (lastHeader ? lastHeader.invDate : ""));
                         partyName = String(rawPartyName || (lastHeader ? lastHeader.partyName : "")).replace(/\s+/g, " ").trim();
                         godownTrk = String(rawGodownTrk || (lastHeader ? lastHeader.godownTrk : "Enabled (Yes)")).trim();
-                        if (rawMode) {
+                        if (sheetStyle === "item") {
+                            mode = "Item Invoice";
+                        } else if (sheetStyle === "accounting" || sheetStyle === "ledger") {
+                            mode = "Accounting Invoice";
+                        } else if (rawMode) {
                             mode = String(rawMode).toLowerCase().includes("accounting") ? "Accounting Invoice" : "Item Invoice";
                         }
 
@@ -737,6 +993,7 @@ const SalesImport: React.FC = () => {
                             mode,
                             godownTracking: godownTrk.toLowerCase().includes("no") ? "Disabled (No)" : "Enabled (Yes)",
                             items: [],
+                            accountingLines: [],
                             accountingEntries: [],
                             overallDiscountLedger: rawOvDiscLedger,
                             overallDiscountPct: rawOvDiscPct,
@@ -744,8 +1001,8 @@ const SalesImport: React.FC = () => {
                         };
                     }
 
-                    if (selectedMode === "Item Invoice" || mode === "Item Invoice") {
-                        const itemName = String(row["Item"] || row["Item Name"] || "").trim();
+                    if (mode === "Item Invoice") {
+                        const itemName = cellText(row["Item"] || row["Item Name"] || "");
                         const qty = Number(row["Quantity"] || row["Qty"] || 0);
                         const rate = Number(row["Rate"] || row["Item Rate (₹)"] || 0);
                         const taxableVal = Number(row["Taxable"] || row["Taxable Value (₹)"] || (qty * rate));
@@ -764,9 +1021,9 @@ const SalesImport: React.FC = () => {
                             rawGroups[groupKey].items.push({
                                 srNo: rawGroups[groupKey].items.length + 1,
                                 itemName: itemName || "Item",
-                                hsnCode: String(row["HSN/SAC"] || row["HSN Code"] || "").trim(),
+                                hsnCode: cellText(row["HSN/SAC"] || row["HSN Code"] || ""),
                                 quantity: qty,
-                                unit: String(row["Unit"] || "PCS").trim(),
+                                unit: cellText(row["Unit"] || "PCS") || "PCS",
                                 rate,
                                 discount,
                                 rawGstRate: singleGst,
@@ -779,12 +1036,32 @@ const SalesImport: React.FC = () => {
                                 igstAmount: 0,
                                 taxableValue: taxableVal,
                                 itemTotal: taxableVal,
-                                godown: String(row["Godown"] || row["Batch No"] || "Main Location").trim(),
-                                salesLedger: String(row["Sales-Ledger"] || row["Sales Ledger"] || "").trim(),
+                                godown: cellText(row["Godown"] || row["Batch No"] || "Main Location") || "Main Location",
+                                salesLedger: cellText(row["Sales-Ledger"] || row["Sales Ledger"] || ""),
+                            });
+                        }
+                    } else if (sheetStyle === "accounting") {
+                        const taxableVal = Number(row["Taxable"] || row["Taxable Value (₹)"] || 0);
+                        const discount = parseTaxRate(row["Discount"] || row["Discount (₹)"] || row["Discount (%)"] || 0);
+                        const singleGst = parseTaxRate(
+                            row["GST"] !== undefined ? row["GST"] :
+                            row["GST (%)"] !== undefined ? row["GST (%)"] :
+                            row["GST Rate"] !== undefined ? row["GST Rate"] :
+                            row["GST Rate (%)"] !== undefined ? row["GST Rate (%)"] :
+                            row["Rate (%)"] !== undefined ? row["Rate (%)"] :
+                            (parseTaxRate(row["CGST (%)"] || row["CGST"] || 0) + parseTaxRate(row["SGST (%)"] || row["SGST"] || 0) || parseTaxRate(row["IGST (%)"] || row["IGST"] || 0))
+                        );
+                        const salesLedger = cellText(row["Sales-Ledger"] || row["Sales Ledger"] || "");
+                        if (taxableVal > 0 || salesLedger) {
+                            rawGroups[groupKey].accountingLines.push({
+                                taxable: taxableVal,
+                                discount,
+                                gstRate: singleGst,
+                                salesLedger,
                             });
                         }
                     } else {
-                        // Horizontal single-row Accounting Invoice entries
+                        // Older accounting sheets that still use Ledger / Amount / Type columns
                         let hasHorizontalKeys = false;
                         for (let k = 1; k <= 10; k++) {
                             if (row[`Ledger ${k}`] || row[`Ledger_${k}`] || row[`Particulars ${k}`]) {
@@ -795,9 +1072,9 @@ const SalesImport: React.FC = () => {
 
                         if (hasHorizontalKeys) {
                             for (let k = 1; k <= 15; k++) {
-                                const ledgerName = String(
+                                const ledgerName = cellText(
                                     row[`Ledger ${k}`] || row[`Ledger_${k}`] || row[`Particulars ${k}`] || ""
-                                ).trim();
+                                );
                                 const amount = Number(
                                     row[`Amount ${k}`] || row[`Amount_${k}`] || row[`Amount (₹) ${k}`] || 0
                                 );
@@ -806,7 +1083,7 @@ const SalesImport: React.FC = () => {
                                 ).trim();
                                 const type: "Credit" | "Debit" = typeStr.toLowerCase().startsWith("c") ? "Credit" : "Debit";
 
-                                if (ledgerName && ledgerName !== "Ledger" && !ledgerName.toLowerCase().includes("amount")) {
+                                if ((ledgerName || amount > 0) && ledgerName.toLowerCase() !== "ledger" && !ledgerName.toLowerCase().includes("amount")) {
                                     rawGroups[groupKey].accountingEntries.push({
                                         srNo: rawGroups[groupKey].accountingEntries.length + 1,
                                         ledgerName,
@@ -817,14 +1094,14 @@ const SalesImport: React.FC = () => {
                             }
                         } else {
                             // Vertical multi-row fallback
-                            const ledgerName = String(row["Ledger"] || row["Particulars (Ledger Name)"] || row["Particulars"] || "").trim();
+                            const ledgerName = cellText(row["Ledger"] || row["Particulars (Ledger Name)"] || row["Particulars"] || "");
                             const amount = Number(row["Amount"] || row["Amount (₹)"] || 0);
                             const typeStr = String(row["Type"] || "Debit").trim();
                             const type: "Credit" | "Debit" = typeStr.toLowerCase().startsWith("c") ? "Credit" : "Debit";
                             if (ledgerName || amount > 0) {
                                 rawGroups[groupKey].accountingEntries.push({
                                     srNo: rawGroups[groupKey].accountingEntries.length + 1,
-                                    ledgerName: ledgerName || "Sales Account",
+                                    ledgerName,
                                     amount,
                                     type
                                 });
@@ -838,7 +1115,10 @@ const SalesImport: React.FC = () => {
             const startingVoucherNum = await fetchStartingVoucherNumber(firstVoucherDate);
 
             // Validate Each Voucher & Assign Auto Voucher Number
-            const groupList = Object.values(rawGroups);
+            const groupList = Object.values(rawGroups).filter((group: any) => (group.items || []).length > 0 || (group.accountingEntries || []).length > 0 || (group.accountingLines || []).length > 0);
+            if (groupList[0]?.mode === "Item Invoice" || groupList[0]?.mode === "Accounting Invoice") {
+                setSelectedMode(groupList[0].mode);
+            }
             const validatedVouchers: ManualGroupedVoucher[] = [];
 
             groupList.forEach((group, idx) => {
@@ -846,24 +1126,43 @@ const SalesImport: React.FC = () => {
                 let errors: string[] = [];
 
                 // 1. Party / Customer Name Resolution & Validation against Ledgers Master
-                let rawPartyName = group.partyName;
-                if (group.mode === "Accounting Invoice" && (!rawPartyName || rawPartyName === "Customer")) {
-                    const debitEntry = group.accountingEntries.find(e => e.type.toLowerCase() === "debit");
-                    if (debitEntry) {
-                        rawPartyName = debitEntry.ledgerName;
-                    }
+                let rawPartyName = cellText(group.partyName);
+                if (rawPartyName.toLowerCase() === "customer") rawPartyName = "";
+                if (group.mode === "Accounting Invoice" && !rawPartyName) {
+                    const debitEntry = group.accountingEntries.find((e: any) => String(e.type).toLowerCase() === "debit");
+                    if (debitEntry) rawPartyName = cellText(debitEntry.ledgerName);
                 }
                 const cleanPartyName = rawPartyName.toLowerCase().replace(/\s+/g, " ").trim();
+                const sheetGstin = cellText(group.rawGstin || group.gstin).toUpperCase().replace(/\s+/g, "");
+                const cleanGstin = ["", "NULL", "UNDEFINED", "NAN"].includes(sheetGstin) ? "" : sheetGstin;
 
-                const matchedPartyLedger = rawPartyName
+                const matchedPartyLedger = (rawPartyName || cleanGstin)
                     ? ledgers.find(l => {
                         const lName = (l.name || "").toLowerCase().replace(/\s+/g, " ").trim();
-                        return lName === cleanPartyName;
+                        return cleanPartyName && lName === cleanPartyName;
                     }) || ledgers.find(l => {
                         const lGst = (l.gst_number || l.gstNumber || "").toUpperCase().replace(/\s+/g, "").trim();
-                        return lGst && lGst === cleanPartyName.toUpperCase().replace(/\s+/g, "").trim();
+                        return Boolean(lGst) && (lGst === cleanPartyName.toUpperCase().replace(/\s+/g, "") || (cleanGstin && lGst === cleanGstin));
                     })
                     : null;
+
+                if (matchedPartyLedger?.name) {
+                    if (group.mode === "Accounting Invoice") {
+                        const customerDebit = group.accountingEntries.find((entry: any) => {
+                            const current = cellText(entry.ledgerName);
+                            const currentLower = current.toLowerCase();
+                            const currentGst = current.toUpperCase().replace(/\s+/g, "");
+                            return String(entry.type).toLowerCase() === "debit" && (
+                                !current ||
+                                currentLower === "customer" ||
+                                (cleanPartyName && currentLower === cleanPartyName) ||
+                                (cleanGstin && currentGst === cleanGstin)
+                            );
+                        });
+                        if (customerDebit) customerDebit.ledgerName = matchedPartyLedger.name;
+                    }
+                    rawPartyName = matchedPartyLedger.name;
+                }
 
                 const partyMatch = !!matchedPartyLedger;
 
@@ -891,7 +1190,7 @@ const SalesImport: React.FC = () => {
                 }
 
                 if (!partyMatch) {
-                    errors.push(`Party / Customer Name '${rawPartyName}' Not Found in Ledger Master`);
+                    errors.push(`Party / Customer Name '${rawPartyName || cleanGstin || "Customer"}' Not Found in Ledger Master`);
                 } else if (!partyStateRes.code) {
                     errors.push(`Party '${rawPartyName}' GSTIN ('${partyGstin || 'Missing'}') or State is missing/invalid. State cannot be determined.`);
                 }
@@ -913,6 +1212,77 @@ const SalesImport: React.FC = () => {
 
                 if (group.mode === "Item Invoice") {
                     group.items.forEach((it: any) => {
+                        if (it.slabLine) {
+                            const rawGstRate = Number(it.rawGstRate ?? it.gstRate ?? 0);
+                            const sheetItemName = it.namedOnSheet ? cellText(it.itemName) : "";
+                            const matchedStockItem = sheetItemName
+                                ? items.find((stockItem) => (stockItem.name || "").toLowerCase().replace(/\s+/g, " ").trim() === sheetItemName.toLowerCase().replace(/\s+/g, " ").trim())
+                                : null;
+                            if (sheetItemName && !matchedStockItem) errors.push(`Stock Item '${sheetItemName}' Not Found in Stock Item Master`);
+
+                            const resolvedSalesLedgerObj = resolveB2BOrB2CSalesLedger(
+                                hasGst,
+                                rawGstRate,
+                                it.taxKind !== "inter",
+                                ledgers,
+                                salesTypes,
+                                it.salesLedger
+                            );
+                            const resolvedSalesLedgerName = resolvedSalesLedgerObj.matchedLedger
+                                ? (resolvedSalesLedgerObj.matchedLedger.name || resolvedSalesLedgerObj.matchedLedger.ledger_name || it.salesLedger)
+                                : (it.salesLedger || (hasGst ? "B2B Sales Account" : "B2C Sales Account"));
+                            if (!resolvedSalesLedgerObj.matchedLedger) {
+                                errors.push(resolvedSalesLedgerObj.error || `Sales-Ledger '${resolvedSalesLedgerName}' Not Found in Ledger Master`);
+                            }
+
+                            const cgstRate = it.taxKind === "intra" ? Number((rawGstRate / 2).toFixed(2)) : 0;
+                            const sgstRate = cgstRate;
+                            const igstRate = it.taxKind === "inter" ? rawGstRate : 0;
+                            const cgstRes = cgstRate > 0 ? resolveTaxLedger("CGST", cgstRate, ledgers) : { found: true, ledgerName: "" };
+                            const sgstRes = sgstRate > 0 ? resolveTaxLedger("SGST", sgstRate, ledgers) : { found: true, ledgerName: "" };
+                            const igstRes = igstRate > 0 ? resolveTaxLedger("IGST", igstRate, ledgers) : { found: true, ledgerName: "" };
+                            if (cgstRate > 0 && !cgstRes.found) errors.push(`${cgstRate}% CGST Tax Ledger Not Found in Ledger Master`);
+                            if (sgstRate > 0 && !sgstRes.found) errors.push(`${sgstRate}% SGST Tax Ledger Not Found in Ledger Master`);
+                            if (igstRate > 0 && !igstRes.found) errors.push(`${igstRate}% IGST Tax Ledger Not Found in Ledger Master`);
+
+                            const taxableValue = Number(it.taxableValue || 0);
+                            const discountAmt = Number(it.discount || 0);
+                            const cgstAmount = Number(it.cgstAmount || 0);
+                            const sgstAmount = Number(it.sgstAmount || 0);
+                            const igstAmount = Number(it.igstAmount || 0);
+                            const itemTotal = Math.max(0, taxableValue + cgstAmount + sgstAmount + igstAmount - discountAmt);
+
+                            itemsValidated.push({
+                                ...it,
+                                itemName: sheetItemName || resolvedSalesLedgerName,
+                                salesLedger: resolvedSalesLedgerName,
+                                rawGstRate,
+                                gstRate: rawGstRate,
+                                cgstRate,
+                                sgstRate,
+                                igstRate,
+                                cgstAmount,
+                                sgstAmount,
+                                igstAmount,
+                                taxableValue,
+                                discount: discountAmt,
+                                itemTotal,
+                                itemFound: !sheetItemName || !!matchedStockItem,
+                                hsnFound: true,
+                                unitFound: true,
+                                cgstLedgerFound: cgstRes.found,
+                                sgstLedgerFound: sgstRes.found,
+                                igstLedgerFound: igstRes.found,
+                                matchedCgstLedgerName: cgstRes.ledgerName,
+                                matchedSgstLedgerName: sgstRes.ledgerName,
+                                matchedIgstLedgerName: igstRes.ledgerName,
+                                salesLedgerFound: !!resolvedSalesLedgerObj.matchedLedger,
+                                _matchedItemId: matchedStockItem?.id,
+                            });
+                            totalDebit += itemTotal;
+                            return;
+                        }
+
                         const cleanItemName = (it.itemName || "").toLowerCase().replace(/\s+/g, " ").trim();
                         const cleanHsn = (it.hsnCode || "").toLowerCase().replace(/\s+/g, "").trim();
 
@@ -1043,7 +1413,9 @@ const SalesImport: React.FC = () => {
                     if (overallDiscountLedger) {
                         const matchedDiscLedger = matchLedgerFlexibly(overallDiscountLedger, ledgers);
                         overallDiscountLedgerFound = !!matchedDiscLedger;
-                        if (!overallDiscountLedgerFound) {
+                        if (matchedDiscLedger?.name) {
+                            group.overallDiscountLedger = matchedDiscLedger.name || matchedDiscLedger.ledger_name || overallDiscountLedger;
+                        } else {
                             errors.push(`Overall Discount Ledger '${overallDiscountLedger}' Not Found in Ledger Master`);
                         }
                     }
@@ -1055,6 +1427,107 @@ const SalesImport: React.FC = () => {
                     group.overallDiscountPct = overallDiscountPct;
                     group.overallDiscountLedgerFound = overallDiscountLedgerFound;
                 } else {
+                    // Accounting Invoice: same sheet as the item invoice, without Item, Quantity and Rate.
+                    // Customer is debited. Sales and output tax are credited.
+                    if ((group.accountingLines || []).length > 0) {
+                        const builtEntries: any[] = [];
+                        let salesCredit = 0;
+                        let taxCredit = 0;
+                        let lineDiscount = 0;
+                        let resolvedSalesName = "";
+
+                        group.accountingLines.forEach((line: any) => {
+                            const rawGstRate = Number(line.gstRate || 0);
+                            const taxable = Number(line.taxable || 0);
+                            const discountAmt = Number(line.discount || 0);
+                            const resolvedSalesLedgerObj = resolveB2BOrB2CSalesLedger(
+                                hasGst,
+                                rawGstRate,
+                                isSameState,
+                                ledgers,
+                                salesTypes,
+                                line.salesLedger
+                            );
+                            const salesName = resolvedSalesLedgerObj.matchedLedger
+                                ? (resolvedSalesLedgerObj.matchedLedger.name || resolvedSalesLedgerObj.matchedLedger.ledger_name || line.salesLedger)
+                                : (line.salesLedger || "");
+                            if (!resolvedSalesLedgerObj.matchedLedger && !line.salesLedger && resolvedSalesLedgerObj.error) {
+                                errors.push(resolvedSalesLedgerObj.error);
+                            }
+                            if (salesName) resolvedSalesName = resolvedSalesName || salesName;
+
+                            if (taxable > 0) {
+                                builtEntries.push({ ledgerName: salesName || "Sales Account", amount: taxable, type: "Credit" });
+                                salesCredit += taxable;
+                            }
+
+                            if (isSameState && rawGstRate > 0 && taxable > 0) {
+                                const halfRate = Number((rawGstRate / 2).toFixed(2));
+                                const cgstAmount = Number(((taxable * halfRate) / 100).toFixed(2));
+                                const sgstAmount = Number(((taxable * halfRate) / 100).toFixed(2));
+                                const cgstRes = resolveTaxLedger("CGST", halfRate, ledgers);
+                                const sgstRes = resolveTaxLedger("SGST", halfRate, ledgers);
+                                if (cgstAmount > 0) builtEntries.push({ ledgerName: cgstRes.ledgerName || `${halfRate}% CGST`, amount: cgstAmount, type: "Credit" });
+                                if (sgstAmount > 0) builtEntries.push({ ledgerName: sgstRes.ledgerName || `${halfRate}% SGST`, amount: sgstAmount, type: "Credit" });
+                                taxCredit += cgstAmount + sgstAmount;
+                            } else if (isDifferentState && rawGstRate > 0 && taxable > 0) {
+                                const igstAmount = Number(((taxable * rawGstRate) / 100).toFixed(2));
+                                const igstRes = resolveTaxLedger("IGST", rawGstRate, ledgers);
+                                if (igstAmount > 0) builtEntries.push({ ledgerName: igstRes.ledgerName || `${rawGstRate}% IGST`, amount: igstAmount, type: "Credit" });
+                                taxCredit += igstAmount;
+                            }
+
+                            lineDiscount += discountAmt;
+                        });
+
+                        let overallDiscountAmt = Number(group.overallDiscountAmt || 0);
+                        const overallDiscountPct = Number(group.overallDiscountPct || 0);
+                        const grossInvoice = Math.max(0, salesCredit + taxCredit - lineDiscount);
+                        if (overallDiscountPct > 0 && overallDiscountAmt === 0) {
+                            overallDiscountAmt = Number(((grossInvoice * overallDiscountPct) / 100).toFixed(2));
+                        }
+
+                        const overallDiscountLedger = String(group.overallDiscountLedger || "").trim();
+                        let overallLedgerName = overallDiscountLedger;
+                        let overallDiscountLedgerFound = true;
+                        if (lineDiscount > 0 || overallDiscountAmt > 0) {
+                            if (!overallDiscountLedger) {
+                                overallDiscountLedgerFound = false;
+                                errors.push("Overall Discount Ledger is required when a discount amount is entered");
+                            } else {
+                                const matchedDiscLedger = matchLedgerFlexibly(overallDiscountLedger, ledgers);
+                                overallDiscountLedgerFound = !!matchedDiscLedger;
+                                if (matchedDiscLedger?.name || matchedDiscLedger?.ledger_name) {
+                                    overallLedgerName = matchedDiscLedger.name || matchedDiscLedger.ledger_name;
+                                } else {
+                                    errors.push(`Overall Discount Ledger '${overallDiscountLedger}' Not Found in Ledger Master`);
+                                }
+                            }
+                        }
+
+                        if (overallDiscountAmt > 0 && overallLedgerName) {
+                            builtEntries.push({ ledgerName: overallLedgerName, amount: overallDiscountAmt, type: "Debit", _isDiscount: true, _isOverall: true });
+                        }
+                        if (lineDiscount > 0 && overallLedgerName) {
+                            builtEntries.push({ ledgerName: overallLedgerName, amount: lineDiscount, type: "Debit", _isDiscount: true });
+                        }
+
+                        const customerAmount = Math.max(0, Number((salesCredit + taxCredit - lineDiscount - overallDiscountAmt).toFixed(2)));
+                        builtEntries.unshift({
+                            ledgerName: rawPartyName || "Customer",
+                            amount: customerAmount,
+                            type: "Debit",
+                            _isParty: true,
+                        });
+
+                        group.accountingEntries = builtEntries.map((entry: any, entryIndex: number) => ({ ...entry, srNo: entryIndex + 1 }));
+                        group.salesLedger = resolvedSalesName;
+                        group.overallDiscountAmt = overallDiscountAmt;
+                        group.overallDiscountPct = overallDiscountPct;
+                        group.overallDiscountLedger = overallLedgerName;
+                        group.overallDiscountLedgerFound = overallDiscountLedgerFound;
+                    }
+
                     // Accounting Invoice Mode
                     let accEntriesValidated: ManualAccountingRow[] = [];
                     group.accountingEntries.forEach((ae: any) => {
@@ -1106,7 +1579,7 @@ const SalesImport: React.FC = () => {
                     totalCredit,
                     invoiceValue: Math.max(totalDebit, totalCredit),
                     discountTotal,
-                    salesLedger: itemsValidated[0]?.salesLedger || "",
+                    salesLedger: itemsValidated[0]?.salesLedger || group.salesLedger || "",
                     overallDiscountLedger: group.overallDiscountLedger || "",
                     overallDiscountPct: group.overallDiscountPct || 0,
                     overallDiscountAmt: group.overallDiscountAmt || 0,
@@ -1188,6 +1661,7 @@ const SalesImport: React.FC = () => {
                             "Quantity": it.quantity,
                             "Item Rate (₹)": it.rate,
                             "Discount": it.discount || 0,
+                            "Discount (₹)": it.discount || 0,
                             "Rate (%)": it.gstRate,
                             "Taxable Value (₹)": it.taxableValue,
                             "Integrated Tax (₹)": it.igstAmount,
@@ -1198,6 +1672,7 @@ const SalesImport: React.FC = () => {
                             "Particulars (Ledger Name)": ae.ledgerName,
                             "Amount (₹)": ae.amount,
                             "Type": ae.type.toLowerCase(),
+                            "isOverallDiscount": !!ae._isOverall,
                             "Rate (%)": ae.gstRate || 0,
                             "Integrated Tax (₹)": ae.igst || 0,
                             "Central Tax (₹)": ae.cgst || 0,
@@ -1248,113 +1723,104 @@ const SalesImport: React.FC = () => {
         }
     };
 
-    // Download Excel Templates for Sales with Overall Discount columns
-    const downloadTemplate = (mode: 'Item Invoice' | 'Accounting Invoice') => {
-        if (mode === 'Item Invoice') {
-            const sheetData = [
-                // SINGLE HORIZONTAL HEADER ROW
-                [
-                    "Voucher Date", "Invoice number", "Invoice Date", "Trade/Legal name of the Customer",
-                    "GSTIN of Customer", "Transaction Mode", "Godown Tracking", "Sr No", "Item", "HSN/SAC",
-                    "Quantity", "Unit", "Rate", "GST", "Discount", "Taxable", "Godown", "Sales-Ledger",
-                    "Overall Discount Ledger", "Overall Discount (%)", "Overall Discount (₹)"
-                ],
-                // SAMPLE DATA ROWS (B2B WITH GST & B2C WITHOUT GST)
-                ["2026-02-16", "INV/25-26/001", "2026-02-16", "ABC CUSTOMER CORP", "27ABCDE1234F1Z5", "Item Invoice", "Enabled (Yes)", 1, "Biscute", "5555", 100, "PCS", 4000, 18, 100, 400000, "Main Location", "18% B2B Sales Account", "Discount to Customer", 0, 500],
-                ["", "", "", "", "", "", "", 2, "Steel Bar", "7214", 50, "KG", 1200, 18, 0, 60000, "Main Location", "18% B2B Sales Account", "", "", ""],
-                ["2026-02-20", "INV/25-26/002", "2026-02-20", "Rahul Traders", "", "Item Invoice", "Enabled (Yes)", 1, "Cement", "2523", 200, "BAG", 350, 18, 50, 70000, "Main Location", "18% B2C Sales Account", "Rebate & Discount", 5, 0]
-            ];
+    const styleCell = (cell: any, style: any) => {
+        cell.s = style;
+        return cell;
+    };
 
-            const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
-            worksheet['!cols'] = [
-                { wch: 14 }, { wch: 22 }, { wch: 14 }, { wch: 28 },
-                { wch: 20 }, { wch: 18 }, { wch: 18 }, { wch: 8 }, { wch: 20 },
-                { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 12 },
-                { wch: 10 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 26 },
-                { wch: 24 }, { wch: 20 }, { wch: 20 }
-            ];
-
-            worksheet['!rows'] = [{ hpt: 26 }];
-
-            const headerStyle = {
-                font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11 },
-                fill: { fgColor: { rgb: "1E3A8A" } },
-                alignment: { horizontal: "center", vertical: "center", wrapText: true },
-                border: {
-                    top: { style: "medium", color: { rgb: "0F172A" } },
-                    bottom: { style: "medium", color: { rgb: "0F172A" } },
-                    left: { style: "thin", color: { rgb: "334155" } },
-                    right: { style: "thin", color: { rgb: "334155" } }
-                }
-            };
-
-            for (let c = 0; c < 21; c++) {
-                const cellRef = XLSX.utils.encode_cell({ r: 0, c });
-                if (worksheet[cellRef]) worksheet[cellRef].s = headerStyle;
-            }
-
-            const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, "Sales_Item_Invoice_Template");
-            XLSX.writeFile(workbook, `Sales_Item_Invoice_Template.xlsx`);
-        } else {
-            const sheetData = [
-                // SINGLE HORIZONTAL ROW PER ACCOUNTING INVOICE
-                [
-                    "Voucher Date", "Invoice number", "Invoice Date", "Transaction Mode",
-                    "Ledger 1", "Amount 1", "Type 1",
-                    "Ledger 2", "Amount 2", "Type 2",
-                    "Ledger 3", "Amount 3", "Type 3",
-                    "Ledger 4", "Amount 4", "Type 4"
-                ],
-                // SAMPLE DATA ROWS (DOUBLE-ENTRY BALANCED)
-                [
-                    "2026-03-30", "INV-101", "2026-03-30", "Accounting Invoice",
-                    "ABC CUSTOMER CORP", 11800, "Debit",
-                    "18% B2B Sales", 10000, "Credit",
-                    "CGST", 900, "Credit",
-                    "SGST", 900, "Credit"
-                ],
-                [
-                    "2026-03-31", "INV-102", "2026-03-31", "Accounting Invoice",
-                    "Rahul Traders", 59000, "Debit",
-                    "18% B2C Sales", 50000, "Credit",
-                    "IGST", 9000, "Credit",
-                    "", "", ""
-                ]
-            ];
-
-            const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
-            worksheet['!cols'] = [
-                { wch: 14 }, { wch: 22 }, { wch: 14 }, { wch: 18 },
-                { wch: 26 }, { wch: 14 }, { wch: 10 },
-                { wch: 16 }, { wch: 14 }, { wch: 10 },
-                { wch: 16 }, { wch: 14 }, { wch: 10 },
-                { wch: 26 }, { wch: 14 }, { wch: 10 }
-            ];
-
-            worksheet['!rows'] = [{ hpt: 26 }];
-
-            const headerStyle = {
-                font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11 },
-                fill: { fgColor: { rgb: "312E81" } },
-                alignment: { horizontal: "center", vertical: "center", wrapText: true },
-                border: {
-                    top: { style: "medium", color: { rgb: "1E1B4B" } },
-                    bottom: { style: "medium", color: { rgb: "1E1B4B" } },
-                    left: { style: "thin", color: { rgb: "3730A3" } },
-                    right: { style: "thin", color: { rgb: "3730A3" } }
-                }
-            };
-
-            for (let c = 0; c < 16; c++) {
-                const cellRef = XLSX.utils.encode_cell({ r: 0, c });
-                if (worksheet[cellRef]) worksheet[cellRef].s = headerStyle;
-            }
-
-            const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, "Sales_Accounting_Template");
-            XLSX.writeFile(workbook, `Sales_Accounting_Invoice_Template.xlsx`);
+    const ensureCell = (worksheet: XLSX.WorkSheet, row: number, col: number, value: string | number = "") => {
+        const ref = XLSX.utils.encode_cell({ r: row, c: col });
+        if (!worksheet[ref]) {
+            worksheet[ref] = typeof value === "number" ? { t: "n", v: value } : { t: "s", v: value };
         }
+        return worksheet[ref];
+    };
+
+    const downloadTemplate = (mode: 'Item Invoice' | 'Accounting Invoice') => {
+        const headerStyle = {
+            font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11, name: "Calibri" },
+            fill: { fgColor: { rgb: "312E81" } },
+            alignment: { horizontal: "center", vertical: "center", wrapText: true },
+            border: {
+                top: { style: "medium", color: { rgb: "1E1B4B" } },
+                bottom: { style: "medium", color: { rgb: "1E1B4B" } },
+                left: { style: "thin", color: { rgb: "3730A3" } },
+                right: { style: "thin", color: { rgb: "3730A3" } },
+            },
+        };
+        const headers = mode === "Item Invoice" ? SALES_ITEM_HEADERS : SALES_ACCOUNTING_HEADERS;
+        const colLetter = (name: string) => XLSX.utils.encode_col(headers.indexOf(name));
+        const blankOr = (name: string, rowNumber: number, expression: string) =>
+            `IF(${colLetter(name)}${rowNumber}="","",${expression})`;
+        const formulaByHeader: Record<string, (rowNumber: number) => string> = {
+            "Invoice Value (₹)": (rowNumber) => {
+                const total = `SUM(${colLetter("Exempt purchase")}${rowNumber}:${colLetter("sgst14%")}${rowNumber})`;
+                return `IF(${total}=0,"",${total}-N(${colLetter("Discount")}${rowNumber}))`;
+            },
+            "Igst3%": (rowNumber) => blankOr("3% inter state purchase", rowNumber, `${colLetter("3% inter state purchase")}${rowNumber}*3%`),
+            "cgst1.5%": (rowNumber) => blankOr("3% intra state purchase", rowNumber, `${colLetter("3% intra state purchase")}${rowNumber}*1.5%`),
+            "sgst1.5%": (rowNumber) => blankOr("3% intra state purchase", rowNumber, `${colLetter("3% intra state purchase")}${rowNumber}*1.5%`),
+            "Igst5%": (rowNumber) => blankOr("5% inter state purchase", rowNumber, `${colLetter("5% inter state purchase")}${rowNumber}*5%`),
+            "cgst2.5%": (rowNumber) => blankOr("5% intra state purchase", rowNumber, `${colLetter("5% intra state purchase")}${rowNumber}*2.5%`),
+            "sgst2.5%": (rowNumber) => blankOr("5% intra state purchase", rowNumber, `${colLetter("5% intra state purchase")}${rowNumber}*2.5%`),
+            "Igst18%": (rowNumber) => blankOr("18% inter state purchase", rowNumber, `${colLetter("18% inter state purchase")}${rowNumber}*18%`),
+            "cgst9%": (rowNumber) => blankOr("18% intra state purchase", rowNumber, `${colLetter("18% intra state purchase")}${rowNumber}*9%`),
+            "sgst9%": (rowNumber) => blankOr("18% intra state purchase", rowNumber, `${colLetter("18% intra state purchase")}${rowNumber}*9%`),
+            "Igst28%": (rowNumber) => blankOr("28% inter state purchase", rowNumber, `${colLetter("28% inter state purchase")}${rowNumber}*28%`),
+            "cgst14%": (rowNumber) => blankOr("28% intra state purchase", rowNumber, `${colLetter("28% intra state purchase")}${rowNumber}*14%`),
+            "sgst14%": (rowNumber) => blankOr("28% intra state purchase", rowNumber, `${colLetter("28% intra state purchase")}${rowNumber}*14%`),
+        };
+        const example: Record<string, string | number> = {
+            "GSTIN of supplier": "20AABCM4621M1ZR",
+            "SupplierName": "ABC CUSTOMER CORP",
+            "Invoice number": "EXAMPLE-001",
+            "Invoice Date": "2026-11-19",
+            "Place of supply": "Jharkhand",
+            "Supply Attract Reverse Charge": "N",
+            ...(mode === "Item Invoice" ? { "Item Name": "MS Plate", "Quantity": 1, "Rate": 10000 } : {}),
+            "18% intra state purchase": 10000,
+        };
+        const exampleFormulaValue: Record<string, number> = {
+            "Invoice Value (₹)": 11800,
+            "cgst9%": 900,
+            "sgst9%": 900,
+        };
+        const lastDataRow = 21;
+        const worksheet = XLSX.utils.aoa_to_sheet([headers]);
+        const lastCol = headers.length - 1;
+        worksheet["!ref"] = `A1:${XLSX.utils.encode_col(lastCol)}${lastDataRow}`;
+        worksheet["!cols"] = headers.map((header) => ({ wch: Math.min(28, Math.max(14, header.length + 2)) }));
+        worksheet["!rows"] = [{ hpt: 26 }];
+        headers.forEach((header, colIndex) => styleCell(ensureCell(worksheet, 0, colIndex, header), headerStyle));
+        headers.forEach((header, colIndex) => {
+            const value = example[header];
+            if (value === undefined || value === "") return;
+            const cell = ensureCell(worksheet, 1, colIndex, value);
+            if (typeof value === "number") {
+                cell.t = "n";
+                cell.v = value;
+            }
+        });
+        for (let excelRow = 2; excelRow <= lastDataRow; excelRow++) {
+            headers.forEach((header, colIndex) => {
+                const formula = formulaByHeader[header];
+                if (!formula) return;
+                const cell = ensureCell(worksheet, excelRow - 1, colIndex, "");
+                cell.f = formula(excelRow);
+                if (excelRow === 2 && exampleFormulaValue[header] !== undefined) {
+                    cell.t = "n";
+                    cell.v = exampleFormulaValue[header];
+                } else {
+                    cell.t = "s";
+                    cell.v = "";
+                }
+            });
+        }
+        const workbook = XLSX.utils.book_new();
+        const sheetName = mode === "Item Invoice" ? "Sales_Item_Invoice_Template" : "Sales_Accounting_Template";
+        const fileName = mode === "Item Invoice" ? "Sales_Item_Invoice_Template.xlsx" : "Sales_Accounting_Invoice_Template.xlsx";
+        XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+        XLSX.writeFile(workbook, fileName);
     };
 
     return (
@@ -1452,8 +1918,10 @@ const SalesImport: React.FC = () => {
                             <h3 className="text-xl font-bold text-gray-900 mb-2">
                                 Upload Sales Excel Sheet ({selectedMode})
                             </h3>
-                            <p className="text-xs text-gray-500 mb-6 max-w-md mx-auto">
-                                Excel headers: Voucher Date, Invoice Number, Invoice Date, Customer Name, GSTIN of Customer, Mode, Godown Tracking, Overall Discount Ledger, Overall Discount (%), Overall Discount (₹).
+                            <p className="text-xs text-gray-500 mb-6 max-w-2xl mx-auto">
+                                {selectedMode === "Accounting Invoice"
+                                    ? "Accounting template: same columns as the item invoice, without Item Name, Quantity and Rate. Enter the taxable amount in the matching column. The customer is debited. Sales and output tax are credited."
+                                    : "Item template: blue header, one invoice on one row. Enter the taxable amount in the matching column. Tax and invoice value calculate in Excel. The customer is debited. Sales and output tax are credited."}
                             </p>
                             <button
                                 onClick={() => fileInputRef.current?.click()}
@@ -1822,38 +2290,86 @@ const SalesImport: React.FC = () => {
 
                 {/* TAB 3: DOWNLOAD TEMPLATES */}
                 {activeTab === "templates" && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-                        <div className="bg-white rounded-2xl border border-gray-200 p-6 text-center shadow-sm space-y-4 hover:shadow-md transition-shadow">
-                            <div className="bg-blue-100 text-blue-600 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto">
-                                <ShoppingCart size={32} />
+                    <div className="space-y-8">
+                        <section className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+                                <div>
+                                    <h4 className="text-lg font-bold text-gray-900">Accounting Invoice</h4>
+                                    <p className="text-xs text-gray-500">Blue header. Same columns as the item invoice, without Item Name, Quantity and Rate. Enter the taxable amount in the matching column.</p>
+                                </div>
+                                <button
+                                    onClick={() => downloadTemplate("Accounting Invoice")}
+                                    className="flex items-center justify-center gap-2 px-5 py-2.5 bg-[#312E81] text-white rounded-xl hover:bg-[#1E1B4B] font-bold"
+                                >
+                                    <Download size={18} />
+                                    Download Accounting Template
+                                </button>
                             </div>
-                            <h3 className="text-lg font-bold text-gray-900">Item Invoice Template</h3>
-                            <p className="text-xs text-gray-500">
-                                Single horizontal header row format with Customer Name, GSTIN of Customer (for B2B/B2C auto mapping), Voucher Date, Ref No, Item details, HSN/SAC, Rates, Taxable calculations, and Overall Discount fields.
-                            </p>
-                            <button
-                                onClick={() => downloadTemplate("Item Invoice")}
-                                className="w-full py-3 bg-blue-600 text-white font-semibold text-xs rounded-xl hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 shadow-sm"
-                            >
-                                <Download size={16} /> Download Item Invoice Template (.xlsx)
-                            </button>
-                        </div>
+                            <div className="overflow-x-auto border border-[#312E81]">
+                                <table className="min-w-max text-[11px] border-collapse">
+                                    <thead>
+                                        <tr className="bg-[#312E81] text-white">
+                                            {SALES_ACCOUNTING_HEADERS.map((header) => (
+                                                <th key={`acc-h-${header}`} className="px-2 py-2 border border-[#3730A3] font-bold text-center min-w-[92px]">
+                                                    {header}
+                                                </th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            {SALES_ACCOUNTING_HEADERS.map((header) => {
+                                                return (
+                                                    <td key={`acc-sample-${header}`} className="px-2 py-1.5 border border-gray-200 text-center bg-white">
+                                                        {SALES_SAMPLE[header] || ""}
+                                                    </td>
+                                                );
+                                            })}
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </section>
 
-                        <div className="bg-white rounded-2xl border border-gray-200 p-6 text-center shadow-sm space-y-4 hover:shadow-md transition-shadow">
-                            <div className="bg-indigo-100 text-indigo-600 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto">
-                                <FileSpreadsheet size={32} />
+                        <section className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-2">
+                                <div>
+                                    <h4 className="text-lg font-bold text-gray-900">Item Invoice</h4>
+                                    <p className="text-xs text-gray-500">Blue header. One invoice on one row. Enter the taxable amount in the matching column. Tax and invoice value calculate in Excel.</p>
+                                </div>
+                                <button
+                                    onClick={() => downloadTemplate("Item Invoice")}
+                                    className="flex items-center justify-center gap-2 px-5 py-2.5 bg-[#312E81] text-white rounded-xl hover:bg-[#1E1B4B] font-bold"
+                                >
+                                    <Download size={18} />
+                                    Download Item Template
+                                </button>
                             </div>
-                            <h3 className="text-lg font-bold text-gray-900">Accounting Invoice Template</h3>
-                            <p className="text-xs text-gray-500">
-                                Single horizontal row format per accounting invoice with Debit Customer and Credit Sales / Output Tax ledgers for strict double-entry balancing.
-                            </p>
-                            <button
-                                onClick={() => downloadTemplate("Accounting Invoice")}
-                                className="w-full py-3 bg-indigo-600 text-white font-semibold text-xs rounded-xl hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 shadow-sm"
-                            >
-                                <Download size={16} /> Download Accounting Invoice Template (.xlsx)
-                            </button>
-                        </div>
+                            <div className="overflow-x-auto border border-[#312E81]">
+                                <table className="min-w-max text-[11px] border-collapse">
+                                    <thead>
+                                        <tr className="bg-[#312E81] text-white">
+                                            {SALES_ITEM_HEADERS.map((header) => (
+                                                <th key={`item-h-${header}`} className="px-2 py-2 border border-[#3730A3] font-bold text-center min-w-[92px]">
+                                                    {header}
+                                                </th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            {SALES_ITEM_HEADERS.map((header) => {
+                                                return (
+                                                    <td key={`sample-${header}`} className="px-2 py-1.5 border border-gray-200 text-center bg-white">
+                                                        {SALES_SAMPLE[header] || ""}
+                                                    </td>
+                                                );
+                                            })}
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </section>
                     </div>
                 )}
             </div>
