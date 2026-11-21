@@ -83,7 +83,8 @@ const ReportsIndex: React.FC = () => {
         { icon: <Calendar size={20} />, name: 'Ageing Analysis', path: '/app/reports/ageing-analysis' },
         { icon: <BarChart2 size={20} />, name: 'Godown Summary', path: '/app/reports/godown-summary' },
         { icon: <FileText size={20} />, name: 'Attribute summary', path: '/app/reports/attribute-summary' },
-        { icon: <FileText size={20} />, name: 'Quantity Correction', path: '/app/reports/quantity-correction' }
+        { icon: <FileText size={20} />, name: 'Quantity Correction', path: '/app/reports/quantity-correction' },
+        { icon: <FileText size={20} />, name: 'Books Matching Report', path: '/app/reports/books-matching', isPending: true }
       ]
     },
     {

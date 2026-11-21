@@ -1668,6 +1668,14 @@ function App() {
                   }
                 />
                 <Route
+                  path="reports/books-matching"
+                  element={
+                    <RequireCompany>
+                      <ReportComingSoon title="Books Matching Report" category="Inventory Reports" />
+                    </RequireCompany>
+                  }
+                />
+                <Route
                   path="reports/item-monthly-summary"
                   element={
                     <RequireCompany>
