@@ -1982,6 +1982,37 @@ const SalesImport: React.FC = () => {
                                     Cancel
                                 </button>
 
+                                {Array.from(
+                                    groupedVouchers
+                                        .filter((voucher) => !voucher.partyMatch && (voucher.rawPartyName || voucher.partyName))
+                                        .reduce((parties, voucher) => {
+                                            const partyName = voucher.rawPartyName || voucher.partyName;
+                                            if (!parties.has(partyName)) parties.set(partyName, voucher);
+                                            return parties;
+                                        }, new Map<string, ManualGroupedVoucher>())
+                                        .values()
+                                ).map((voucher) => {
+                                    const partyName = voucher.rawPartyName || voucher.partyName;
+                                    return (
+                                        <button
+                                            key={partyName}
+                                            onClick={() => {
+                                                const params = new URLSearchParams({
+                                                    name: partyName,
+                                                    group: "sundry-debtors",
+                                                    gst: voucher.gstin || "",
+                                                    state: voucher.pos || voucher.partyStateName || "",
+                                                    returnUrl: "/app/vouchers/sales-import",
+                                                });
+                                                navigate(`/app/masters/ledger/create?${params.toString()}`);
+                                            }}
+                                            className="px-4 py-2 bg-amber-600 text-white text-xs font-bold rounded-lg hover:bg-amber-700 shadow-md"
+                                        >
+                                            Create {partyName} in Sundry Debtors
+                                        </button>
+                                    );
+                                })}
+
                                 <button
                                     onClick={saveImportedVouchers}
                                     disabled={isProcessing || groupedVouchers.some(v => v.status === "error") || !groupedVouchers.some(v => v.status === "pending")}

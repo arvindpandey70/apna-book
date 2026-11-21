@@ -1646,6 +1646,33 @@ const PurchaseImport: React.FC = () => {
                                     Cancel
                                 </button>
 
+                                {Array.from(
+                                    groupedVouchers
+                                        .filter((voucher) => !voucher.partyMatch && voucher.partyName)
+                                        .reduce((parties, voucher) => {
+                                            if (!parties.has(voucher.partyName)) parties.set(voucher.partyName, voucher);
+                                            return parties;
+                                        }, new Map<string, ManualGroupedVoucher>())
+                                        .values()
+                                ).map((voucher) => (
+                                    <button
+                                        key={voucher.partyName}
+                                        onClick={() => {
+                                            const params = new URLSearchParams({
+                                                name: voucher.partyName,
+                                                group: "sundry-creditors",
+                                                gst: voucher.gstin || "",
+                                                state: voucher.pos || voucher.partyStateName || "",
+                                                returnUrl: "/app/vouchers/purchase-import",
+                                            });
+                                            navigate(`/app/masters/ledger/create?${params.toString()}`);
+                                        }}
+                                        className="px-4 py-2 bg-amber-600 text-white text-xs font-bold rounded-lg hover:bg-amber-700 shadow-md"
+                                    >
+                                        Create {voucher.partyName} in Sundry Creditors
+                                    </button>
+                                ))}
+
                                 <button
                                     onClick={saveImportedVouchers}
                                     disabled={isProcessing || groupedVouchers.some(v => v.status === "error") || !groupedVouchers.some(v => v.status === "pending")}
