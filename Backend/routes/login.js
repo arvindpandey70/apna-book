@@ -83,8 +83,19 @@ async function getSubscriptionForUser(companyRow, role, userId) {
     return false;
   })();
 
-  // 2. Accountant-Allotted User: 0-Days Trial. Must have active REAL VERIFIED PAID subscription
-  if (isAccountantManaged && (role === 'company_user' || !role || role === 'user')) {
+  // Paid wall only for a user created by the accountant. The company owner keeps their own trial or paid plan.
+  let allottedByAccountant = false;
+  if (userId && (role === 'company_user' || role === 'user')) {
+    const [allottedRows] = await db.query(
+      `SELECT id FROM tbusers
+       WHERE id = ? AND accountant_id IS NOT NULL AND accountant_id > 0
+       LIMIT 1`,
+      [userId]
+    ).catch(() => [[]]);
+    allottedByAccountant = !!(allottedRows && allottedRows.length > 0);
+  }
+
+  if (isAccountantManaged && allottedByAccountant) {
     const [paidRows] = await db.query(
       `SELECT cs.id, cs.plan, cs.is_trial, cs.status, cs.start_date, cs.end_date, cs.payment_id
        FROM company_subscriptions cs
@@ -93,6 +104,7 @@ async function getSubscriptionForUser(companyRow, role, userId) {
          AND cs.is_trial = 0
          AND cs.status = 'active'
          AND cs.plan != 'accountant_partner'
+         AND cs.plan != 'accountant_client'
          AND cs.end_date > NOW()
        ORDER BY cs.end_date DESC LIMIT 1`,
       [companyId]

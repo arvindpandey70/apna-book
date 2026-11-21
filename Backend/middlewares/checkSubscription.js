@@ -170,29 +170,55 @@ module.exports = async function checkSubscription(req, res, next) {
         }
       }
 
-      // Normal (non-accountant) user accessing an accountant-managed company
-      // must have an active paid subscription.
-      const [paidRows] = await db.query(
-        `SELECT cs.id, cs.plan, cs.is_trial, cs.status, cs.start_date, cs.end_date
-         FROM company_subscriptions cs
-         WHERE cs.company_id = ?
-           AND cs.is_trial = 0
-           AND cs.status = 'active'
-           AND cs.plan != 'accountant_partner'
-           AND cs.plan != 'accountant_client'
-           AND cs.end_date > NOW()
-         ORDER BY cs.end_date DESC LIMIT 1`,
+      // Paid wall only for a user the accountant created for this company.
+      // The original owner keeps the company trial or paid plan.
+      const roleName = String(userRole || '').toLowerCase();
+      const [ownerRows] = await db.query(
+        'SELECT employee_id FROM tbcompanies WHERE id = ? LIMIT 1',
         [companyId]
       ).catch(() => [[]]);
+      const ownerEmployeeId = ownerRows && ownerRows[0] ? Number(ownerRows[0].employee_id) : 0;
+      const isOwner =
+        !!userId &&
+        ownerEmployeeId > 0 &&
+        Number(userId) === ownerEmployeeId &&
+        (roleName === 'employee' || roleName === 'owner' || roleName === '');
 
-      if (!paidRows || paidRows.length === 0) {
-        return res.status(403).json({
-          success: false,
-          isAccountantManaged: true,
-          message: 'This company is managed by an Accountant. An active paid subscription plan is required to perform actions.'
-        });
+      let allottedByAccountant = false;
+      if (userId && !isOwner) {
+        const [allottedRows] = await db.query(
+          `SELECT id FROM tbusers
+           WHERE id = ? AND company_id = ?
+             AND accountant_id IS NOT NULL AND accountant_id > 0
+           LIMIT 1`,
+          [userId, companyId]
+        ).catch(() => [[]]);
+        allottedByAccountant = !!(allottedRows && allottedRows.length > 0);
       }
-      return next();
+
+      if (allottedByAccountant) {
+        const [paidRows] = await db.query(
+          `SELECT cs.id, cs.plan, cs.is_trial, cs.status, cs.start_date, cs.end_date
+           FROM company_subscriptions cs
+           WHERE cs.company_id = ?
+             AND cs.is_trial = 0
+             AND cs.status = 'active'
+             AND cs.plan != 'accountant_partner'
+             AND cs.plan != 'accountant_client'
+             AND cs.end_date > NOW()
+           ORDER BY cs.end_date DESC LIMIT 1`,
+          [companyId]
+        ).catch(() => [[]]);
+
+        if (!paidRows || paidRows.length === 0) {
+          return res.status(403).json({
+            success: false,
+            isAccountantManaged: true,
+            message: 'This company is managed by an Accountant. An active paid subscription plan is required to perform actions.'
+          });
+        }
+        return next();
+      }
     }
 
     // 3. Regular Direct Website Signup (14-Day Free Trial or Standard Plan)
