@@ -99,9 +99,19 @@ router.get('/status/:companyId', async (req, res) => {
       return false;
     })();
 
-    // 2. Twist Rule: If this is an Accountant's Company accessed by a Normal User (Client staff)
-    // -> 0 Days Trial! They must have a REAL VERIFIED PAID subscription to work.
-    if (isAccountantManaged && (user_type === 'company_user' || !user_type || user_type === 'user')) {
+    // Paid wall only for a user created by the accountant. The company owner keeps their own trial or paid plan.
+    let allottedByAccountant = false;
+    if (user_id && (user_type === 'company_user' || user_type === 'user')) {
+      const [allottedRows] = await db.query(
+        `SELECT id FROM tbusers
+         WHERE id = ? AND accountant_id IS NOT NULL AND accountant_id > 0
+         LIMIT 1`,
+        [user_id]
+      ).catch(() => [[]]);
+      allottedByAccountant = !!(allottedRows && allottedRows.length > 0);
+    }
+
+    if (isAccountantManaged && allottedByAccountant) {
       const [paidRows] = await db.query(
         `SELECT cs.id, cs.plan, cs.is_trial, cs.status, cs.start_date, cs.end_date, cs.payment_id
          FROM company_subscriptions cs
@@ -110,6 +120,7 @@ router.get('/status/:companyId', async (req, res) => {
            AND cs.is_trial = 0
            AND cs.status = 'active'
            AND cs.plan != 'accountant_partner'
+           AND cs.plan != 'accountant_client'
            AND cs.end_date > NOW()
          ORDER BY cs.end_date DESC
          LIMIT 1`,
