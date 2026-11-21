@@ -145,22 +145,22 @@ const formatPartyDisplayName = (traderName: string, gstin?: string): { displayNa
 };
 
 const SALES_SLABS: { purchase: string; kind: "exempt" | "inter" | "intra"; rate: number; tax?: string; cgst?: string; sgst?: string }[] = [
-    { purchase: "exempt purchase", kind: "exempt", rate: 0 },
-    { purchase: "3% inter state purchase", kind: "inter", rate: 3, tax: "igst3%" },
-    { purchase: "3% intra state purchase", kind: "intra", rate: 3, cgst: "cgst1.5%", sgst: "sgst1.5%" },
-    { purchase: "5% inter state purchase", kind: "inter", rate: 5, tax: "igst5%" },
-    { purchase: "5% intra state purchase", kind: "intra", rate: 5, cgst: "cgst2.5%", sgst: "sgst2.5%" },
-    { purchase: "18% inter state purchase", kind: "inter", rate: 18, tax: "igst18%" },
-    { purchase: "18% intra state purchase", kind: "intra", rate: 18, cgst: "cgst9%", sgst: "sgst9%" },
-    { purchase: "28% inter state purchase", kind: "inter", rate: 28, tax: "igst28%" },
-    { purchase: "28% intra state purchase", kind: "intra", rate: 28, cgst: "cgst14%", sgst: "sgst14%" },
+    { purchase: "exempt sales", kind: "exempt", rate: 0 },
+    { purchase: "3% inter state sales", kind: "inter", rate: 3, tax: "igst3%" },
+    { purchase: "3% intra state sales", kind: "intra", rate: 3, cgst: "cgst1.5%", sgst: "sgst1.5%" },
+    { purchase: "5% inter state sales", kind: "inter", rate: 5, tax: "igst5%" },
+    { purchase: "5% intra state sales", kind: "intra", rate: 5, cgst: "cgst2.5%", sgst: "sgst2.5%" },
+    { purchase: "18% inter state sales", kind: "inter", rate: 18, tax: "igst18%" },
+    { purchase: "18% intra state sales", kind: "intra", rate: 18, cgst: "cgst9%", sgst: "sgst9%" },
+    { purchase: "28% inter state sales", kind: "inter", rate: 28, tax: "igst28%" },
+    { purchase: "28% intra state sales", kind: "intra", rate: 28, cgst: "cgst14%", sgst: "sgst14%" },
 ];
 
 const SALES_SLAB_HEADERS = [
-    "Exempt purchase", "3% inter state purchase", "Igst3%", "3% intra state purchase", "cgst1.5%", "sgst1.5%",
-    "5% inter state purchase", "Igst5%", "5% intra state purchase", "cgst2.5%", "sgst2.5%",
-    "18% inter state purchase", "Igst18%", "18% intra state purchase", "cgst9%", "sgst9%",
-    "28% inter state purchase", "Igst28%", "28% intra state purchase", "cgst14%", "sgst14%",
+    "Exempt sales", "3% inter state sales", "Igst3%", "3% intra state sales", "cgst1.5%", "sgst1.5%",
+    "5% inter state sales", "Igst5%", "5% intra state sales", "cgst2.5%", "sgst2.5%",
+    "18% inter state sales", "Igst18%", "18% intra state sales", "cgst9%", "sgst9%",
+    "28% inter state sales", "Igst28%", "28% intra state sales", "cgst14%", "sgst14%",
     "Discount",
 ];
 
@@ -186,7 +186,7 @@ const SALES_SAMPLE: Record<string, string> = {
     "Item Name": "MS Plate",
     "Quantity": "1",
     "Rate": "10000",
-    "18% intra state purchase": "10000",
+    "18% intra state sales": "10000",
     "cgst9%": "900",
     "sgst9%": "900",
     "Invoice Value (₹)": "11800",
@@ -1754,21 +1754,21 @@ const SalesImport: React.FC = () => {
             `IF(${colLetter(name)}${rowNumber}="","",${expression})`;
         const formulaByHeader: Record<string, (rowNumber: number) => string> = {
             "Invoice Value (₹)": (rowNumber) => {
-                const total = `SUM(${colLetter("Exempt purchase")}${rowNumber}:${colLetter("sgst14%")}${rowNumber})`;
+                const total = `SUM(${colLetter("Exempt sales")}${rowNumber}:${colLetter("sgst14%")}${rowNumber})`;
                 return `IF(${total}=0,"",${total}-N(${colLetter("Discount")}${rowNumber}))`;
             },
-            "Igst3%": (rowNumber) => blankOr("3% inter state purchase", rowNumber, `${colLetter("3% inter state purchase")}${rowNumber}*3%`),
-            "cgst1.5%": (rowNumber) => blankOr("3% intra state purchase", rowNumber, `${colLetter("3% intra state purchase")}${rowNumber}*1.5%`),
-            "sgst1.5%": (rowNumber) => blankOr("3% intra state purchase", rowNumber, `${colLetter("3% intra state purchase")}${rowNumber}*1.5%`),
-            "Igst5%": (rowNumber) => blankOr("5% inter state purchase", rowNumber, `${colLetter("5% inter state purchase")}${rowNumber}*5%`),
-            "cgst2.5%": (rowNumber) => blankOr("5% intra state purchase", rowNumber, `${colLetter("5% intra state purchase")}${rowNumber}*2.5%`),
-            "sgst2.5%": (rowNumber) => blankOr("5% intra state purchase", rowNumber, `${colLetter("5% intra state purchase")}${rowNumber}*2.5%`),
-            "Igst18%": (rowNumber) => blankOr("18% inter state purchase", rowNumber, `${colLetter("18% inter state purchase")}${rowNumber}*18%`),
-            "cgst9%": (rowNumber) => blankOr("18% intra state purchase", rowNumber, `${colLetter("18% intra state purchase")}${rowNumber}*9%`),
-            "sgst9%": (rowNumber) => blankOr("18% intra state purchase", rowNumber, `${colLetter("18% intra state purchase")}${rowNumber}*9%`),
-            "Igst28%": (rowNumber) => blankOr("28% inter state purchase", rowNumber, `${colLetter("28% inter state purchase")}${rowNumber}*28%`),
-            "cgst14%": (rowNumber) => blankOr("28% intra state purchase", rowNumber, `${colLetter("28% intra state purchase")}${rowNumber}*14%`),
-            "sgst14%": (rowNumber) => blankOr("28% intra state purchase", rowNumber, `${colLetter("28% intra state purchase")}${rowNumber}*14%`),
+            "Igst3%": (rowNumber) => blankOr("3% inter state sales", rowNumber, `${colLetter("3% inter state sales")}${rowNumber}*3%`),
+            "cgst1.5%": (rowNumber) => blankOr("3% intra state sales", rowNumber, `${colLetter("3% intra state sales")}${rowNumber}*1.5%`),
+            "sgst1.5%": (rowNumber) => blankOr("3% intra state sales", rowNumber, `${colLetter("3% intra state sales")}${rowNumber}*1.5%`),
+            "Igst5%": (rowNumber) => blankOr("5% inter state sales", rowNumber, `${colLetter("5% inter state sales")}${rowNumber}*5%`),
+            "cgst2.5%": (rowNumber) => blankOr("5% intra state sales", rowNumber, `${colLetter("5% intra state sales")}${rowNumber}*2.5%`),
+            "sgst2.5%": (rowNumber) => blankOr("5% intra state sales", rowNumber, `${colLetter("5% intra state sales")}${rowNumber}*2.5%`),
+            "Igst18%": (rowNumber) => blankOr("18% inter state sales", rowNumber, `${colLetter("18% inter state sales")}${rowNumber}*18%`),
+            "cgst9%": (rowNumber) => blankOr("18% intra state sales", rowNumber, `${colLetter("18% intra state sales")}${rowNumber}*9%`),
+            "sgst9%": (rowNumber) => blankOr("18% intra state sales", rowNumber, `${colLetter("18% intra state sales")}${rowNumber}*9%`),
+            "Igst28%": (rowNumber) => blankOr("28% inter state sales", rowNumber, `${colLetter("28% inter state sales")}${rowNumber}*28%`),
+            "cgst14%": (rowNumber) => blankOr("28% intra state sales", rowNumber, `${colLetter("28% intra state sales")}${rowNumber}*14%`),
+            "sgst14%": (rowNumber) => blankOr("28% intra state sales", rowNumber, `${colLetter("28% intra state sales")}${rowNumber}*14%`),
         };
         const example: Record<string, string | number> = {
             "GSTIN of supplier": "20AABCM4621M1ZR",
@@ -1778,7 +1778,7 @@ const SalesImport: React.FC = () => {
             "Place of supply": "Jharkhand",
             "Supply Attract Reverse Charge": "N",
             ...(mode === "Item Invoice" ? { "Item Name": "MS Plate", "Quantity": 1, "Rate": 10000 } : {}),
-            "18% intra state purchase": 10000,
+            "18% intra state sales": 10000,
         };
         const exampleFormulaValue: Record<string, number> = {
             "Invoice Value (₹)": 11800,
