@@ -74,6 +74,7 @@ interface ManualAccountingRow {
     _matchedLedgerId?: string | number;
     _isParty?: boolean;
     _isDiscount?: boolean;
+    sheetColumn?: string;
 }
 
 // Grouped Voucher object containing Common Header + Rows + Validation Results
@@ -737,18 +738,18 @@ const SalesImport: React.FC = () => {
                         if (!rawGroups[groupKey].salesLedger) rawGroups[groupKey].salesLedger = salesLedger;
 
                         if (!slabIsItem) {
-                            pushAccounting(salesLedger, taxable, "Credit");
+                            pushAccounting(salesLedger, taxable, "Credit", { sheetColumn: slab.purchase });
                             creditTotal += taxable;
-                            if (igstAmount > 0) {
-                                pushAccounting(outputTaxName("IGST", slab.rate, headerLabel(slab.tax || "IGST")), igstAmount, "Credit");
+                            if (igstAmount > 0 && slab.tax) {
+                                pushAccounting(outputTaxName("IGST", slab.rate, headerLabel(slab.tax)), igstAmount, "Credit", { sheetColumn: slab.tax });
                                 creditTotal += igstAmount;
                             }
-                            if (cgstAmount > 0) {
-                                pushAccounting(outputTaxName("CGST", slab.rate / 2, headerLabel(slab.cgst || "CGST")), cgstAmount, "Credit");
+                            if (cgstAmount > 0 && slab.cgst) {
+                                pushAccounting(outputTaxName("CGST", slab.rate / 2, headerLabel(slab.cgst)), cgstAmount, "Credit", { sheetColumn: slab.cgst });
                                 creditTotal += cgstAmount;
                             }
-                            if (sgstAmount > 0) {
-                                pushAccounting(outputTaxName("SGST", slab.rate / 2, headerLabel(slab.sgst || "SGST")), sgstAmount, "Credit");
+                            if (sgstAmount > 0 && slab.sgst) {
+                                pushAccounting(outputTaxName("SGST", slab.rate / 2, headerLabel(slab.sgst)), sgstAmount, "Credit", { sheetColumn: slab.sgst });
                                 creditTotal += sgstAmount;
                             }
                             return;
@@ -786,8 +787,8 @@ const SalesImport: React.FC = () => {
 
                     if (!slabIsItem && creditTotal > 0) {
                         const rowDiscount = discountAssigned ? 0 : discount;
-                        if (rowDiscount > 0) pushAccounting(headerLabel("discount"), rowDiscount, "Debit", { _isDiscount: true });
-                        pushAccounting(partyName || gstin || rawGroups[groupKey].partyName || "Customer", Math.max(0, Number((creditTotal - rowDiscount).toFixed(2))), "Debit", { _isParty: true });
+                        if (rowDiscount > 0) pushAccounting(headerLabel("discount"), rowDiscount, "Debit", { _isDiscount: true, sheetColumn: "discount" });
+                        pushAccounting(partyName || gstin || rawGroups[groupKey].partyName || "Customer", Math.max(0, Number((creditTotal - rowDiscount).toFixed(2))), "Debit", { _isParty: true, sheetColumn: "customer" });
                     }
                 }
             }
@@ -2235,54 +2236,102 @@ const SalesImport: React.FC = () => {
                                 ))}
                             </div>
                         ) : (
-                            /* COMPACT LIST VIEW TABLE */
-                            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-xs text-left text-gray-600">
-                                        <thead className="bg-gray-100 text-gray-700 font-bold uppercase text-[10px]">
-                                            <tr>
-                                                <th className="p-3">#</th>
-                                                <th className="p-3">Voucher No</th>
-                                                <th className="p-3">Date</th>
-                                                <th className="p-3">Ref Inv No</th>
-                                                <th className="p-3">Customer (GST - Name)</th>
-                                                <th className="p-3 text-center">Sales Type</th>
-                                                <th className="p-3">Mode</th>
-                                                <th className="p-3 text-right">Invoice Value</th>
-                                                <th className="p-3 text-center">Status</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-gray-100 font-medium">
-                                            {groupedVouchers.map((v, i) => (
-                                                <tr key={v.id} className="hover:bg-gray-50">
-                                                    <td className="p-3 text-gray-500">{i + 1}</td>
-                                                    <td className="p-3 font-bold text-blue-700">{v.voucherNo}</td>
-                                                    <td className="p-3">{v.voucherDate}</td>
-                                                    <td className="p-3">{v.supplierInvoice}</td>
-                                                    <td className="p-3 font-bold text-gray-900">{v.partyName}</td>
-                                                    <td className="p-3 text-center">
-                                                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${v.hasGst ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-800'}`}>
-                                                            {v.salesTypeCategory}
-                                                        </span>
-                                                    </td>
-                                                    <td className="p-3">{v.mode}</td>
-                                                    <td className="p-3 text-right font-bold text-gray-900">₹{v.invoiceValue.toLocaleString()}</td>
-                                                    <td className="p-3 text-center">
-                                                        {v.status === "error" ? (
-                                                            <span className="text-red-700 bg-red-100 font-bold px-2 py-0.5 rounded text-[10px]" title={v.errorMessage}>
-                                                                Import Blocked
-                                                            </span>
-                                                        ) : (
-                                                            <span className="text-green-700 bg-green-100 font-bold px-2 py-0.5 rounded text-[10px]">
-                                                                Ready
-                                                            </span>
-                                                        )}
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
+                            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-3">
+                                {(() => {
+                                    const norm = (value: string) => value.toLowerCase().replace(/\s+/g, " ").trim();
+                                    const cellFor = (voucher: ManualGroupedVoucher, header: string) => {
+                                        const key = norm(header);
+                                        const entry = voucher.accountingEntries.find((row) => norm(row.sheetColumn || "") === key);
+                                        if (entry) return { amount: entry.amount, ledgerFound: entry.ledgerFound, ledgerName: entry.ledgerName };
+                                        const slab = SALES_SLABS.find((row) => [row.purchase, row.tax, row.cgst, row.sgst].some((name) => name && norm(name) === key));
+                                        if (slab) {
+                                            const lines = voucher.items.filter((item) => item.taxKind === slab.kind && Number(item.rawGstRate ?? item.gstRate) === slab.rate);
+                                            if (lines.length === 0) return undefined;
+                                            if (norm(slab.purchase) === key) {
+                                                const amount = lines.reduce((sum, item) => sum + Number(item.taxableValue || 0), 0);
+                                                if (amount <= 0) return undefined;
+                                                return { amount, ledgerFound: lines.every((item) => item.salesLedgerFound), ledgerName: lines[0].salesLedger };
+                                            }
+                                            if (slab.tax && norm(slab.tax) === key) {
+                                                const amount = lines.reduce((sum, item) => sum + Number(item.igstAmount || 0), 0);
+                                                if (amount <= 0) return undefined;
+                                                return { amount, ledgerFound: lines.every((item) => item.igstLedgerFound), ledgerName: lines[0].matchedIgstLedgerName || header };
+                                            }
+                                            if (slab.cgst && norm(slab.cgst) === key) {
+                                                const amount = lines.reduce((sum, item) => sum + Number(item.cgstAmount || 0), 0);
+                                                if (amount <= 0) return undefined;
+                                                return { amount, ledgerFound: lines.every((item) => item.cgstLedgerFound), ledgerName: lines[0].matchedCgstLedgerName || header };
+                                            }
+                                            if (slab.sgst && norm(slab.sgst) === key) {
+                                                const amount = lines.reduce((sum, item) => sum + Number(item.sgstAmount || 0), 0);
+                                                if (amount <= 0) return undefined;
+                                                return { amount, ledgerFound: lines.every((item) => item.sgstLedgerFound), ledgerName: lines[0].matchedSgstLedgerName || header };
+                                            }
+                                        }
+                                        if (key === "discount") {
+                                            const amount = Number(voucher.overallDiscountAmt || voucher.discountTotal || 0);
+                                            if (amount <= 0) return undefined;
+                                            return { amount, ledgerFound: voucher.overallDiscountLedgerFound !== false, ledgerName: voucher.overallDiscountLedger || "Discount" };
+                                        }
+                                        return undefined;
+                                    };
+                                    const slabHeaders = SALES_SLAB_HEADERS.filter((header) => groupedVouchers.some((voucher) => cellFor(voucher, header)));
+                                    const headCell = "px-3 py-2.5 border border-[#3730A3] font-bold text-center whitespace-nowrap align-middle";
+                                    const idCell = "px-3 py-2.5 border border-gray-200 text-center whitespace-nowrap bg-white align-middle";
+                                    return (
+                                        <div className="overflow-x-auto rounded-xl border border-[#312E81]/20 shadow-sm">
+                                            <table className="w-max min-w-full text-[11px] border-collapse">
+                                                <thead>
+                                                    <tr className="bg-[#312E81] text-white">
+                                                        <th className={headCell}>#</th>
+                                                        <th className={headCell}>Voucher Date</th>
+                                                        <th className={headCell}>Auto Voucher No.</th>
+                                                        <th className={headCell}>GSTIN of supplier</th>
+                                                        <th className={headCell}>SupplierName</th>
+                                                        <th className={headCell}>Invoice number</th>
+                                                        <th className={headCell}>Invoice Date</th>
+                                                        <th className={headCell}>Invoice Value (₹)</th>
+                                                        <th className={headCell}>Place of supply</th>
+                                                        {slabHeaders.map((header) => (
+                                                            <th key={header} className={headCell}>{header}</th>
+                                                        ))}
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {groupedVouchers.map((voucher, index) => (
+                                                        <tr key={voucher.id}>
+                                                            <td className={`${idCell} font-bold text-[#312E81]`}>{index + 1}.</td>
+                                                            <td className={idCell}>{voucher.voucherDate}</td>
+                                                            <td className={`${idCell} font-mono font-bold text-blue-800`}>{voucher.voucherNo}</td>
+                                                            <td className={idCell}>{voucher.gstin || ""}</td>
+                                                            <td className={`${idCell} font-bold ${voucher.partyMatch ? "text-green-800" : "text-red-700"}`}>
+                                                                {voucher.partyName} {voucher.partyMatch ? "✓" : "✗"}
+                                                            </td>
+                                                            <td className={idCell}>{voucher.supplierInvoice}</td>
+                                                            <td className={idCell}>{voucher.invoiceDate}</td>
+                                                            <td className={`${idCell} font-bold`}>₹{voucher.invoiceValue.toLocaleString()}</td>
+                                                            <td className={idCell}>{voucher.pos || ""}</td>
+                                                            {slabHeaders.map((header) => {
+                                                                const entry = cellFor(voucher, header);
+                                                                if (!entry) return <td key={`${voucher.id}-${header}`} className="px-3 py-2.5 border border-gray-200 bg-white" />;
+                                                                const found = entry.ledgerFound;
+                                                                return (
+                                                                    <td
+                                                                        key={`${voucher.id}-${header}`}
+                                                                        title={found ? `${entry.ledgerName} found` : `${entry.ledgerName} not found`}
+                                                                        className={`px-3 py-2.5 border text-center font-bold whitespace-nowrap ${found ? "border-green-200 bg-green-50 text-green-900" : "border-red-200 bg-red-50 text-red-800"}`}
+                                                                    >
+                                                                        {entry.amount.toLocaleString()} {found ? "✓" : "✗"}
+                                                                    </td>
+                                                                );
+                                                            })}
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    );
+                                })()}
                             </div>
                         )}
                     </div>
