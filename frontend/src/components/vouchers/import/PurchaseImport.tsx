@@ -73,6 +73,7 @@ interface ManualAccountingRow {
     _matchedLedgerId?: string | number;
     _isParty?: boolean;
     _isDiscount?: boolean;
+    sheetColumn?: string;
 }
 
 // Grouped Voucher object containing Common Header + Rows + Validation Results
@@ -524,7 +525,7 @@ const PurchaseImport: React.FC = () => {
                     let discountAssigned = rawGroups[groupKey].items.some((it: any) => Number(it.discount) > 0);
                     let accountingDebit = 0;
 
-                    const pushAccounting = (ledgerName: string, amount: number, type: "Debit" | "Credit", isParty = false) => {
+                    const pushAccounting = (ledgerName: string, amount: number, type: "Debit" | "Credit", isParty = false, sheetColumn = "") => {
                         if (!ledgerName || amount <= 0) return;
                         rawGroups[groupKey].accountingEntries.push({
                             srNo: rawGroups[groupKey].accountingEntries.length + 1,
@@ -532,6 +533,7 @@ const PurchaseImport: React.FC = () => {
                             amount,
                             type,
                             _isParty: isParty,
+                            sheetColumn,
                         });
                     };
 
@@ -559,18 +561,18 @@ const PurchaseImport: React.FC = () => {
                         }
 
                         if (!slabIsItem) {
-                            pushAccounting(headerLabel(slab.purchase), taxable, "Debit");
+                            pushAccounting(headerLabel(slab.purchase), taxable, "Debit", false, slab.purchase);
                             accountingDebit += taxable;
                             if (igstAmount > 0 && slab.tax) {
-                                pushAccounting(headerLabel(slab.tax), igstAmount, "Debit");
+                                pushAccounting(headerLabel(slab.tax), igstAmount, "Debit", false, slab.tax);
                                 accountingDebit += igstAmount;
                             }
                             if (cgstAmount > 0 && slab.cgst) {
-                                pushAccounting(headerLabel(slab.cgst), cgstAmount, "Debit");
+                                pushAccounting(headerLabel(slab.cgst), cgstAmount, "Debit", false, slab.cgst);
                                 accountingDebit += cgstAmount;
                             }
                             if (sgstAmount > 0 && slab.sgst) {
-                                pushAccounting(headerLabel(slab.sgst), sgstAmount, "Debit");
+                                pushAccounting(headerLabel(slab.sgst), sgstAmount, "Debit", false, slab.sgst);
                                 accountingDebit += sgstAmount;
                             }
                             return;
@@ -612,9 +614,9 @@ const PurchaseImport: React.FC = () => {
                     });
 
                     if (!slabIsItem && accountingDebit > 0) {
-                        if (discount > 0) pushAccounting(headerLabel("discount"), discount, "Credit");
+                        if (discount > 0) pushAccounting(headerLabel("discount"), discount, "Credit", false, "discount");
                         const partyCreditName = supplierName || gstin || rawGroups[groupKey].partyName || "Supplier";
-                        pushAccounting(partyCreditName, Math.max(0, Number((accountingDebit - discount).toFixed(2))), "Credit", true);
+                        pushAccounting(partyCreditName, Math.max(0, Number((accountingDebit - discount).toFixed(2))), "Credit", true, "supplier");
                     }
                 }
             }
@@ -1644,6 +1646,33 @@ const PurchaseImport: React.FC = () => {
                                     Cancel
                                 </button>
 
+                                {Array.from(
+                                    groupedVouchers
+                                        .filter((voucher) => !voucher.partyMatch && voucher.partyName)
+                                        .reduce((parties, voucher) => {
+                                            if (!parties.has(voucher.partyName)) parties.set(voucher.partyName, voucher);
+                                            return parties;
+                                        }, new Map<string, ManualGroupedVoucher>())
+                                        .values()
+                                ).map((voucher) => (
+                                    <button
+                                        key={voucher.partyName}
+                                        onClick={() => {
+                                            const params = new URLSearchParams({
+                                                name: voucher.partyName,
+                                                group: "sundry-creditors",
+                                                gst: voucher.gstin || "",
+                                                state: voucher.pos || voucher.partyStateName || "",
+                                                returnUrl: "/app/vouchers/purchase-import",
+                                            });
+                                            navigate(`/app/masters/ledger/create?${params.toString()}`);
+                                        }}
+                                        className="px-4 py-2 bg-amber-600 text-white text-xs font-bold rounded-lg hover:bg-amber-700 shadow-md"
+                                    >
+                                        Create {voucher.partyName} in Sundry Creditors
+                                    </button>
+                                ))}
+
                                 <button
                                     onClick={saveImportedVouchers}
                                     disabled={isProcessing || groupedVouchers.some(v => v.status === "error") || !groupedVouchers.some(v => v.status === "pending")}
@@ -1968,44 +1997,155 @@ const PurchaseImport: React.FC = () => {
                                 ))}
                             </div>
                         ) : (
-                            /* COMPACT TABLE VIEW */
-                            <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto shadow-sm">
-                                <table className="w-full text-left text-xs border-collapse">
-                                    <thead className="bg-gray-100 border-b border-gray-300 font-bold uppercase tracking-wider text-gray-600">
-                                        <tr>
-                                            <th className="px-3 py-2.5">Voucher Date</th>
-                                            <th className="px-3 py-2.5">Auto Voucher No.</th>
-                                            <th className="px-3 py-2.5">Supplier Invoice</th>
-                                            <th className="px-3 py-2.5">Party / Supplier Name</th>
-                                            <th className="px-3 py-2.5">Transaction Mode</th>
-                                            <th className="px-3 py-2.5 text-right">Invoice Value</th>
-                                            <th className="px-3 py-2.5 text-center">Validation Status</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-200">
-                                        {groupedVouchers.map((v) => (
-                                            <tr key={v.id} className="hover:bg-gray-50">
-                                                <td className="px-3 py-2.5 font-medium">{v.voucherDate}</td>
-                                                <td className="px-3 py-2.5 font-mono font-bold text-blue-700">{v.voucherNo}</td>
-                                                <td className="px-3 py-2.5">{v.supplierInvoice}</td>
-                                                <td className="px-3 py-2.5 font-bold">
-                                                    {v.partyName} {v.partyMatch ? <span className="text-green-700 text-[10px]"> (✓ Found)</span> : <span className="text-red-700 text-[10px]"> (✗ Not Found)</span>}
-                                                </td>
-                                                <td className="px-3 py-2.5">{v.mode}</td>
-                                                <td className="px-3 py-2.5 text-right font-bold text-blue-700">₹{v.invoiceValue.toLocaleString()}</td>
-                                                <td className="px-3 py-2.5 text-center font-bold">
-                                                    {v.status === "imported" ? (
-                                                        <span className="text-green-600">Saved</span>
-                                                    ) : v.status === "error" ? (
-                                                        <span className="text-red-600">{v.errorMessage || "Import Blocked"}</span>
-                                                    ) : (
-                                                        <span className="text-green-600">✓ All Validations Passed</span>
-                                                    )}
-                                                </td>
+                            /* COLUMNAR VIEW — one row per accounting/item line */
+                            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-3">
+                                {groupedVouchers.length > 0 && groupedVouchers.every((v) => String(v.mode).toLowerCase().includes("item")) ? (
+                                    <div className="overflow-x-auto rounded-xl border border-gray-200">
+                                    <table className="w-full text-left text-xs border-collapse min-w-[1400px]">
+                                        <thead className="bg-gray-100 border-b border-gray-300 font-bold uppercase tracking-wider text-gray-600">
+                                            <tr>
+                                                <th className="px-3 py-2.5 text-center">#</th>
+                                                <th className="px-3 py-2.5">Voucher Date</th>
+                                                <th className="px-3 py-2.5">Auto Voucher No.</th>
+                                                <th className="px-3 py-2.5">Supplier Invoice</th>
+                                                <th className="px-3 py-2.5">Invoice Date</th>
+                                                <th className="px-3 py-2.5">Party / Supplier Name</th>
+                                                <th className="px-3 py-2.5">Transaction Mode</th>
+                                                <th className="px-3 py-2.5 text-right">Invoice Value</th>
+                                                <th className="px-3 py-2.5">Item</th>
+                                                <th className="px-3 py-2.5">HSN/SAC</th>
+                                                <th className="px-3 py-2.5 text-right">Qty</th>
+                                                <th className="px-3 py-2.5">Unit</th>
+                                                <th className="px-3 py-2.5 text-right">Rate</th>
+                                                <th className="px-3 py-2.5 text-right">GST (%)</th>
+                                                <th className="px-3 py-2.5 text-right">Taxable</th>
+                                                <th className="px-3 py-2.5 text-right">Item Total</th>
+                                                <th className="px-3 py-2.5">Purchase-Ledger</th>
+                                                <th className="px-3 py-2.5 text-center">Validation</th>
                                             </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                                        </thead>
+                                        <tbody>
+                                            {groupedVouchers.map((v, voucherIndex) => {
+                                                const lines = v.items.length > 0 ? v.items : [null];
+                                                const span = lines.length;
+                                                return lines.map((item, i) => (
+                                                    <tr key={`${v.id}-item-${i}`} className="border-b border-gray-200 hover:bg-gray-50 align-top">
+                                                        {i === 0 && (
+                                                            <>
+                                                                <td rowSpan={span} className="px-3 py-2.5 text-center font-bold text-[#312E81] border-r border-gray-100">{voucherIndex + 1}.</td>
+                                                                <td rowSpan={span} className="px-3 py-2.5 font-medium border-r border-gray-100">{v.voucherDate}</td>
+                                                                <td rowSpan={span} className="px-3 py-2.5 font-mono font-bold text-blue-700 border-r border-gray-100">{v.voucherNo}</td>
+                                                                <td rowSpan={span} className="px-3 py-2.5 border-r border-gray-100">{v.supplierInvoice}</td>
+                                                                <td rowSpan={span} className="px-3 py-2.5 border-r border-gray-100">{v.invoiceDate}</td>
+                                                                <td rowSpan={span} className="px-3 py-2.5 font-bold border-r border-gray-100">
+                                                                    {v.partyName} {v.partyMatch ? <span className="text-green-700 text-[10px]"> (✓ Found)</span> : <span className="text-red-700 text-[10px]"> (✗ Not Found)</span>}
+                                                                </td>
+                                                                <td rowSpan={span} className="px-3 py-2.5 border-r border-gray-100">{v.mode}</td>
+                                                                <td rowSpan={span} className="px-3 py-2.5 text-right font-bold text-blue-700 border-r border-gray-100">₹{v.invoiceValue.toLocaleString()}</td>
+                                                            </>
+                                                        )}
+                                                        <td className="px-3 py-2.5 font-bold text-gray-900">{item?.itemName || "-"}</td>
+                                                        <td className="px-3 py-2.5">{item?.hsnCode || "-"}</td>
+                                                        <td className="px-3 py-2.5 text-right">{item ? item.quantity : "-"}</td>
+                                                        <td className="px-3 py-2.5">{item?.unit || "-"}</td>
+                                                        <td className="px-3 py-2.5 text-right">{item ? `₹${item.rate.toLocaleString()}` : "-"}</td>
+                                                        <td className="px-3 py-2.5 text-right">{item ? `${item.gstRate}%` : "-"}</td>
+                                                        <td className="px-3 py-2.5 text-right font-bold">{item ? `₹${item.taxableValue.toLocaleString()}` : "-"}</td>
+                                                        <td className="px-3 py-2.5 text-right font-bold text-blue-700">{item ? `₹${item.itemTotal.toLocaleString()}` : "-"}</td>
+                                                        <td className="px-3 py-2.5">
+                                                            {item ? (
+                                                                <div className="flex flex-col">
+                                                                    <span>{item.purchaseLedger}</span>
+                                                                    {item.purchaseLedgerFound ? (
+                                                                        <span className="text-[9px] text-green-700 bg-green-50 px-1.5 py-0.5 rounded font-bold w-fit mt-0.5">✓ Found</span>
+                                                                    ) : (
+                                                                        <span className="text-[9px] text-red-700 bg-red-50 px-1.5 py-0.5 rounded font-bold w-fit mt-0.5">✗ Not Found</span>
+                                                                    )}
+                                                                </div>
+                                                            ) : "-"}
+                                                        </td>
+                                                        <td className="px-3 py-2.5 text-center">
+                                                            {item ? (
+                                                                item.itemFound && item.hsnFound && item.unitFound ? (
+                                                                    <span className="text-[10px] text-green-700 bg-green-50 px-2 py-0.5 rounded font-bold">✓ Found</span>
+                                                                ) : (
+                                                                    <span className="text-[10px] text-red-700 bg-red-50 px-2 py-0.5 rounded font-bold">✗ Not Found</span>
+                                                                )
+                                                            ) : (
+                                                                <span className="text-red-600 font-bold">{v.errorMessage || "No lines"}</span>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                ));
+                                            })}
+                                        </tbody>
+                                    </table>
+                                    </div>
+                                ) : (
+                                    (() => {
+                                        const norm = (value: string) => value.toLowerCase().replace(/\s+/g, " ").trim();
+                                        const entryFor = (voucher: ManualGroupedVoucher, header: string) =>
+                                            voucher.accountingEntries.find((entry) => norm(entry.sheetColumn || "") === norm(header));
+                                        const slabHeaders = SLAB_AMOUNT_HEADERS.filter((header) =>
+                                            groupedVouchers.some((voucher) => entryFor(voucher, header))
+                                        );
+                                        const headCell = "px-3 py-2.5 border border-[#3730A3] font-bold text-center whitespace-nowrap align-middle";
+                                        const idCell = "px-3 py-2.5 border border-gray-200 text-center whitespace-nowrap bg-white align-middle";
+                                        return (
+                                            <div className="overflow-x-auto rounded-xl border border-[#312E81]/20 shadow-sm">
+                                            <table className="w-max min-w-full text-[11px] border-collapse">
+                                                <thead>
+                                                    <tr className="bg-[#312E81] text-white">
+                                                        <th className={headCell}>#</th>
+                                                        <th className={headCell}>Voucher Date</th>
+                                                        <th className={headCell}>Auto Voucher No.</th>
+                                                        <th className={headCell}>GSTIN of supplier</th>
+                                                        <th className={headCell}>SupplierName</th>
+                                                        <th className={headCell}>Invoice number</th>
+                                                        <th className={headCell}>Invoice Date</th>
+                                                        <th className={headCell}>Invoice Value (₹)</th>
+                                                        <th className={headCell}>Place of supply</th>
+                                                        {slabHeaders.map((header) => (
+                                                            <th key={header} className={headCell}>{header}</th>
+                                                        ))}
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {groupedVouchers.map((voucher, index) => (
+                                                        <tr key={voucher.id}>
+                                                            <td className={`${idCell} font-bold text-[#312E81]`}>{index + 1}.</td>
+                                                            <td className={idCell}>{voucher.voucherDate}</td>
+                                                            <td className={`${idCell} font-mono font-bold text-blue-800`}>{voucher.voucherNo}</td>
+                                                            <td className={idCell}>{voucher.gstin || ""}</td>
+                                                            <td className={`${idCell} font-bold ${voucher.partyMatch ? "text-green-800" : "text-red-700"}`}>
+                                                                {voucher.partyName} {voucher.partyMatch ? "✓" : "✗"}
+                                                            </td>
+                                                            <td className={idCell}>{voucher.supplierInvoice}</td>
+                                                            <td className={idCell}>{voucher.invoiceDate}</td>
+                                                            <td className={`${idCell} font-bold`}>₹{voucher.invoiceValue.toLocaleString()}</td>
+                                                            <td className={idCell}>{voucher.pos || ""}</td>
+                                                            {slabHeaders.map((header) => {
+                                                                const entry = entryFor(voucher, header);
+                                                                if (!entry) return <td key={`${voucher.id}-${header}`} className="px-3 py-2.5 border border-gray-200 bg-white" />;
+                                                                const found = entry.ledgerFound;
+                                                                return (
+                                                                    <td
+                                                                        key={`${voucher.id}-${header}`}
+                                                                        title={found ? `${entry.ledgerName} found` : `${entry.ledgerName} not found`}
+                                                                        className={`px-3 py-2.5 border text-center font-bold whitespace-nowrap ${found ? "border-green-200 bg-green-50 text-green-900" : "border-red-200 bg-red-50 text-red-800"}`}
+                                                                    >
+                                                                        {entry.amount.toLocaleString()} {found ? "✓" : "✗"}
+                                                                    </td>
+                                                                );
+                                                            })}
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                            </div>
+                                        );
+                                    })()
+                                )}
                             </div>
                         )}
                     </div>

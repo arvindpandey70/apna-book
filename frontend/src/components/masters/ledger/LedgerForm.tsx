@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useAppContext } from "../../../context/AppContext";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { Ledger } from "../../../types";
 import type { LedgerGroup } from "../../../types";
 import { ArrowLeft, Save } from "lucide-react";
@@ -16,6 +16,7 @@ const LedgerForm: React.FC = () => {
 
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
 
   const isEditMode = Boolean(id);
 
@@ -157,6 +158,43 @@ const LedgerForm: React.FC = () => {
 
     fetchLedgerGroups();
   }, []);
+
+  useEffect(() => {
+    if (isEditMode) return;
+    const name = searchParams.get("name") || "";
+    const gstNumber = (searchParams.get("gst") || "").toUpperCase();
+    const stateQuery = searchParams.get("state") || "";
+    if (!name && !gstNumber && !stateQuery) return;
+    const matchedState = states.find((state) => {
+      const query = stateQuery.trim().toLowerCase();
+      return query === state.name.toLowerCase()
+        || query === `${state.name}(${state.code})`.toLowerCase()
+        || query === state.code;
+    });
+    setFormData((prev) => ({
+      ...prev,
+      name: name || prev.name,
+      gstNumber: gstNumber || prev.gstNumber,
+      state: matchedState ? `${matchedState.name}(${matchedState.code})` : prev.state,
+    }));
+  }, [isEditMode, searchParams]);
+
+  useEffect(() => {
+    if (isEditMode) return;
+    const groupQuery = searchParams.get("group");
+    const groupName = groupQuery === "sundry-creditors"
+      ? "sundry creditors"
+      : groupQuery === "sundry-debtors"
+        ? "sundry debtors"
+        : "";
+    if (!groupName) return;
+    const loadedGroups = Array.isArray(ledgerGroups) ? ledgerGroups : [];
+    const matchedGroup = [...loadedGroups, ...baseGroups].find(
+      (group) => String(group.name || "").toLowerCase().trim() === groupName
+    );
+    if (!matchedGroup) return;
+    setFormData((prev) => ({ ...prev, groupId: String(matchedGroup.id) }));
+  }, [isEditMode, ledgerGroups, searchParams]);
 
   // Fetch ledger when editing
   useEffect(() => {
@@ -438,7 +476,8 @@ const LedgerForm: React.FC = () => {
           data.message || "Ledger created successfully!",
           "success"
         );
-        navigate("/app/masters/ledger");
+        const returnUrl = searchParams.get("returnUrl") || "";
+        navigate(returnUrl.startsWith("/app/") ? returnUrl : "/app/masters/ledger");
       } else {
         Swal.fire("Error", data.message || "Failed to create ledger", "error");
       }
