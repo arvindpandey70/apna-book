@@ -122,6 +122,7 @@ import ItemMonthlySummary from "./components/reports/ItemMonthlySummary";
 import StockVouchers from "./components/reports/StockVouchers";
 import AgeingAnalysis from "./components/reports/AgeingAnalysis";
 import GodownSummary from "./components/reports/GodownSummary";
+import DeadStockReport from "./components/reports/DeadStockReport";
 import GSTAnalysis from "./components/reports/GSTAnalysis";
 import OutstandingReports from "./components/reports/outstanding/OutstandingReports";
 import SalesReport from "./components/reports/SalesReport";
@@ -2091,6 +2092,26 @@ function App() {
                     <RequireCompany>
                       <RequireSubscription>
                         <ReportComingSoon title="Financial Changes" category="Accounting Reports" />
+                      </RequireSubscription>
+                    </RequireCompany>
+                  }
+                />
+                <Route
+                  path="reports/ded-stock"
+                  element={
+                    <RequireCompany>
+                      <RequireSubscription>
+                        <DeadStockReport />
+                      </RequireSubscription>
+                    </RequireCompany>
+                  }
+                />
+                <Route
+                  path="reports/dead-stock"
+                  element={
+                    <RequireCompany>
+                      <RequireSubscription>
+                        <DeadStockReport />
                       </RequireSubscription>
                     </RequireCompany>
                   }

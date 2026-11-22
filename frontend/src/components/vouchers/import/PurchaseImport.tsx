@@ -19,6 +19,7 @@ import { extractStateCode } from "../../../utils/ledgerUtils";
 import * as XLSX from "xlsx-js-style";
 import axios from "axios";
 import Swal from "sweetalert2";
+import { allSystemGroups as baseGroups } from "../../../constants/ledgerGroups";
 
 // Item entry matching Manual Purchase Voucher structure
 interface ManualItemRow {
@@ -176,6 +177,7 @@ const PurchaseImport: React.FC = () => {
     const [saveProgress, setSaveProgress] = useState({ done: 0, total: 0 });
     const [selectedMode, setSelectedMode] = useState<"Item Invoice" | "Accounting Invoice">("Item Invoice");
     const [viewLayout, setViewLayout] = useState<"card" | "table">("card");
+    const [sundryGroupId, setSundryGroupId] = useState<number | string>(-109);
 
     const companyId = localStorage.getItem("company_id") || "";
     const ownerType = localStorage.getItem("supplier") || "";
@@ -184,7 +186,7 @@ const PurchaseImport: React.FC = () => {
     const fetchLedgersAndItems = async () => {
         if (!companyId || !ownerId || !ownerType) return;
         try {
-            const [ledgerRes, itemRes, unitRes] = await Promise.all([
+            const [ledgerRes, itemRes, unitRes, groupRes] = await Promise.all([
                 axios.get(`${import.meta.env.VITE_API_URL}/api/ledger`, {
                     params: { company_id: companyId, owner_type: ownerType, owner_id: ownerId }
                 }),
@@ -193,6 +195,9 @@ const PurchaseImport: React.FC = () => {
                 }),
                 axios.get(`${import.meta.env.VITE_API_URL}/api/stock-units`, {
                     params: { company_id: companyId, owner_type: ownerType, owner_id: ownerId }
+                }).catch(() => ({ data: [] })),
+                axios.get(`${import.meta.env.VITE_API_URL}/api/ledger-groups`, {
+                    params: { company_id: companyId, owner_type: ownerType, owner_id: ownerId }
                 }).catch(() => ({ data: [] }))
             ]);
             setLedgers(Array.isArray(ledgerRes.data) ? ledgerRes.data : []);
@@ -200,6 +205,14 @@ const PurchaseImport: React.FC = () => {
             setItems(Array.isArray(fetchedItems) ? fetchedItems : []);
             const fetchedUnits = (unitRes.data as any)?.data || unitRes.data;
             setStockUnits(Array.isArray(fetchedUnits) ? fetchedUnits : []);
+
+            const allGroups = [...(Array.isArray(groupRes.data) ? groupRes.data : []), ...baseGroups];
+            const matchedGroup = allGroups.find(
+                (g: any) => String(g.name || "").toLowerCase().trim() === "sundry creditors"
+            );
+            if (matchedGroup) {
+                setSundryGroupId(matchedGroup.id);
+            }
         } catch (err) {
             console.error("Error fetching masters:", err);
         }
@@ -1225,7 +1238,8 @@ const PurchaseImport: React.FC = () => {
                     errors.push(`Balance Mismatch: Total Debit (₹${totalDebit}) != Total Credit (₹${totalCredit})`);
                 }
 
-                const status = errors.length === 0 ? "pending" : "error";
+                const nonPartyErrors = errors.filter(e => !e.startsWith("Party / Supplier Name"));
+                const status = nonPartyErrors.length === 0 ? "pending" : "error";
                 const discountTotal = itemsValidated.reduce((sum, item) => sum + Number(item.discount || 0), 0);
 
                 validatedVouchers.push({
@@ -1283,13 +1297,69 @@ const PurchaseImport: React.FC = () => {
         }
 
         setIsProcessing(true);
-        const pendingVouchers = groupedVouchers.filter(v => v.status === "pending");
-        setSaveProgress({ done: 0, total: pendingVouchers.length });
-
         const updatedVouchers = [...groupedVouchers];
-        let done = 0;
 
         try {
+            // STEP 1: Auto-create missing traders in Sundry Creditors in bulk
+            const missingPartiesMap = new Map<string, any>();
+            updatedVouchers.forEach(v => {
+                const pName = (v.partyName || "").trim();
+                if (pName && !v.partyMatch && !missingPartiesMap.has(pName.toLowerCase())) {
+                    missingPartiesMap.set(pName.toLowerCase(), {
+                        name: pName,
+                        groupId: sundryGroupId || -109,
+                        gstNumber: (v.gstin || "").trim(),
+                        state: (v.pos || v.partyStateName || "").trim(),
+                        openingBalance: 0,
+                        balanceType: "credit"
+                    });
+                }
+            });
+
+            const missingParties = Array.from(missingPartiesMap.values());
+
+            if (missingParties.length > 0) {
+                const token = localStorage.getItem("token");
+                await axios.post(`${import.meta.env.VITE_API_URL}/api/ledger/bulk`, {
+                    ledgers: missingParties,
+                    companyId,
+                    ownerType,
+                    ownerId
+                }, {
+                    headers: token ? { Authorization: `Bearer ${token}` } : {}
+                });
+
+                // Fetch fresh ledgers
+                const ledgerRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/ledger`, {
+                    params: { company_id: companyId, owner_type: ownerType, owner_id: ownerId }
+                });
+                const freshLedgers = Array.isArray(ledgerRes.data) ? ledgerRes.data : [];
+                setLedgers(freshLedgers);
+
+                // Update updatedVouchers partyMatch and accountingEntries
+                updatedVouchers.forEach(v => {
+                    const matched = freshLedgers.find((l: any) => 
+                        (l.name || "").toLowerCase().trim() === (v.partyName || "").toLowerCase().trim()
+                    );
+                    if (matched) {
+                        v.partyMatch = true;
+                        v._matchedLedgerId = matched.id;
+                        if (v.mode === "Accounting Invoice") {
+                            v.accountingEntries.forEach((ae: any) => {
+                                if (ae._isParty || !ae.ledgerName || String(ae.ledgerName).toLowerCase() === "undefined") {
+                                    ae.ledgerName = matched.name;
+                                }
+                            });
+                        }
+                    }
+                });
+                setGroupedVouchers([...updatedVouchers]);
+            }
+
+            const pendingVouchers = updatedVouchers.filter(v => v.status === "pending");
+            setSaveProgress({ done: 0, total: pendingVouchers.length });
+            let done = 0;
+
             for (let i = 0; i < updatedVouchers.length; i++) {
                 if (updatedVouchers[i].status !== "pending") continue;
 
@@ -1359,7 +1429,14 @@ const PurchaseImport: React.FC = () => {
             const errorCount = updatedVouchers.filter(v => v.status === "error").length;
 
             if (savedCount > 0 && errorCount === 0) {
-                Swal.fire({ icon: "success", title: "All Vouchers Imported!", html: `<b>${savedCount}</b> vouchers saved successfully.` });
+                const autoCreatedMsg = missingParties.length > 0 
+                    ? `<br/><span class="text-xs text-gray-500">(${missingParties.length} missing trader(s) auto-created in Sundry Creditors)</span>` 
+                    : "";
+                Swal.fire({ 
+                    icon: "success", 
+                    title: "All Vouchers Imported!", 
+                    html: `<b>${savedCount}</b> vouchers saved successfully.${autoCreatedMsg}` 
+                });
             } else if (savedCount > 0 || errorCount > 0) {
                 Swal.fire({
                     icon: savedCount > 0 ? "warning" : "error",
@@ -1618,7 +1695,7 @@ const PurchaseImport: React.FC = () => {
                                     </span>
                                 </h3>
                                 <p className="text-xs text-gray-500">
-                                    Green badges indicate master matches. Invalid vouchers with missing masters or balance mismatch are blocked.
+                                    Green badges indicate master matches. Missing traders are automatically created in Sundry Creditors when saving.
                                 </p>
                             </div>
                             <div className="flex flex-wrap items-center gap-3">
@@ -1646,32 +1723,6 @@ const PurchaseImport: React.FC = () => {
                                     Cancel
                                 </button>
 
-                                {Array.from(
-                                    groupedVouchers
-                                        .filter((voucher) => !voucher.partyMatch && voucher.partyName)
-                                        .reduce((parties, voucher) => {
-                                            if (!parties.has(voucher.partyName)) parties.set(voucher.partyName, voucher);
-                                            return parties;
-                                        }, new Map<string, ManualGroupedVoucher>())
-                                        .values()
-                                ).map((voucher) => (
-                                    <button
-                                        key={voucher.partyName}
-                                        onClick={() => {
-                                            const params = new URLSearchParams({
-                                                name: voucher.partyName,
-                                                group: "sundry-creditors",
-                                                gst: voucher.gstin || "",
-                                                state: voucher.pos || voucher.partyStateName || "",
-                                                returnUrl: "/app/vouchers/purchase-import",
-                                            });
-                                            navigate(`/app/masters/ledger/create?${params.toString()}`);
-                                        }}
-                                        className="px-4 py-2 bg-amber-600 text-white text-xs font-bold rounded-lg hover:bg-amber-700 shadow-md"
-                                    >
-                                        Create {voucher.partyName} in Sundry Creditors
-                                    </button>
-                                ))}
 
                                 <button
                                     onClick={saveImportedVouchers}
@@ -1711,6 +1762,10 @@ const PurchaseImport: React.FC = () => {
                                                 ) : voucher.status === "error" ? (
                                                     <span className="inline-flex items-center text-red-700 text-xs font-bold bg-red-100 px-3 py-1 rounded-full" title={voucher.errorMessage}>
                                                         <AlertTriangle size={14} className="mr-1" /> Import Blocked ({voucher.errorMessage})
+                                                    </span>
+                                                ) : !voucher.partyMatch ? (
+                                                    <span className="inline-flex items-center text-amber-700 text-xs font-bold bg-amber-100 px-3 py-1 rounded-full">
+                                                        <CheckCircle size={14} className="mr-1" /> Ready for Import (Party will auto-create)
                                                     </span>
                                                 ) : (
                                                     <span className="inline-flex items-center text-green-700 text-xs font-bold bg-green-100 px-3 py-1 rounded-full">
@@ -1786,8 +1841,10 @@ const PurchaseImport: React.FC = () => {
                                                         </span>
                                                         {voucher.partyMatch && (voucher.slabImport || voucher.partyStateCode) ? (
                                                             <span className="text-[10px] text-green-700 bg-green-50 px-2 py-0.5 rounded font-bold">✓ Party & State Valid</span>
+                                                        ) : !voucher.partyMatch ? (
+                                                            <span className="text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded font-bold">⚡ Will Auto-Create in Sundry Creditors</span>
                                                         ) : (
-                                                            <span className="text-[10px] text-red-700 bg-red-50 px-2 py-0.5 rounded font-bold">✗ {voucher.partyMatch ? 'State Missing' : 'Party Not Found'}</span>
+                                                            <span className="text-[10px] text-red-700 bg-red-50 px-2 py-0.5 rounded font-bold">✗ State Missing</span>
                                                         )}
                                                     </div>
                                                 </div>
@@ -2038,7 +2095,7 @@ const PurchaseImport: React.FC = () => {
                                                                 <td rowSpan={span} className="px-3 py-2.5 border-r border-gray-100">{v.supplierInvoice}</td>
                                                                 <td rowSpan={span} className="px-3 py-2.5 border-r border-gray-100">{v.invoiceDate}</td>
                                                                 <td rowSpan={span} className="px-3 py-2.5 font-bold border-r border-gray-100">
-                                                                    {v.partyName} {v.partyMatch ? <span className="text-green-700 text-[10px]"> (✓ Found)</span> : <span className="text-red-700 text-[10px]"> (✗ Not Found)</span>}
+                                                                    {v.partyName} {v.partyMatch ? <span className="text-green-700 text-[10px]"> (✓ Found)</span> : <span className="text-amber-700 text-[10px]"> (⚡ Auto-Create)</span>}
                                                                 </td>
                                                                 <td rowSpan={span} className="px-3 py-2.5 border-r border-gray-100">{v.mode}</td>
                                                                 <td rowSpan={span} className="px-3 py-2.5 text-right font-bold text-blue-700 border-r border-gray-100">₹{v.invoiceValue.toLocaleString()}</td>
@@ -2117,8 +2174,8 @@ const PurchaseImport: React.FC = () => {
                                                             <td className={idCell}>{voucher.voucherDate}</td>
                                                             <td className={`${idCell} font-mono font-bold text-blue-800`}>{voucher.voucherNo}</td>
                                                             <td className={idCell}>{voucher.gstin || ""}</td>
-                                                            <td className={`${idCell} font-bold ${voucher.partyMatch ? "text-green-800" : "text-red-700"}`}>
-                                                                {voucher.partyName} {voucher.partyMatch ? "✓" : "✗"}
+                                                            <td className={`${idCell} font-bold ${voucher.partyMatch ? "text-green-800" : "text-amber-700"}`}>
+                                                                {voucher.partyName} {voucher.partyMatch ? "✓" : "⚡"}
                                                             </td>
                                                             <td className={idCell}>{voucher.supplierInvoice}</td>
                                                             <td className={idCell}>{voucher.invoiceDate}</td>
