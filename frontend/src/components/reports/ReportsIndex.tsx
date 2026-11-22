@@ -13,7 +13,8 @@ import {
   AlertTriangle,
   BookCopy,
   ShieldCheck,
-  Users
+  Users,
+  PackageX
 } from 'lucide-react';
 
 interface ReportItem {
@@ -21,6 +22,7 @@ interface ReportItem {
   name: string;
   path: string;
   isPending?: boolean;
+  isRed?: boolean;
 }
 
 interface ReportCategory {
@@ -61,7 +63,8 @@ const ReportsIndex: React.FC = () => {
         { icon: <FileText size={20} />, name: 'Tax Status', path: '/app/reports/tax-status', isPending: true },
         { icon: <BarChart2 size={20} />, name: 'Financial Analysis', path: '/app/reports/financial-analysis', isPending: true },
         { icon: <TrendingUp size={20} />, name: 'Ratio Analysis', path: '/app/reports/ratio-analysis', isPending: true },
-        { icon: <Activity size={20} />, name: 'Financial Changes', path: '/app/reports/financial-changes', isPending: true }
+        { icon: <Activity size={20} />, name: 'Financial Changes', path: '/app/reports/financial-changes', isPending: true },
+        { icon: <PackageX size={20} />, name: 'Ded Stock Report', path: '/app/reports/ded-stock', isPending: true, isRed: true }
       ]
     },
     {
@@ -144,7 +147,7 @@ const ReportsIndex: React.FC = () => {
                     key={itemIndex}
                     onClick={() => navigate(item.path)}
                     className={`p-4 rounded-lg flex flex-col items-center text-center transition-colors ${
-                      item.isPending
+                      item.isPending || item.isRed
                         ? theme === 'dark'
                           ? 'bg-red-950/30 border border-red-800/50 hover:bg-red-900/40 text-red-400'
                           : 'bg-red-50 border border-red-200 hover:bg-red-100 text-red-600'
@@ -154,7 +157,7 @@ const ReportsIndex: React.FC = () => {
                     }`}
                   >
                     <div className={`p-2 rounded-full mb-2 ${
-                      item.isPending
+                      item.isPending || item.isRed
                         ? theme === 'dark'
                           ? 'bg-red-900/60 text-red-300'
                           : 'bg-red-100 text-red-600'
@@ -164,7 +167,7 @@ const ReportsIndex: React.FC = () => {
                     }`}>
                       {item.icon}
                     </div>
-                    <span className={item.isPending ? 'font-medium text-red-600 dark:text-red-400' : ''}>
+                    <span className={item.isPending || item.isRed ? 'font-medium text-red-600 dark:text-red-400' : ''}>
                       {item.name}
                     </span>
                   </button>

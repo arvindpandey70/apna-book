@@ -2096,6 +2096,26 @@ function App() {
                   }
                 />
                 <Route
+                  path="reports/ded-stock"
+                  element={
+                    <RequireCompany>
+                      <RequireSubscription>
+                        <ReportComingSoon title="Ded Stock Report" category="Accounting Reports" />
+                      </RequireSubscription>
+                    </RequireCompany>
+                  }
+                />
+                <Route
+                  path="reports/dead-stock"
+                  element={
+                    <RequireCompany>
+                      <RequireSubscription>
+                        <ReportComingSoon title="Ded Stock Report" category="Accounting Reports" />
+                      </RequireSubscription>
+                    </RequireCompany>
+                  }
+                />
+                <Route
                   path="reports/gst-analysis"
                   element={
                     <RequireCompany>
