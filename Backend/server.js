@@ -218,7 +218,9 @@ const movementAnalysisRouter = require("./routes/movementAnalysis");
 app.use(movementAnalysisRouter);
 
 const ageingAnalysisRouter = require("./routes/ageingAnalysis");
+const deadStockRouter = require("./routes/deadStock");
 app.use(ageingAnalysisRouter);
+app.use(deadStockRouter);
 
 const godownSummaryRouter = require("./routes/godownSummary");
 app.use(godownSummaryRouter);
