@@ -2247,6 +2247,169 @@ const BankStatementImport: React.FC = () => {
     }
   };
 
+  const downloadUploadedExcel = () => {
+    if (!importedRows || importedRows.length === 0) {
+      Swal.fire({
+        icon: "warning",
+        title: "No Data to Export",
+        text: "Please upload a bank statement first to download Excel.",
+        confirmButtonColor: "#059669",
+      });
+      return;
+    }
+
+    const currentBankName =
+      (excelBankId
+        ? bankAccountLedgers.find((b) => String(b.id) === String(excelBankId))?.name
+        : "") ||
+      excelBankName ||
+      "Bank Statement";
+
+    const aoa: any[][] = [
+      ["Bank :-", currentBankName],
+      [],
+      [
+        "Date",
+        "Particulars",
+        "Narration",
+        "Debit",
+        "Credit",
+        "Balance",
+        "Voucher",
+        "Reference number",
+        "Vch No",
+        "Status",
+      ],
+    ];
+
+    importedRows.forEach((row) => {
+      let vchType = row.VoucherTargetType || "";
+      if (vchType) {
+        vchType = vchType.charAt(0).toUpperCase() + vchType.slice(1);
+      }
+
+      const debitVal = Number(row.Debit || 0);
+      const creditVal = Number(row.Credit || 0);
+
+      aoa.push([
+        row.Date || "",
+        row.Particulars || "",
+        row.Narration || "",
+        debitVal,
+        creditVal,
+        row.Balance !== undefined && row.Balance !== null && row.Balance !== ""
+          ? isNaN(Number(row.Balance))
+            ? row.Balance
+            : Number(row.Balance)
+          : "",
+        vchType,
+        row["Reference number"] || "",
+        row.SimulatedVoucherNumber || "",
+        row.status ? row.status.toUpperCase() : "PENDING",
+      ]);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+    // Set row heights and column widths
+    const range = XLSX.utils.decode_range(ws["!ref"] || "A1:J" + aoa.length);
+    ws["!rows"] = [{ hpt: 24 }, { hpt: 12 }, { hpt: 30 }];
+    ws["!cols"] = [
+      { wch: 14 }, // Date
+      { wch: 30 }, // Particulars
+      { wch: 35 }, // Narration
+      { wch: 14 }, // Debit
+      { wch: 14 }, // Credit
+      { wch: 16 }, // Balance
+      { wch: 14 }, // Voucher
+      { wch: 20 }, // Reference number
+      { wch: 18 }, // Vch No
+      { wch: 14 }, // Status
+    ];
+
+    // Style bank header in Row 0
+    const cellA1 = XLSX.utils.encode_cell({ r: 0, c: 0 });
+    const cellB1 = XLSX.utils.encode_cell({ r: 0, c: 1 });
+    if (ws[cellA1]) {
+      ws[cellA1].s = {
+        font: { bold: true, sz: 12, color: { rgb: "1F2937" } },
+      };
+    }
+    if (ws[cellB1]) {
+      ws[cellB1].s = {
+        font: { bold: true, sz: 12, color: { rgb: "047857" } },
+      };
+    }
+
+    // Style Header Row (Row 2, i.e., index 2)
+    for (let C = 0; C <= 9; ++C) {
+      const cellAddress = XLSX.utils.encode_cell({ r: 2, c: C });
+      if (!ws[cellAddress]) continue;
+      ws[cellAddress].s = {
+        font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11 },
+        fill: { fgColor: { rgb: "059669" } }, // Emerald Green
+        alignment: {
+          wrapText: true,
+          horizontal: C === 3 || C === 4 || C === 5 ? "right" : "center",
+          vertical: "center",
+        },
+        border: {
+          top: { style: "thin", color: { rgb: "047857" } },
+          bottom: { style: "thin", color: { rgb: "047857" } },
+          left: { style: "thin", color: { rgb: "047857" } },
+          right: { style: "thin", color: { rgb: "047857" } },
+        },
+      };
+    }
+
+    // Format Data Rows
+    for (let R = 3; R <= range.e.r; ++R) {
+      for (let C = 0; C <= 9; ++C) {
+        const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+        if (!ws[cellAddress]) continue;
+        const isNumeric = C === 3 || C === 4 || C === 5;
+        ws[cellAddress].s = {
+          font: { sz: 10 },
+          alignment: {
+            horizontal: isNumeric
+              ? "right"
+              : C === 0 || C === 6 || C === 9
+              ? "center"
+              : "left",
+            vertical: "center",
+          },
+          border: {
+            top: { style: "thin", color: { rgb: "E5E7EB" } },
+            bottom: { style: "thin", color: { rgb: "E5E7EB" } },
+            left: { style: "thin", color: { rgb: "E5E7EB" } },
+            right: { style: "thin", color: { rgb: "E5E7EB" } },
+          },
+        };
+      }
+    }
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Bank Statement");
+
+    const cleanBankName = (currentBankName || "Bank_Statement")
+      .replace(/[^a-zA-Z0-9_-]/g, "_")
+      .replace(/_+/g, "_")
+      .slice(0, 30);
+    const dateStr = new Date().toISOString().split("T")[0];
+    const fileName = `${cleanBankName}_Bank_Statement_${dateStr}.xlsx`;
+
+    XLSX.writeFile(wb, fileName);
+
+    Swal.fire({
+      toast: true,
+      position: "top-end",
+      icon: "success",
+      title: `Bank statement exported (${importedRows.length} rows)`,
+      showConfirmButton: false,
+      timer: 2500,
+    });
+  };
+
   const downloadTemplate = () => {
     const aoa = [
       ["Bank :-", "Enter Your Bank Name Here"],
@@ -2318,23 +2481,39 @@ const BankStatementImport: React.FC = () => {
   return (
     <div className="pt-[56px] px-4">
       <div className="mb-6">
-        <div className="flex items-center mb-4">
-          <button
-            title="Back to Vouchers"
-            type="button"
-            onClick={() => navigate(new URLSearchParams(window.location.search).get("returnUrl") || "/app/vouchers")}
-            className="mr-4 p-2 rounded-full hover:bg-gray-200"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <h2 className="text-xl font-semibold text-gray-900">
-            Intelligent Bank Statement Import
-          </h2>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-2">
+          <div className="flex items-center">
+            <button
+              title="Back to Vouchers"
+              type="button"
+              onClick={() => navigate(new URLSearchParams(window.location.search).get("returnUrl") || "/app/vouchers")}
+              className="mr-4 p-2 rounded-full hover:bg-gray-200"
+            >
+              <ArrowLeft size={20} />
+            </button>
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">
+                Intelligent Bank Statement Import
+              </h2>
+              <p className="text-sm text-gray-600 mt-0.5">
+                Upload bank statements in Excel, CSV, or PDF formats and auto-route to
+                Payment, Receipt, Contra, and Journal vouchers.
+              </p>
+            </div>
+          </div>
+
+          {importedRows.length > 0 && (
+            <button
+              type="button"
+              onClick={downloadUploadedExcel}
+              className="flex items-center space-x-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-medium rounded-lg shadow hover:shadow-md transition-all self-start sm:self-auto cursor-pointer"
+              title="Download Uploaded Bank Statement as Excel"
+            >
+              <Download className="h-4 w-4" />
+              <span>Download Excel ({importedRows.length} rows)</span>
+            </button>
+          )}
         </div>
-        <p className="text-sm text-gray-600">
-          Upload bank statements in Excel, CSV, or PDF formats and auto-route to
-          Payment, Receipt, Contra, and Journal vouchers.
-        </p>
       </div>
 
       <div className="border-b border-gray-200 mb-6">
@@ -2653,9 +2832,18 @@ const BankStatementImport: React.FC = () => {
                 </label>
                 <button
                   onClick={resetImport}
-                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
                 >
                   Start Over
+                </button>
+                <button
+                  type="button"
+                  onClick={downloadUploadedExcel}
+                  className="flex items-center space-x-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-lg transition-colors font-medium shadow cursor-pointer"
+                  title="Download entire uploaded bank statement as Excel"
+                >
+                  <Download className="h-4 w-4" />
+                  <span>Download Excel</span>
                 </button>
                 {unmappedTraderNames.length > 0 && (
                   <button
