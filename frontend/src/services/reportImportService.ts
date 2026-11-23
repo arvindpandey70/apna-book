@@ -23,10 +23,10 @@ export interface ReportMeta {
 export const REPORT_META_MAP: Record<ReportType, ReportMeta> = {
   "26as": {
     id: "26as",
-    name: "26Ab (Form 26AS Report)",
-    reportPath: "/app/reports/26as",
+    name: "Books vs 26AS (Form 26AS)",
+    reportPath: "/app/reports/books-vs-26as",
     category: "Accounting Reports",
-    description: "Import Form 26AS / 26AB TDS & TCS tax credit statement details",
+    description: "Import Form 26AS TDS tax credit statement to reconcile with Books TDS",
     fields: [
       "Deductor TAN",
       "Deductor Name",

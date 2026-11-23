@@ -392,17 +392,17 @@ const VouchersIndex: React.FC = () => {
       vouchers: [
         {
           id: "26as-import",
-          icon: <ShieldCheck size={20} className="text-red-600 dark:text-red-400" />,
+          icon: <ShieldCheck size={20} className="text-slate-600 dark:text-slate-300" />,
           name: "26AS",
           path: "/app/vouchers/import/26as",
           color:
             theme === "dark"
-              ? "bg-red-950/30 border border-red-800/60 hover:bg-red-900/40 text-red-300"
-              : "bg-red-50 border border-red-200 hover:bg-red-100 text-red-700",
-          iconBg: theme === "dark" ? "bg-red-900/60 text-red-300" : "bg-red-100 text-red-600",
+              ? "bg-gray-800 border border-gray-700 hover:bg-gray-700 text-gray-200"
+              : "bg-white border border-gray-200 hover:bg-gray-50 text-gray-800",
+          iconBg: theme === "dark" ? "bg-gray-700 text-slate-300" : "bg-slate-100 text-slate-600",
           description: "Import Form 26AS TDS statement data",
           category: "import",
-          isPendingItem: true,
+          isPendingItem: false,
         },
         {
           id: "ais-import",
