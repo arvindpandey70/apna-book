@@ -5,8 +5,66 @@ const pool = require('../db');
 function daysBetween(date1, date2) {
   const d1 = new Date(date1);
   const d2 = new Date(date2);
+  if (Number.isNaN(d1.getTime()) || Number.isNaN(d2.getTime())) return 0;
   const diffTime = d2.getTime() - d1.getTime();
   return Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
+}
+
+function toDateStr(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) {
+    const raw = String(value).slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
+  }
+  return d.toISOString().slice(0, 10);
+}
+
+function normalizeName(name) {
+  return String(name || '')
+    .trim()
+    .toLowerCase();
+}
+
+function parseBatches(raw) {
+  if (!raw) return [];
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * FIFO consume: pehle aayi layer pehle nikalti hai.
+ * Sale sirf un layers se hoti hai jo sale date tak aa chuki hon.
+ */
+function consumeFifo(layers, outwardMoves) {
+  const sortedOut = [...outwardMoves].sort((a, b) => {
+    if (a.date === b.date) return a.seq - b.seq;
+    if (!a.date) return 1;
+    if (!b.date) return -1;
+    return a.date < b.date ? -1 : 1;
+  });
+
+  for (const move of sortedOut) {
+    let left = move.qty;
+    if (left <= 0) continue;
+
+    for (const layer of layers) {
+      if (left <= 0) break;
+      if (layer.remaining <= 0) continue;
+      // Stock that arrived after this sale cannot be sold yet
+      if (layer.date && move.date && layer.date > move.date) continue;
+
+      const take = Math.min(layer.remaining, left);
+      layer.remaining = parseFloat((layer.remaining - take).toFixed(6));
+      left = parseFloat((left - take).toFixed(6));
+    }
+  }
+
+  return layers.filter((l) => l.remaining > 0.000001);
 }
 
 // GET /api/dead-stock
@@ -26,7 +84,7 @@ router.get('/api/dead-stock', async (req, res) => {
       categoryId,
       godownId,
       search,
-      filterType = 'all', // 'all', 'dead', 'critical', 'slow', 'never_sold'
+      filterType = 'all',
     } = req.query;
 
     const company = company_id || cId;
@@ -40,7 +98,6 @@ router.get('/api/dead-stock', async (req, res) => {
     const targetDate = asOnDate || toDate || new Date().toISOString().slice(0, 10);
     const threshold = parseInt(thresholdDays, 10) || 90;
 
-    // 1. Fetch stock items with relations
     let itemsSql = `
       SELECT 
         si.id,
@@ -70,22 +127,18 @@ router.get('/api/dead-stock', async (req, res) => {
       itemsSql += ` AND (si.owner_type = ? AND si.owner_id = ?)`;
       itemsParams.push(ownerT, ownerI);
     }
-
     if (stockGroupId) {
       itemsSql += ` AND sc.parent = ?`;
       itemsParams.push(stockGroupId);
     }
-
     if (categoryId) {
       itemsSql += ` AND si.categoryId = ?`;
       itemsParams.push(categoryId);
     }
-
     if (godownId) {
       itemsSql += ` AND si.godown_id = ?`;
       itemsParams.push(godownId);
     }
-
     if (search && search.trim()) {
       itemsSql += ` AND (si.name LIKE ? OR si.hsnCode LIKE ?)`;
       itemsParams.push(`%${search.trim()}%`, `%${search.trim()}%`);
@@ -98,6 +151,7 @@ router.get('/api/dead-stock', async (req, res) => {
     if (!stockItems || stockItems.length === 0) {
       return res.json({
         success: true,
+        method: 'FIFO',
         summary: {
           totalDeadItems: 0,
           totalDeadQty: 0,
@@ -109,221 +163,388 @@ router.get('/api/dead-stock', async (req, res) => {
       });
     }
 
-    // 2. Fetch Purchase Vouchers
-    const [purchaseVouchers] = await pool.query(
-      `
-      SELECT 
-        pvi.itemId,
-        pvi.quantity,
-        pvi.rate,
-        pv.date AS voucherDate,
-        pv.number AS voucherNumber
-      FROM purchase_voucher_items pvi
-      JOIN purchase_vouchers pv ON pvi.voucherId = pv.id
-      WHERE pv.company_id = ? AND pv.date <= ?
-      ORDER BY pv.date ASC
-      `,
-      [company, targetDate]
-    );
+    const nameCounts = {};
+    for (const item of stockItems) {
+      const key = normalizeName(item.name);
+      nameCounts[key] = (nameCounts[key] || 0) + 1;
+    }
 
-    // 3. Fetch Purchase History
+    const godownNameById = new Map();
+    try {
+      let gSql = `SELECT id, name FROM godowns WHERE company_id = ?`;
+      const gParams = [company];
+      if (ownerT && ownerI) {
+        gSql += ` AND owner_type = ? AND owner_id = ?`;
+        gParams.push(ownerT, ownerI);
+      }
+      const [godownRows] = await pool.query(gSql, gParams);
+      for (const g of godownRows || []) {
+        godownNameById.set(Number(g.id), g.name);
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    let purchaseVouchers = [];
+    try {
+      let pvSql = `
+        SELECT 
+          pvi.itemId,
+          pvi.quantity,
+          pvi.rate,
+          pvi.godownId,
+          pv.date AS voucherDate,
+          pv.number AS voucherNumber
+        FROM purchase_voucher_items pvi
+        JOIN purchase_vouchers pv ON pvi.voucherId = pv.id
+        WHERE pv.company_id = ? AND pv.date <= ?
+      `;
+      const pvParams = [company, targetDate];
+      if (ownerT && ownerI) {
+        pvSql += ` AND pv.owner_type = ? AND pv.owner_id = ?`;
+        pvParams.push(ownerT, ownerI);
+      }
+      pvSql += ` ORDER BY pv.date ASC, pvi.id ASC`;
+      const [rows] = await pool.query(pvSql, pvParams);
+      purchaseVouchers = rows || [];
+    } catch (e) {
+      purchaseVouchers = [];
+    }
+
     let purchaseHistory = [];
     try {
-      const [ph] = await pool.query(
-        `
+      let phSql = `
         SELECT 
           itemName,
           purchaseQuantity AS quantity,
           rate,
           purchaseDate AS voucherDate,
-          voucherNumber
+          voucherNumber,
+          godownId
         FROM purchase_history
         WHERE companyId = ? AND purchaseDate <= ?
-        ORDER BY purchaseDate ASC
-        `,
-        [company, targetDate]
-      );
-      purchaseHistory = ph;
+      `;
+      const phParams = [company, targetDate];
+      if (ownerT && ownerI) {
+        phSql += ` AND ownerType = ? AND ownerId = ?`;
+        phParams.push(ownerT, ownerI);
+      }
+      phSql += ` ORDER BY purchaseDate ASC, id ASC`;
+      const [ph] = await pool.query(phSql, phParams);
+      purchaseHistory = ph || [];
     } catch (e) {
-      // Table might not exist or empty
+      purchaseHistory = [];
     }
 
-    // 4. Fetch Sales Vouchers
-    const [salesVouchers] = await pool.query(
-      `
-      SELECT 
-        svi.itemId,
-        svi.quantity,
-        svi.rate,
-        sv.date AS voucherDate,
-        sv.number AS voucherNumber
-      FROM sales_voucher_items svi
-      JOIN sales_vouchers sv ON svi.voucherId = sv.id
-      WHERE sv.company_id = ? AND sv.date <= ?
-      ORDER BY sv.date ASC
-      `,
-      [company, targetDate]
-    );
+    let salesVouchers = [];
+    try {
+      let svSql = `
+        SELECT 
+          svi.itemId,
+          svi.quantity,
+          svi.rate,
+          svi.godownId,
+          sv.date AS voucherDate,
+          sv.number AS voucherNumber
+        FROM sales_voucher_items svi
+        JOIN sales_vouchers sv ON svi.voucherId = sv.id
+        WHERE sv.company_id = ? AND sv.date <= ?
+      `;
+      const svParams = [company, targetDate];
+      if (ownerT && ownerI) {
+        svSql += ` AND sv.owner_type = ? AND sv.owner_id = ?`;
+        svParams.push(ownerT, ownerI);
+      }
+      svSql += ` ORDER BY sv.date ASC, svi.id ASC`;
+      const [rows] = await pool.query(svSql, svParams);
+      salesVouchers = rows || [];
+    } catch (e) {
+      salesVouchers = [];
+    }
 
-    // 5. Fetch Sale History
     let saleHistory = [];
     try {
-      const [sh] = await pool.query(
-        `
+      let shSql = `
         SELECT 
           itemName,
           ABS(qtyChange) AS quantity,
           rate,
           movementDate AS voucherDate,
-          voucherNumber
+          voucherNumber,
+          godownId
         FROM sale_history
         WHERE companyId = ? AND movementDate <= ?
-        ORDER BY movementDate ASC
-        `,
-        [company, targetDate]
-      );
-      saleHistory = sh;
+      `;
+      const shParams = [company, targetDate];
+      if (ownerT && ownerI) {
+        shSql += ` AND ownerType = ? AND ownerId = ?`;
+        shParams.push(ownerT, ownerI);
+      }
+      shSql += ` ORDER BY movementDate ASC, id ASC`;
+      const [sh] = await pool.query(shSql, shParams);
+      saleHistory = sh || [];
     } catch (e) {
-      // Table might not exist or empty
+      saleHistory = [];
     }
 
-    // 6. Process each item
+    const purchasesByItemId = new Map();
+    for (const row of purchaseVouchers) {
+      const id = Number(row.itemId);
+      if (!purchasesByItemId.has(id)) purchasesByItemId.set(id, []);
+      purchasesByItemId.get(id).push(row);
+    }
+
+    const salesByItemId = new Map();
+    for (const row of salesVouchers) {
+      const id = Number(row.itemId);
+      if (!salesByItemId.has(id)) salesByItemId.set(id, []);
+      salesByItemId.get(id).push(row);
+    }
+
+    const purchasesByName = new Map();
+    for (const row of purchaseHistory) {
+      const key = normalizeName(row.itemName);
+      if (!key) continue;
+      if (!purchasesByName.has(key)) purchasesByName.set(key, []);
+      purchasesByName.get(key).push(row);
+    }
+
+    const salesByName = new Map();
+    for (const row of saleHistory) {
+      const key = normalizeName(row.itemName);
+      if (!key || key === '-') continue;
+      if (!salesByName.has(key)) salesByName.set(key, []);
+      salesByName.get(key).push(row);
+    }
+
     const processedList = [];
+    let layerSeq = 0;
 
     for (const item of stockItems) {
-      let openingQty = 0;
-      let openingRate = 0;
-      let openingDate = item.createdAt ? new Date(item.createdAt).toISOString().slice(0, 10) : null;
+      const itemId = Number(item.id);
+      const nameKey = normalizeName(item.name);
+      const canUseNameHistory = nameCounts[nameKey] === 1;
+      const itemCreated = toDateStr(item.createdAt) || targetDate;
 
-      // Extract opening from batches JSON if present
-      if (item.batches) {
-        try {
-          const batches = typeof item.batches === 'string' ? JSON.parse(item.batches) : item.batches;
-          if (Array.isArray(batches)) {
-            batches.forEach((b) => {
-              const bQty = parseFloat(b.batchQuantity || b.openingBalance || 0);
-              openingQty += bQty;
-              if (b.openingRate && parseFloat(b.openingRate) > 0) {
-                openingRate = parseFloat(b.openingRate);
-              }
-              if (b.manufacturingDate && !openingDate) {
-                openingDate = b.manufacturingDate;
-              }
-            });
-          }
-        } catch (e) {}
+      // --- Build FIFO inbound layers (oldest first) ---
+      const layers = [];
+      const importedPurchaseLayers = [];
+      let openingQtyTotal = 0;
+
+      const batches = parseBatches(item.batches);
+      for (const b of batches) {
+        const bQty = parseFloat(b.batchQuantity || b.openingBalance || 0) || 0;
+        if (bQty <= 0) continue;
+        const bRate = parseFloat(b.openingRate || b.batchRate || b.rate || 0) || 0;
+        const bValue = parseFloat(b.openingValue || 0) || bQty * bRate;
+        const rate = bRate > 0 ? bRate : bQty > 0 ? bValue / bQty : 0;
+        const bDate =
+          toDateStr(b.manufacturingDate || b.batchManufacturingDate) || itemCreated;
+
+        if (b.mode === 'purchase') {
+          importedPurchaseLayers.push({
+            date: bDate,
+            qty: bQty,
+            remaining: bQty,
+            rate,
+            godownId: null,
+            source: 'batch_purchase',
+            seq: layerSeq++,
+          });
+        } else if (!b.mode || b.mode === 'opening') {
+          openingQtyTotal += bQty;
+          layers.push({
+            date: bDate,
+            qty: bQty,
+            remaining: bQty,
+            rate,
+            godownId: item.godown_id ? Number(item.godown_id) : null,
+            source: 'opening',
+            seq: layerSeq++,
+          });
+        }
       }
 
-      // Collect Inward transactions (PV + PH)
-      const pRows = purchaseVouchers.filter((p) => p.itemId === item.id);
-      const phRows = purchaseHistory.filter(
-        (p) => p.itemName && p.itemName.trim().toLowerCase() === item.name.trim().toLowerCase()
-      );
-
+      const pRows = purchasesByItemId.get(itemId) || [];
+      const usedPurchaseVouchers = new Set();
       let inwardQty = 0;
       let lastPurchaseDate = null;
       let lastPurchaseRate = 0;
-      let totalPurchaseVal = 0;
 
-      // Process PV
-      pRows.forEach((p) => {
-        const qty = parseFloat(p.quantity || 0);
-        const rate = parseFloat(p.rate || 0);
+      for (const p of pRows) {
+        const qty = parseFloat(p.quantity || 0) || 0;
+        if (qty <= 0) continue;
+        const rate = parseFloat(p.rate || 0) || 0;
+        const pDate = toDateStr(p.voucherDate) || itemCreated;
         inwardQty += qty;
-        totalPurchaseVal += qty * rate;
-        if (!lastPurchaseDate || new Date(p.voucherDate) > new Date(lastPurchaseDate)) {
-          lastPurchaseDate = new Date(p.voucherDate).toISOString().slice(0, 10);
-          lastPurchaseRate = rate;
+        if (p.voucherNumber) usedPurchaseVouchers.add(String(p.voucherNumber));
+        if (!lastPurchaseDate || pDate > lastPurchaseDate) {
+          lastPurchaseDate = pDate;
+          if (rate > 0) lastPurchaseRate = rate;
         }
-      });
+        layers.push({
+          date: pDate,
+          qty,
+          remaining: qty,
+          rate,
+          godownId: p.godownId != null ? Number(p.godownId) : null,
+          source: 'purchase_voucher',
+          seq: layerSeq++,
+        });
+      }
 
-      // Process PH (avoid duplicate if voucher numbers match)
-      const existingVouchers = new Set(pRows.map((p) => p.voucherNumber).filter(Boolean));
-      phRows.forEach((p) => {
-        if (!existingVouchers.has(p.voucherNumber)) {
-          const qty = parseFloat(p.quantity || 0);
-          const rate = parseFloat(p.rate || 0);
+      if (canUseNameHistory) {
+        for (const p of purchasesByName.get(nameKey) || []) {
+          const vNum = p.voucherNumber ? String(p.voucherNumber) : null;
+          if (vNum && usedPurchaseVouchers.has(vNum)) continue;
+          const qty = parseFloat(p.quantity || 0) || 0;
+          if (qty <= 0) continue;
+          const rate = parseFloat(p.rate || 0) || 0;
+          const pDate = toDateStr(p.voucherDate) || itemCreated;
           inwardQty += qty;
-          totalPurchaseVal += qty * rate;
-          if (!lastPurchaseDate || new Date(p.voucherDate) > new Date(lastPurchaseDate)) {
-            lastPurchaseDate = new Date(p.voucherDate).toISOString().slice(0, 10);
-            lastPurchaseRate = rate;
+          if (vNum) usedPurchaseVouchers.add(vNum);
+          if (!lastPurchaseDate || pDate > lastPurchaseDate) {
+            lastPurchaseDate = pDate;
+            if (rate > 0) lastPurchaseRate = rate;
           }
+          layers.push({
+            date: pDate,
+            qty,
+            remaining: qty,
+            rate,
+            godownId: p.godownId != null ? Number(p.godownId) : null,
+            source: 'purchase_history',
+            seq: layerSeq++,
+          });
         }
+      }
+
+      // Backfill purchase-mode batches only when no voucher/history inward
+      if (inwardQty <= 0 && importedPurchaseLayers.length > 0) {
+        for (const layer of importedPurchaseLayers) {
+          inwardQty += layer.qty;
+          if (layer.rate > 0) lastPurchaseRate = layer.rate;
+          if (!lastPurchaseDate || (layer.date && layer.date > lastPurchaseDate)) {
+            lastPurchaseDate = layer.date;
+          }
+          layers.push(layer);
+        }
+      }
+
+      // Sort layers: date ASC, then seq (FIFO order)
+      layers.sort((a, b) => {
+        if (a.date === b.date) return a.seq - b.seq;
+        if (!a.date) return 1;
+        if (!b.date) return -1;
+        return a.date < b.date ? -1 : 1;
       });
 
-      // Collect Outward transactions (SV + SH)
-      const sRows = salesVouchers.filter((s) => s.itemId === item.id);
-      const shRows = saleHistory.filter(
-        (s) => s.itemName && s.itemName.trim().toLowerCase() === item.name.trim().toLowerCase()
-      );
-
+      // --- Outward moves for FIFO consume ---
+      const outwardMoves = [];
+      const sRows = salesByItemId.get(itemId) || [];
+      const usedSaleVouchers = new Set();
       let outwardQty = 0;
       let lastSaleDate = null;
       let lastSaleRate = 0;
+      let moveSeq = 0;
 
-      // Process SV
-      sRows.forEach((s) => {
-        const qty = parseFloat(s.quantity || 0);
-        const rate = parseFloat(s.rate || 0);
+      for (const s of sRows) {
+        const qty = Math.abs(parseFloat(s.quantity || 0) || 0);
+        if (qty <= 0) continue;
+        const rate = parseFloat(s.rate || 0) || 0;
+        const sDate = toDateStr(s.voucherDate);
         outwardQty += qty;
-        if (!lastSaleDate || new Date(s.voucherDate) > new Date(lastSaleDate)) {
-          lastSaleDate = new Date(s.voucherDate).toISOString().slice(0, 10);
-          lastSaleRate = rate;
+        if (s.voucherNumber) usedSaleVouchers.add(String(s.voucherNumber));
+        if (sDate && (!lastSaleDate || sDate > lastSaleDate)) {
+          lastSaleDate = sDate;
+          if (rate > 0) lastSaleRate = rate;
         }
-      });
+        outwardMoves.push({ date: sDate, qty, seq: moveSeq++ });
+      }
 
-      // Process SH
-      const existingSalesVouchers = new Set(sRows.map((s) => s.voucherNumber).filter(Boolean));
-      shRows.forEach((s) => {
-        if (!existingSalesVouchers.has(s.voucherNumber)) {
-          const qty = parseFloat(s.quantity || 0);
-          const rate = parseFloat(s.rate || 0);
+      if (canUseNameHistory) {
+        for (const s of salesByName.get(nameKey) || []) {
+          const vNum = s.voucherNumber ? String(s.voucherNumber) : null;
+          if (vNum && usedSaleVouchers.has(vNum)) continue;
+          const qty = Math.abs(parseFloat(s.quantity || 0) || 0);
+          if (qty <= 0) continue;
+          const rate = parseFloat(s.rate || 0) || 0;
+          const sDate = toDateStr(s.voucherDate);
           outwardQty += qty;
-          if (!lastSaleDate || new Date(s.voucherDate) > new Date(lastSaleDate)) {
-            lastSaleDate = new Date(s.voucherDate).toISOString().slice(0, 10);
-            lastSaleRate = rate;
+          if (vNum) usedSaleVouchers.add(vNum);
+          if (sDate && (!lastSaleDate || sDate > lastSaleDate)) {
+            lastSaleDate = sDate;
+            if (rate > 0) lastSaleRate = rate;
           }
+          outwardMoves.push({ date: sDate, qty, seq: moveSeq++ });
         }
-      });
-
-      // Closing Quantity
-      const closingQty = openingQty + inwardQty - outwardQty;
-
-      // Only consider items with positive closing stock
-      if (closingQty <= 0) continue;
-
-      // Determine Valuation Rate (Last Purchase Rate > Avg Purchase Rate > Opening Rate)
-      let valuationRate = lastPurchaseRate;
-      if (valuationRate <= 0 && inwardQty > 0) {
-        valuationRate = totalPurchaseVal / inwardQty;
-      }
-      if (valuationRate <= 0) {
-        valuationRate = openingRate;
-      }
-      if (valuationRate <= 0 && lastSaleRate > 0) {
-        valuationRate = lastSaleRate; // Fallback to sale rate if no purchase rate exists
       }
 
-      const blockedValue = closingQty * valuationRate;
+      // FIFO: pehle aaya → pehle gaya
+      const remainingLayers = consumeFifo(layers, outwardMoves);
+      if (remainingLayers.length === 0) continue;
 
-      // Calculate days inactive
-      let daysInactive = 0;
-      let neverSold = false;
+      const totalClosingQty = remainingLayers.reduce((sum, l) => sum + l.remaining, 0);
+      if (totalClosingQty <= 0) continue;
 
-      if (lastSaleDate) {
-        daysInactive = daysBetween(lastSaleDate, targetDate);
+      // Dead portion = remaining layers whose age >= threshold (FIFO age)
+      const deadLayers = remainingLayers.filter(
+        (l) => daysBetween(l.date || targetDate, targetDate) >= threshold
+      );
+      if (deadLayers.length === 0 && filterType === 'all') {
+        // For status pills below, we still may need non-threshold filtering later
+      }
+
+      const neverSold = outwardQty <= 0;
+
+      // Report qty/value based on FIFO-aged dead layers when threshold filter applies;
+      // for slow/dead/critical pills use remaining layers matching that age band.
+      const layerAge = (l) => daysBetween(l.date || targetDate, targetDate);
+
+      let reportLayers = remainingLayers;
+      if (filterType === 'all') {
+        reportLayers = remainingLayers.filter((l) => layerAge(l) >= threshold);
+      } else if (filterType === 'never_sold') {
+        if (!neverSold) continue;
+        reportLayers = remainingLayers.filter((l) => layerAge(l) >= threshold);
+      } else if (filterType === 'critical') {
+        reportLayers = remainingLayers.filter(
+          (l) => layerAge(l) >= 180 || (neverSold && layerAge(l) >= 90)
+        );
+      } else if (filterType === 'dead') {
+        reportLayers = remainingLayers.filter(
+          (l) => layerAge(l) >= 90 && layerAge(l) < 180
+        );
+      } else if (filterType === 'slow') {
+        reportLayers = remainingLayers.filter(
+          (l) => layerAge(l) >= 30 && layerAge(l) < 90
+        );
       } else {
-        neverSold = true;
-        // Inactive since purchase date, or opening date, or created date
-        const baseDate = lastPurchaseDate || openingDate || targetDate;
-        daysInactive = daysBetween(baseDate, targetDate);
+        reportLayers = remainingLayers.filter((l) => layerAge(l) >= threshold);
       }
 
-      // Determine Status Classification
-      let status = 'Active';
-      let riskLevel = 'low'; // low, medium, high, critical
+      if (reportLayers.length === 0) continue;
 
+      const closingQty = reportLayers.reduce((sum, l) => sum + l.remaining, 0);
+      const blockedValue = reportLayers.reduce(
+        (sum, l) => sum + l.remaining * (l.rate > 0 ? l.rate : 0),
+        0
+      );
+      let valuationRate = closingQty > 0 ? blockedValue / closingQty : 0;
+      if (valuationRate <= 0) {
+        valuationRate = lastPurchaseRate || lastSaleRate || 0;
+      }
+
+      // Inactive days = age of oldest remaining FIFO layer in report
+      const oldestDate = reportLayers.reduce((min, l) => {
+        if (!l.date) return min;
+        if (!min || l.date < min) return l.date;
+        return min;
+      }, null);
+      const daysInactive = daysBetween(oldestDate || targetDate, targetDate);
+
+      let status = 'Moving / Active';
+      let riskLevel = 'low';
       if (daysInactive >= 180 || (neverSold && daysInactive >= 90)) {
         status = 'Critical Dead';
         riskLevel = 'critical';
@@ -333,67 +554,94 @@ router.get('/api/dead-stock', async (req, res) => {
       } else if (daysInactive >= 30) {
         status = 'Slow Moving';
         riskLevel = 'medium';
-      } else {
-        status = 'Moving / Active';
-        riskLevel = 'low';
       }
 
-      // Filter by threshold or filterType
-      let isDeadMatch = false;
-      if (filterType === 'all') {
-        isDeadMatch = daysInactive >= threshold || neverSold;
-      } else if (filterType === 'never_sold') {
-        isDeadMatch = neverSold;
-      } else if (filterType === 'critical') {
-        isDeadMatch = riskLevel === 'critical';
-      } else if (filterType === 'dead') {
-        isDeadMatch = riskLevel === 'high' || riskLevel === 'critical';
-      } else if (filterType === 'slow') {
-        isDeadMatch = riskLevel === 'medium';
-      } else {
-        isDeadMatch = daysInactive >= threshold;
+      // Godown from master → oldest remaining dead layer → vouchers
+      let resolvedGodownId = item.godown_id ? Number(item.godown_id) : null;
+      let resolvedGodownName = item.godownName || null;
+
+      if (!resolvedGodownId) {
+        for (const l of reportLayers) {
+          if (l.godownId) {
+            resolvedGodownId = l.godownId;
+            break;
+          }
+        }
       }
 
-      if (isDeadMatch) {
-        processedList.push({
-          id: item.id,
-          name: item.name,
-          unit: item.unitSymbol || item.unitName || item.unit || 'Units',
-          hsnCode: item.hsnCode || '-',
-          stockGroupId: item.stockGroupId || null,
-          stockGroupName: item.stockGroupName || 'General',
-          categoryId: item.categoryId || null,
-          categoryName: item.categoryName || '-',
-          godownId: item.godown_id || null,
-          godownName: item.godownName || 'Main Location',
-          openingQty: parseFloat(openingQty.toFixed(2)),
-          inwardQty: parseFloat(inwardQty.toFixed(2)),
-          outwardQty: parseFloat(outwardQty.toFixed(2)),
-          closingQty: parseFloat(closingQty.toFixed(2)),
-          valuationRate: parseFloat(valuationRate.toFixed(2)),
-          blockedValue: parseFloat(blockedValue.toFixed(2)),
-          lastSaleDate: lastSaleDate || null,
-          lastPurchaseDate: lastPurchaseDate || null,
-          daysInactive,
-          neverSold,
-          status,
-          riskLevel,
-        });
+      const pickGodownFromRows = (rows) => {
+        if (!rows || rows.length === 0) return;
+        for (let i = rows.length - 1; i >= 0; i--) {
+          const gid = rows[i].godownId != null ? Number(rows[i].godownId) : NaN;
+          if (!Number.isNaN(gid) && gid > 0) {
+            resolvedGodownId = gid;
+            return;
+          }
+        }
+      };
+
+      if (!resolvedGodownId) pickGodownFromRows(pRows);
+      if (!resolvedGodownId && canUseNameHistory) {
+        pickGodownFromRows(purchasesByName.get(nameKey) || []);
       }
+      if (!resolvedGodownId) pickGodownFromRows(sRows);
+      if (!resolvedGodownId && canUseNameHistory) {
+        pickGodownFromRows(salesByName.get(nameKey) || []);
+      }
+      if (resolvedGodownId) {
+        resolvedGodownName = godownNameById.get(resolvedGodownId) || null;
+      }
+
+      processedList.push({
+        id: item.id,
+        name: item.name,
+        unit: item.unitSymbol || item.unitName || item.unit || '',
+        hsnCode: item.hsnCode || '',
+        stockGroupId: item.stockGroupId || null,
+        stockGroupName: item.stockGroupName || '',
+        categoryId: item.categoryId || null,
+        categoryName: item.categoryName || '',
+        godownId: resolvedGodownId,
+        godownName: resolvedGodownName || '',
+        openingQty: parseFloat(openingQtyTotal.toFixed(2)),
+        inwardQty: parseFloat(inwardQty.toFixed(2)),
+        outwardQty: parseFloat(outwardQty.toFixed(2)),
+        closingQty: parseFloat(closingQty.toFixed(2)),
+        valuationRate: parseFloat(valuationRate.toFixed(2)),
+        blockedValue: parseFloat(blockedValue.toFixed(2)),
+        lastSaleDate: lastSaleDate || null,
+        lastPurchaseDate: lastPurchaseDate || null,
+        daysInactive,
+        neverSold,
+        status,
+        riskLevel,
+        valuationMethod: 'FIFO',
+        fifoLayers: reportLayers.map((l) => ({
+          date: l.date,
+          qty: parseFloat(l.remaining.toFixed(2)),
+          rate: parseFloat((l.rate || 0).toFixed(2)),
+          ageDays: layerAge(l),
+          value: parseFloat((l.remaining * (l.rate || 0)).toFixed(2)),
+        })),
+      });
     }
 
-    // Sort by blocked value descending (largest blocked money first)
     processedList.sort((a, b) => b.blockedValue - a.blockedValue);
 
-    // Summary calculation
     const totalDeadItems = processedList.length;
     const totalDeadQty = processedList.reduce((acc, curr) => acc + curr.closingQty, 0);
-    const totalBlockedValue = processedList.reduce((acc, curr) => acc + curr.blockedValue, 0);
-    const criticalCount = processedList.filter((item) => item.riskLevel === 'critical').length;
-    const neverSoldCount = processedList.filter((item) => item.neverSold).length;
+    const totalBlockedValue = processedList.reduce(
+      (acc, curr) => acc + curr.blockedValue,
+      0
+    );
+    const criticalCount = processedList.filter(
+      (row) => row.riskLevel === 'critical'
+    ).length;
+    const neverSoldCount = processedList.filter((row) => row.neverSold).length;
 
     res.json({
       success: true,
+      method: 'FIFO',
       asOnDate: targetDate,
       thresholdDays: threshold,
       summary: {
@@ -407,7 +655,10 @@ router.get('/api/dead-stock', async (req, res) => {
     });
   } catch (error) {
     console.error('Error in /api/dead-stock:', error);
-    res.status(500).json({ success: false, error: error.message || 'Internal Server Error' });
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal Server Error',
+    });
   }
 });
 
