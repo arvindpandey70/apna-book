@@ -58,16 +58,6 @@ const Dashboard: React.FC = () => {
     );
   }, []);
 
-  const handleSwitchToCompany = (companyId: number) => {
-    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const appUrl = isLocal ? 'http://localhost:5173' : 'https://apnabook.com';
-    try {
-      localStorage.setItem('company_id', companyId.toString());
-      localStorage.setItem('active_company_id', companyId.toString());
-    } catch (e) {}
-    window.location.href = `${appUrl}/app?company_id=${companyId}`;
-  };
-
   const filteredCompanies = companies.filter(c =>
     c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     c.email?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -168,7 +158,6 @@ const Dashboard: React.FC = () => {
                 <th className="px-4 py-3 border-b border-gray-700/50">Email</th>
                 <th className="px-4 py-3 border-b border-gray-700/50">PAN</th>
                 <th className="px-4 py-3 border-b border-gray-700/50">Registration Date</th>
-                <th className="px-4 py-3 border-b border-gray-700/50 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -187,18 +176,10 @@ const Dashboard: React.FC = () => {
                   <td className={`px-4 py-4 border-b ${theme === 'dark' ? 'border-gray-700/50' : 'border-gray-100'} text-sm text-gray-400`}>
                     {company.created_at ? new Date(company.created_at).toLocaleDateString() : '—'}
                   </td>
-                  <td className={`px-4 py-4 border-b ${theme === 'dark' ? 'border-gray-700/50' : 'border-gray-100'} text-right`}>
-                    <button
-                      onClick={() => handleSwitchToCompany(company.id)}
-                      className="px-4 py-1.5 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-lg hover:bg-indigo-500 hover:text-white transition-all text-xs font-bold"
-                    >
-                      Login Directly
-                    </button>
-                  </td>
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={4} className="px-4 py-8 text-center text-gray-500">
                     No companies found matching your search.
                   </td>
                 </tr>
