@@ -1285,13 +1285,22 @@ const PurchaseImport: React.FC = () => {
     };
 
     const saveImportedVouchers = async () => {
-        // Block save if any voucher has error/validation failure
         const invalidVouchers = groupedVouchers.filter(v => v.status === "error");
         if (invalidVouchers.length > 0) {
             Swal.fire({
                 icon: "error",
                 title: "Import Blocked",
-                html: `<p><b>${invalidVouchers.length}</b> voucher(s) failed master or balance validations and cannot be posted.</p>`,
+                html: `<p><b>${invalidVouchers.length}</b> voucher(s) failed validation. Fix all errors before saving.</p>`,
+            });
+            return;
+        }
+
+        const pendingCount = groupedVouchers.filter(v => v.status === "pending").length;
+        if (pendingCount === 0) {
+            Swal.fire({
+                icon: "info",
+                title: "Nothing to Save",
+                text: "There are no pending vouchers ready to import.",
             });
             return;
         }
@@ -1566,8 +1575,8 @@ const PurchaseImport: React.FC = () => {
     };
 
     return (
-        <div className="pt-[56px] px-4 min-h-screen bg-slate-50/50 pb-12">
-            <div className="w-full xl:w-[98%] mx-auto">
+        <div className="px-4 py-4 min-h-screen bg-slate-50/50 pb-24">
+            <div className="w-full xl:w-[98%] mx-auto min-w-0">
                 {/* Header Title Section */}
                 <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div className="flex items-center">
@@ -1686,9 +1695,9 @@ const PurchaseImport: React.FC = () => {
                 {activeTab === "preview" && (
                     <div className="space-y-6">
                         {/* Control Action Bar */}
-                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
-                            <div>
-                                <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
+                            <div className="min-w-0 flex-1">
+                                <h3 className="text-base font-bold text-gray-900 flex flex-wrap items-center gap-2">
                                     Voucher Preview & Master Validation Summary
                                     <span className="text-xs font-normal text-gray-500">
                                         ({groupedVouchers.length} Vouchers parsed)
@@ -1697,8 +1706,13 @@ const PurchaseImport: React.FC = () => {
                                 <p className="text-xs text-gray-500">
                                     Green badges indicate master matches. Missing traders are automatically created in Sundry Creditors when saving.
                                 </p>
+                                {groupedVouchers.some(v => v.status === "error") && (
+                                    <p className="text-xs text-red-600 font-medium mt-1">
+                                        Save is hidden because one or more vouchers have validation errors. Fix them first.
+                                    </p>
+                                )}
                             </div>
-                            <div className="flex flex-wrap items-center gap-3">
+                            <div className="flex flex-wrap items-center gap-2 shrink-0">
                                 <div className="flex border rounded-lg p-1 bg-gray-50">
                                     <button
                                         onClick={() => setViewLayout("card")}
@@ -1718,20 +1732,23 @@ const PurchaseImport: React.FC = () => {
 
                                 <button
                                     onClick={() => { setGroupedVouchers([]); setActiveTab("import"); }}
-                                    className="px-4 py-2 text-xs text-gray-700 font-medium hover:bg-gray-100 rounded-lg transition-colors"
+                                    className="px-4 py-2 text-xs text-gray-700 font-medium hover:bg-gray-100 rounded-lg transition-colors border border-gray-200"
                                 >
                                     Cancel
                                 </button>
 
-
-                                <button
-                                    onClick={saveImportedVouchers}
-                                    disabled={isProcessing || groupedVouchers.some(v => v.status === "error") || !groupedVouchers.some(v => v.status === "pending")}
-                                    className="px-6 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 disabled:bg-gray-300 shadow-md transition-all flex items-center gap-2"
-                                >
-                                    {isProcessing ? <RefreshCw size={16} className="animate-spin" /> : <CheckCircle size={16} />}
-                                    Save Vouchers Bulk
-                                </button>
+                                {/* Hide Save if any voucher is invalid */}
+                                {!groupedVouchers.some(v => v.status === "error") &&
+                                  groupedVouchers.some(v => v.status === "pending") && (
+                                    <button
+                                        onClick={saveImportedVouchers}
+                                        disabled={isProcessing}
+                                        className="px-6 py-2.5 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-md transition-all flex items-center gap-2"
+                                    >
+                                        {isProcessing ? <RefreshCw size={16} className="animate-spin" /> : <CheckCircle size={16} />}
+                                        Save Vouchers Bulk
+                                    </button>
+                                )}
                             </div>
                         </div>
 

@@ -28,10 +28,14 @@ import {
 interface ReportImportSectionProps {
   initialReportType?: ReportType | string;
   theme?: string;
+  /** When true, uses neutral (non-red) styling — used by Form 26AS import */
+  neutralTheme?: boolean;
+  /** When set, only this report type is shown (no multi-card picker) */
+  focusedOnly?: boolean;
 }
 
 const REPORT_ICONS: Record<string, React.ReactNode> = {
-  "26as": <ShieldCheck className="text-red-600 dark:text-red-400" size={20} />,
+  "26as": <ShieldCheck className="text-slate-600 dark:text-slate-300" size={20} />,
   "gstr1-vs-gstr3b": <BarChart2 className="text-red-600 dark:text-red-400" size={20} />,
   "gstr2a-vs-gstr2b": <PieChart className="text-red-600 dark:text-red-400" size={20} />,
   "books-vs-2a": <BookOpen className="text-red-600 dark:text-red-400" size={20} />,
@@ -42,6 +46,8 @@ const REPORT_ICONS: Record<string, React.ReactNode> = {
 export const ReportImportSection: React.FC<ReportImportSectionProps> = ({
   initialReportType,
   theme = "light",
+  neutralTheme = false,
+  focusedOnly = false,
 }) => {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -187,35 +193,55 @@ export const ReportImportSection: React.FC<ReportImportSectionProps> = ({
   };
 
   const currentReportData = getReportData(selectedReport);
+  const isNeutral = neutralTheme || selectedReport === "26as";
 
   return (
     <div className="space-y-6">
       {/* Header Banner */}
       <div
         className={`p-4 sm:p-6 rounded-xl border ${
-          theme === "dark"
+          isNeutral
+            ? theme === "dark"
+              ? "bg-gray-800 border-gray-700 text-gray-200"
+              : "bg-slate-50 border-slate-200 text-gray-800"
+            : theme === "dark"
             ? "bg-red-950/20 border-red-900/50 text-gray-200"
             : "bg-red-50 border-red-200 text-gray-800"
         }`}
       >
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider rounded-full bg-red-600 text-white shadow-sm flex items-center gap-1">
-                <Clock size={12} className="animate-pulse" /> Pending Implementation / Data Import
-              </span>
-            </div>
-            <h2 className="text-xl font-bold text-red-700 dark:text-red-400">
-              Report Data Import Workflows
+            {!isNeutral && (
+              <div className="flex items-center gap-2 mb-1">
+                <span className="px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider rounded-full bg-red-600 text-white shadow-sm flex items-center gap-1">
+                  <Clock size={12} className="animate-pulse" /> Pending Implementation / Data Import
+                </span>
+              </div>
+            )}
+            <h2
+              className={`text-xl font-bold ${
+                isNeutral ? "text-slate-800 dark:text-slate-100" : "text-red-700 dark:text-red-400"
+              }`}
+            >
+              {isNeutral ? meta.name : "Report Data Import Workflows"}
             </h2>
             <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">
-              Import required data here for pending report items. Once imported, the corresponding report under <span className="font-semibold">/app/reports</span> will be automatically generated.
+              {isNeutral
+                ? meta.description
+                : (
+                  <>
+                    Import required data here for pending report items. Once imported, the corresponding report under{" "}
+                    <span className="font-semibold">/app/reports</span> will be automatically generated.
+                  </>
+                )}
             </p>
           </div>
 
           <button
             onClick={() => downloadReportTemplate(selectedReport)}
-            className="px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white text-xs sm:text-sm font-medium rounded-lg transition-colors flex items-center gap-2 shadow-sm shrink-0"
+            className={`px-3.5 py-2 text-white text-xs sm:text-sm font-medium rounded-lg transition-colors flex items-center gap-2 shadow-sm shrink-0 ${
+              isNeutral ? "bg-slate-700 hover:bg-slate-800" : "bg-red-600 hover:bg-red-700"
+            }`}
           >
             <Download size={16} />
             Download Template ({meta.name})
@@ -223,7 +249,8 @@ export const ReportImportSection: React.FC<ReportImportSectionProps> = ({
         </div>
       </div>
 
-      {/* Grid of Report Selection Cards (Pending Indicator visually Red) */}
+      {/* Grid of Report Selection Cards — hidden in focused/neutral 26AS mode */}
+      {!focusedOnly && !isNeutral && (
       <div>
         <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
           Select Report Feature to Import Data For:
@@ -281,6 +308,7 @@ export const ReportImportSection: React.FC<ReportImportSectionProps> = ({
           })}
         </div>
       </div>
+      )}
 
       {/* Import Form & File Dropzone */}
       <div
@@ -340,7 +368,11 @@ export const ReportImportSection: React.FC<ReportImportSectionProps> = ({
         <div
           className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors cursor-pointer ${
             dragActive
-              ? "border-red-500 bg-red-50/50 dark:bg-red-950/20"
+              ? isNeutral
+                ? "border-slate-500 bg-slate-50/80 dark:bg-slate-800/40"
+                : "border-red-500 bg-red-50/50 dark:bg-red-950/20"
+              : isNeutral
+              ? "border-gray-300 dark:border-gray-700 hover:border-slate-400 dark:hover:border-slate-500"
               : "border-gray-300 dark:border-gray-700 hover:border-red-400 dark:hover:border-red-600"
           }`}
           onDragEnter={handleDrag}
@@ -349,7 +381,11 @@ export const ReportImportSection: React.FC<ReportImportSectionProps> = ({
           onDrop={handleDrop}
           onClick={() => fileInputRef.current?.click()}
         >
-          <Upload className="h-10 w-10 mx-auto text-red-500 dark:text-red-400 mb-3" />
+          <Upload
+            className={`h-10 w-10 mx-auto mb-3 ${
+              isNeutral ? "text-slate-500 dark:text-slate-400" : "text-red-500 dark:text-red-400"
+            }`}
+          />
           <h4 className="text-base font-semibold text-gray-900 dark:text-gray-100">
             Click to choose file or drag & drop Excel / CSV here
           </h4>
@@ -410,7 +446,9 @@ export const ReportImportSection: React.FC<ReportImportSectionProps> = ({
               <button
                 onClick={handleSaveData}
                 disabled={isSaving}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white font-medium text-sm rounded-lg shadow-sm transition-colors flex items-center gap-2"
+                className={`px-4 py-2 disabled:bg-gray-400 text-white font-medium text-sm rounded-lg shadow-sm transition-colors flex items-center gap-2 ${
+                  isNeutral ? "bg-slate-700 hover:bg-slate-800" : "bg-red-600 hover:bg-red-700"
+                }`}
               >
                 {isSaving ? (
                   <>
