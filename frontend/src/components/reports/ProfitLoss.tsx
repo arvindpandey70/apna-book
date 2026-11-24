@@ -5,6 +5,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { ArrowLeft, Printer, Download, Filter, Settings, Loader2 } from "lucide-react";
 import domtoimage from "dom-to-image-more";
 import jsPDF from "jspdf";
+import { allSystemGroups } from "../../constants/ledgerGroups";
 
 interface ProfitLossProps {
   showHeader?: boolean;
@@ -278,13 +279,33 @@ const ProfitLoss: React.FC<ProfitLossProps> = ({ showHeader = true }) => {
       .then((res) => res.json())
       .then((data) => {
         const ledgers = data.ledgers || [];
+        const fetchedGroups = (data.ledgerGroups || []).map((g: any) => ({
+          ...g,
+          id: Number(g.id),
+          parent: g.parent !== undefined && g.parent !== null ? Number(g.parent) : (g.parent_id !== undefined && g.parent_id !== null ? Number(g.parent_id) : null)
+        }));
 
-        // Helper to check if a group is a descendant of another
-        const allGroups = [...(ledgerGroups || [])];
-        const isDescendant = (childId: number | string, targetParentId: number | string): boolean => {
+        const systemGroupsMapped = allSystemGroups.map(g => ({
+          id: Number(g.id),
+          name: g.name,
+          parent: g.parent !== null && g.parent !== undefined ? Number(g.parent) : null,
+          type: g.nature?.toLowerCase().replace(' ', '-') || null
+        }));
+
+        const existingIds = new Set(fetchedGroups.map((g: any) => g.id));
+        const allGroups = [
+          ...systemGroupsMapped.filter(sg => !existingIds.has(sg.id)),
+          ...fetchedGroups
+        ];
+
+        // Helper to check if a group is a descendant of another with cycle prevention
+        const isDescendant = (childId: number | string, targetParentId: number | string, visited = new Set<string>()): boolean => {
           if (String(childId) === String(targetParentId)) return true;
+          if (visited.has(String(childId))) return false;
+          visited.add(String(childId));
           const group = allGroups.find(g => String(g.id) === String(childId));
-          if (group && group.parent_id) return isDescendant(group.parent_id, targetParentId);
+          const parent = group ? (group.parent !== undefined && group.parent !== null ? group.parent : (group as any).parent_id) : null;
+          if (group && parent !== null && parent !== undefined) return isDescendant(parent, targetParentId, visited);
           return false;
         };
 
@@ -316,7 +337,7 @@ const ProfitLoss: React.FC<ProfitLossProps> = ({ showHeader = true }) => {
             if (isDescendant(gid, -7)) return true;
             if (gtype === "direct-expenses" || pgtype === "direct-expenses" || gtype === "direct-expense" || pgtype === "direct-expense") return true;
 
-            const group = (ledgerGroups || []).find(g => String(g.id) === gid);
+            const group = allGroups.find(g => String(g.id) === gid);
             return group?.type === "direct-expenses";
           })
           .map((l: any) => ({
@@ -335,7 +356,7 @@ const ProfitLoss: React.FC<ProfitLossProps> = ({ showHeader = true }) => {
             if (isDescendant(gid, -10)) return true;
             if (gtype === "indirect-expenses" || pgtype === "indirect-expenses" || gtype === "indirect-expense" || pgtype === "indirect-expense") return true;
 
-            const group = (ledgerGroups || []).find(g => String(g.id) === gid);
+            const group = allGroups.find(g => String(g.id) === gid);
             return group?.type === "indirect-expenses";
           })
           .map((l: any) => ({
@@ -354,7 +375,7 @@ const ProfitLoss: React.FC<ProfitLossProps> = ({ showHeader = true }) => {
             if (isDescendant(gid, -8)) return true;
             if (gtype === "direct-income" || pgtype === "direct-income" || gtype === "direct-incomes" || pgtype === "direct-incomes") return true;
 
-            const group = (ledgerGroups || []).find(g => String(g.id) === gid);
+            const group = allGroups.find(g => String(g.id) === gid);
             return group?.type === "direct-income";
           })
           .map((l: any) => ({
@@ -373,7 +394,7 @@ const ProfitLoss: React.FC<ProfitLossProps> = ({ showHeader = true }) => {
             if (isDescendant(gid, -11)) return true;
             if (gtype === "indirect-income" || pgtype === "indirect-income" || gtype === "indirect-incomes" || pgtype === "indirect-incomes") return true;
 
-            const group = (ledgerGroups || []).find(g => String(g.id) === gid);
+            const group = allGroups.find(g => String(g.id) === gid);
             return group?.type === "indirect-income";
           })
           .map((l: any) => ({

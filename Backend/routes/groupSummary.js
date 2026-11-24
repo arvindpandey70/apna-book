@@ -30,6 +30,111 @@ router.get("/api/group", async (req, res) => {
       });
     }
 
+    // 0️⃣ Resolve GST ledgers and calculate tax debits/credits accurately
+    const [targetLedgers] = await pool.query(
+      `SELECT id, name, group_id FROM ledgers WHERE id IN (?)`,
+      [idArray]
+    );
+
+    const cgstRateMap = {};
+    const sgstRateMap = {};
+    const igstRateMap = {};
+
+    targetLedgers.forEach((l) => {
+      const name = String(l.name || "").toLowerCase();
+      const pctMatch = name.match(/(\d+(\.\d+)?)/);
+      const rate = pctMatch ? parseFloat(pctMatch[1]) : null;
+
+      const isCgst = name.includes("cgst") || l.group_id === -117;
+      const isSgst = name.includes("sgst") || name.includes("utgst") || l.group_id === -118;
+      const isIgst = name.includes("igst") || l.group_id === -116;
+
+      if (rate !== null) {
+        if (isCgst) cgstRateMap[rate] = l.id;
+        else if (isSgst) sgstRateMap[rate] = l.id;
+        else if (isIgst) igstRateMap[rate] = l.id;
+      }
+    });
+
+    // Calculate Purchase Tax (Debit)
+    const [pTaxItems] = await pool.query(
+      `SELECT pvi.amount, pvi.cgstRate, pvi.sgstRate, pvi.igstRate
+       FROM purchase_voucher_items pvi
+       JOIN purchase_vouchers pv ON pvi.voucherId = pv.id
+       WHERE pv.company_id = ? AND pv.owner_type = ? AND pv.owner_id = ?
+         AND pv.mode != 'accounting-invoice'`,
+      [company_id, owner_type, owner_id]
+    );
+
+    const taxData = {};
+    pTaxItems.forEach((item) => {
+      const amt = parseFloat(item.amount) || 0;
+      const cRate = parseFloat(item.cgstRate) || 0;
+      const sRate = parseFloat(item.sgstRate) || 0;
+      const iRate = parseFloat(item.igstRate) || 0;
+
+      if (cRate > 0) {
+        const lid = cRate > 40 && idArray.includes(Number(cRate)) ? Number(cRate) : cgstRateMap[cRate];
+        if (lid) {
+          taxData[lid] = taxData[lid] || { debit: 0, credit: 0 };
+          taxData[lid].debit += Math.round((amt * cRate / 100) * 100) / 100;
+        }
+      }
+      if (sRate > 0) {
+        const lid = sRate > 40 && idArray.includes(Number(sRate)) ? Number(sRate) : sgstRateMap[sRate];
+        if (lid) {
+          taxData[lid] = taxData[lid] || { debit: 0, credit: 0 };
+          taxData[lid].debit += Math.round((amt * sRate / 100) * 100) / 100;
+        }
+      }
+      if (iRate > 0) {
+        const lid = iRate > 40 && idArray.includes(Number(iRate)) ? Number(iRate) : igstRateMap[iRate];
+        if (lid) {
+          taxData[lid] = taxData[lid] || { debit: 0, credit: 0 };
+          taxData[lid].debit += Math.round((amt * iRate / 100) * 100) / 100;
+        }
+      }
+    });
+
+    // Calculate Sales Tax (Credit)
+    const [sTaxItems] = await pool.query(
+      `SELECT svi.amount, svi.cgstRate, svi.sgstRate, svi.igstRate
+       FROM sales_voucher_items svi
+       JOIN sales_vouchers sv ON svi.voucherId = sv.id
+       WHERE sv.company_id = ? AND sv.owner_type = ? AND sv.owner_id = ?
+         AND sv.mode != 'accounting-invoice'`,
+      [company_id, owner_type, owner_id]
+    );
+
+    sTaxItems.forEach((item) => {
+      const amt = parseFloat(item.amount) || 0;
+      const cRate = parseFloat(item.cgstRate) || 0;
+      const sRate = parseFloat(item.sgstRate) || 0;
+      const iRate = parseFloat(item.igstRate) || 0;
+
+      if (cRate > 0) {
+        const lid = cRate > 40 && idArray.includes(Number(cRate)) ? Number(cRate) : cgstRateMap[cRate];
+        if (lid) {
+          taxData[lid] = taxData[lid] || { debit: 0, credit: 0 };
+          taxData[lid].credit += Math.round((amt * cRate / 100) * 100) / 100;
+        }
+      }
+      if (sRate > 0) {
+        const lid = sRate > 40 && idArray.includes(Number(sRate)) ? Number(sRate) : sgstRateMap[sRate];
+        if (lid) {
+          taxData[lid] = taxData[lid] || { debit: 0, credit: 0 };
+          taxData[lid].credit += Math.round((amt * sRate / 100) * 100) / 100;
+        }
+      }
+      if (iRate > 0) {
+        const lid = iRate > 40 && idArray.includes(Number(iRate)) ? Number(iRate) : igstRateMap[iRate];
+        if (lid) {
+          taxData[lid] = taxData[lid] || { debit: 0, credit: 0 };
+          taxData[lid].credit += Math.round((amt * iRate / 100) * 100) / 100;
+        }
+      }
+    });
+
     const [rows] = await pool.query(
 
       `
@@ -41,60 +146,6 @@ router.get("/api/group", async (req, res) => {
       FROM (
 
         /* ================= PURCHASE (ITEM-INVOICE MODE) ================= */
-
-        /* CGST - use DISTINCT subquery so voucher-level total is counted once per voucher, not once per item */
-        SELECT
-          CAST(pvi_agg.cgstRate AS UNSIGNED) AS ledgerId,
-          pv.cgstTotal AS debit,
-          0 AS credit
-        FROM purchase_vouchers pv
-        JOIN (
-          SELECT DISTINCT voucherId, cgstRate
-          FROM purchase_voucher_items
-          WHERE cgstRate IN (?) AND cgstRate > 0
-        ) pvi_agg ON pvi_agg.voucherId = pv.id
-        WHERE pv.company_id = ?
-          AND pv.owner_type = ?
-          AND pv.owner_id = ?
-          AND pv.mode != 'accounting-invoice'
-
-        UNION ALL
-
-        /* SGST - one row per voucher */
-        SELECT
-          CAST(pvi_agg.sgstRate AS UNSIGNED) AS ledgerId,
-          pv.sgstTotal AS debit,
-          0 AS credit
-        FROM purchase_vouchers pv
-        JOIN (
-          SELECT DISTINCT voucherId, sgstRate
-          FROM purchase_voucher_items
-          WHERE sgstRate IN (?) AND sgstRate > 0
-        ) pvi_agg ON pvi_agg.voucherId = pv.id
-        WHERE pv.company_id = ?
-          AND pv.owner_type = ?
-          AND pv.owner_id = ?
-          AND pv.mode != 'accounting-invoice'
-
-        UNION ALL
-
-        /* IGST - one row per voucher */
-        SELECT
-          CAST(pvi_agg.igstRate AS UNSIGNED) AS ledgerId,
-          pv.igstTotal AS debit,
-          0 AS credit
-        FROM purchase_vouchers pv
-        JOIN (
-          SELECT DISTINCT voucherId, igstRate
-          FROM purchase_voucher_items
-          WHERE igstRate IN (?) AND igstRate > 0
-        ) pvi_agg ON pvi_agg.voucherId = pv.id
-        WHERE pv.company_id = ?
-          AND pv.owner_type = ?
-          AND pv.owner_id = ?
-          AND pv.mode != 'accounting-invoice'
-
-        UNION ALL
 
         /* Purchase Ledger - per item amount (correct, item-level) */
         SELECT
@@ -108,6 +159,25 @@ router.get("/api/group", async (req, res) => {
           AND pv.owner_type = ?
           AND pv.owner_id = ?
           AND pv.mode != 'accounting-invoice'
+
+        UNION ALL
+
+        /* Purchase Ledger - voucher level fallback if item level not set */
+        SELECT
+          CAST(pv.purchaseLedgerId AS UNSIGNED) AS ledgerId,
+          pv.subtotal AS debit,
+          0 AS credit
+        FROM purchase_vouchers pv
+        WHERE pv.purchaseLedgerId IN (?)
+          AND pv.purchaseLedgerId > 0
+          AND pv.company_id = ?
+          AND pv.owner_type = ?
+          AND pv.owner_id = ?
+          AND pv.mode != 'accounting-invoice'
+          AND NOT EXISTS (
+            SELECT 1 FROM purchase_voucher_items pvi 
+            WHERE pvi.voucherId = pv.id AND pvi.purchaseLedgerId > 0
+          )
 
         UNION ALL
 
@@ -145,64 +215,8 @@ router.get("/api/group", async (req, res) => {
           AND pv.owner_id = ?
           AND pv.mode != 'accounting-invoice'
           AND pv.discountTotal > 0
-          AND pv.mode != 'accounting-invoice'
-
 
         /* ================= SALES (ITEM-INVOICE MODE) ================= */
-
-        UNION ALL
-
-        /* Sales CGST - one row per voucher */
-        SELECT
-          CAST(svi_agg.cgstRate AS UNSIGNED) AS ledgerId,
-          0 AS debit,
-          sv.cgstTotal AS credit
-        FROM sales_vouchers sv
-        JOIN (
-          SELECT DISTINCT voucherId, cgstRate
-          FROM sales_voucher_items
-          WHERE cgstRate IN (?) AND cgstRate > 0
-        ) svi_agg ON svi_agg.voucherId = sv.id
-        WHERE sv.company_id = ?
-          AND sv.owner_type = ?
-          AND sv.owner_id = ?
-          AND sv.mode != 'accounting-invoice'
-
-        UNION ALL
-
-        /* Sales SGST - one row per voucher */
-        SELECT
-          CAST(svi_agg.sgstRate AS UNSIGNED) AS ledgerId,
-          0 AS debit,
-          sv.sgstTotal AS credit
-        FROM sales_vouchers sv
-        JOIN (
-          SELECT DISTINCT voucherId, sgstRate
-          FROM sales_voucher_items
-          WHERE sgstRate IN (?) AND sgstRate > 0
-        ) svi_agg ON svi_agg.voucherId = sv.id
-        WHERE sv.company_id = ?
-          AND sv.owner_type = ?
-          AND sv.owner_id = ?
-          AND sv.mode != 'accounting-invoice'
-
-        UNION ALL
-
-        /* Sales IGST - one row per voucher */
-        SELECT
-          CAST(svi_agg.igstRate AS UNSIGNED) AS ledgerId,
-          0 AS debit,
-          sv.igstTotal AS credit
-        FROM sales_vouchers sv
-        JOIN (
-          SELECT DISTINCT voucherId, igstRate
-          FROM sales_voucher_items
-          WHERE igstRate IN (?) AND igstRate > 0
-        ) svi_agg ON svi_agg.voucherId = sv.id
-        WHERE sv.company_id = ?
-          AND sv.owner_type = ?
-          AND sv.owner_id = ?
-          AND sv.mode != 'accounting-invoice'
 
         UNION ALL
 
@@ -218,6 +232,25 @@ router.get("/api/group", async (req, res) => {
           AND sv.owner_type = ?
           AND sv.owner_id = ?
           AND sv.mode != 'accounting-invoice'
+
+        UNION ALL
+
+        /* Sales Ledger - voucher level fallback if item level not set */
+        SELECT
+          CAST(sv.salesLedgerId AS UNSIGNED) AS ledgerId,
+          0 AS debit,
+          sv.subtotal AS credit
+        FROM sales_vouchers sv
+        WHERE sv.salesLedgerId IN (?)
+          AND sv.salesLedgerId > 0
+          AND sv.company_id = ?
+          AND sv.owner_type = ?
+          AND sv.owner_id = ?
+          AND sv.mode != 'accounting-invoice'
+          AND NOT EXISTS (
+            SELECT 1 FROM sales_voucher_items svi 
+            WHERE svi.voucherId = sv.id AND svi.salesLedgerId > 0
+          )
 
         /* ================= SALES DISCOUNT (ITEM-WISE) ================= */
 
@@ -369,18 +402,14 @@ router.get("/api/group", async (req, res) => {
 
       [
         // Purchase item-invoice mode
-        idArray, company_id, owner_type, owner_id,   // CGST
-        idArray, company_id, owner_type, owner_id,   // SGST
-        idArray, company_id, owner_type, owner_id,   // IGST
-        idArray, company_id, owner_type, owner_id,   // Purchase Ledger
+        idArray, company_id, owner_type, owner_id,   // Purchase Ledger (item)
+        idArray, company_id, owner_type, owner_id,   // Purchase Ledger (voucher fallback)
         idArray, company_id, owner_type, owner_id,   // TDS
         idArray, company_id, owner_type, owner_id,   // Purchase Discount
 
         // Sales item-invoice mode
-        idArray, company_id, owner_type, owner_id,   // CGST
-        idArray, company_id, owner_type, owner_id,   // SGST
-        idArray, company_id, owner_type, owner_id,   // IGST
-        idArray, company_id, owner_type, owner_id,   // Sales Ledger
+        idArray, company_id, owner_type, owner_id,   // Sales Ledger (item)
+        idArray, company_id, owner_type, owner_id,   // Sales Ledger (voucher fallback)
         idArray, company_id, owner_type, owner_id,   // Sales Discount (Items)
         idArray, company_id, owner_type, owner_id,   // Sales Discount (Overall/Manual)
 
@@ -438,20 +467,37 @@ router.get("/api/group", async (req, res) => {
       }
     });
 
-
     const result = {};
 
     rows.forEach(row => {
-
       const id = Number(row.ledgerId);
-
       if (!isNaN(id)) {
-        const debit = Number(row.debit || 0) + (notesData[id]?.debit || 0);
-        const credit = Number(row.credit || 0) + (notesData[id]?.credit || 0);
-
+        const debit = Number(row.debit || 0) + (notesData[id]?.debit || 0) + (taxData[id]?.debit || 0);
+        const credit = Number(row.credit || 0) + (notesData[id]?.credit || 0) + (taxData[id]?.credit || 0);
         result[id] = { debit, credit };
       }
+    });
 
+    // Include taxData entries that didn't appear in rows
+    Object.keys(taxData).forEach(key => {
+      const id = Number(key);
+      if (!result[id]) {
+        result[id] = {
+          debit: (taxData[id]?.debit || 0) + (notesData[id]?.debit || 0),
+          credit: (taxData[id]?.credit || 0) + (notesData[id]?.credit || 0),
+        };
+      }
+    });
+
+    // Include notesData entries that didn't appear in rows
+    Object.keys(notesData).forEach(key => {
+      const id = Number(key);
+      if (!result[id]) {
+        result[id] = {
+          debit: notesData[id]?.debit || 0,
+          credit: notesData[id]?.credit || 0,
+        };
+      }
     });
 
     res.json({
