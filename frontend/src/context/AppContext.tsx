@@ -404,7 +404,7 @@ const AppProviderInner: React.FC<{ children: ReactNode }> = ({ children }) => {
     }
   }, [theme]);
 
-  const { companyInfo: contextCompanyInfo } = useCompany();
+  const { companyInfo: contextCompanyInfo, activeCompanyId } = useCompany();
   const [localCompanyInfo, setLocalCompanyInfo] = useState<CompanyInfo | null>(null);
 
   // Sync with CompanyContext - companyInfo from context takes precedence
@@ -424,6 +424,46 @@ const AppProviderInner: React.FC<{ children: ReactNode }> = ({ children }) => {
     // Note: For proper company switching, use useCompany().switchCompany()
   };
   const [ledgerGroups, setLedgerGroups] = useState<LedgerGroup[]>(initialLedgerGroups);
+
+  // Sync custom ledger groups from database for the active company
+  useEffect(() => {
+    const fetchCustomGroups = async () => {
+      const cid = activeCompanyId || companyInfo?.id || localStorage.getItem("company_id") || localStorage.getItem("active_company_id");
+      const rawOt = localStorage.getItem("supplier") || "";
+      const empId = localStorage.getItem("employee_id");
+      const userId = localStorage.getItem("user_id") || "";
+
+      const ot = (rawOt === "ca" || rawOt === "ca_employee" || rawOt === "new_ca" || rawOt === "employee" || empId)
+        ? "employee"
+        : (rawOt || "employee");
+
+      const oid = (rawOt === "ca" || rawOt === "ca_employee" || rawOt === "new_ca" || rawOt === "employee" || empId)
+        ? (empId || userId)
+        : userId;
+
+      if (!cid || !ot || !oid) return;
+
+      try {
+        const res = await fetch(`${import.meta.env.VITE_API_URL}/api/ledger-groups?company_id=${cid}&owner_type=${ot}&owner_id=${oid}`);
+        if (res.ok) {
+          const dbGroups = await res.json();
+          if (Array.isArray(dbGroups)) {
+            const mappedDb = dbGroups.map((g: any) => ({
+              ...g,
+              id: Number(g.id),
+              parent: g.parent !== null && g.parent !== undefined ? Number(g.parent) : null,
+            }));
+            const dbIds = new Set(mappedDb.map(g => Number(g.id)));
+            const filteredSystem = systemMapped.filter(sg => !dbIds.has(Number(sg.id)));
+            setLedgerGroups([...filteredSystem, ...mappedDb]);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load db ledger groups in AppContext", err);
+      }
+    };
+    fetchCustomGroups();
+  }, [activeCompanyId, companyInfo]);
   const [ledgers, setLedgers] = useState<Ledger[]>(defaultLedgers);
   const [vouchers, setVouchers] = useState<VoucherEntry[]>([
     {

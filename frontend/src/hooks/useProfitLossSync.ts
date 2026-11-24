@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useAppContext } from "../context/AppContext";
+import { allSystemGroups } from "../constants/ledgerGroups";
 
 export const useProfitLossSync = () => {
     const { ledgerGroups } = useAppContext();
@@ -53,14 +54,33 @@ export const useProfitLossSync = () => {
                 const groupSummaryRes = await fetch(`${import.meta.env.VITE_API_URL}/api/group-summary?company_id=${companyId}&owner_type=${ownerType}&owner_id=${ownerId}`);
                 const groupSummaryJson = await groupSummaryRes.json();
                 const ledgers = groupSummaryJson.ledgers || [];
+                const fetchedGroups = (groupSummaryJson.ledgerGroups || []).map((g: any) => ({
+                    ...g,
+                    id: Number(g.id),
+                    parent: g.parent !== undefined && g.parent !== null ? Number(g.parent) : (g.parent_id !== undefined && g.parent_id !== null ? Number(g.parent_id) : null)
+                }));
+
+                const systemGroupsMapped = allSystemGroups.map(g => ({
+                    id: Number(g.id),
+                    name: g.name,
+                    parent: g.parent !== null && g.parent !== undefined ? Number(g.parent) : null,
+                    type: g.nature?.toLowerCase().replace(' ', '-') || null
+                }));
+
+                const existingIds = new Set(fetchedGroups.map((g: any) => g.id));
+                const allGroups = [
+                    ...systemGroupsMapped.filter(sg => !existingIds.has(sg.id)),
+                    ...fetchedGroups
+                ];
 
                 // Helper to check if a group is a descendant of another
-                const allGroups = [...(ledgerGroups || [])];
-                const isDescendant = (childId: number | string, targetParentId: number | string): boolean => {
+                const isDescendant = (childId: number | string, targetParentId: number | string, visited = new Set<string>()): boolean => {
                     if (String(childId) === String(targetParentId)) return true;
+                    if (visited.has(String(childId))) return false;
+                    visited.add(String(childId));
                     const group = allGroups.find(g => String(g.id) === String(childId));
-                    const parent = group ? (group.parent !== undefined ? group.parent : (group as any).parent_id) : null;
-                    if (group && parent) return isDescendant(parent, targetParentId);
+                    const parent = group ? (group.parent !== undefined && group.parent !== null ? group.parent : (group as any).parent_id) : null;
+                    if (group && parent !== null && parent !== undefined) return isDescendant(parent, targetParentId, visited);
                     return false;
                 };
 

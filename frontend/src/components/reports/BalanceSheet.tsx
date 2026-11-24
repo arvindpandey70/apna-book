@@ -417,12 +417,14 @@ const BalanceSheet: React.FC<BalanceSheetProps> = ({ showHeader = true, isYearWi
   };
 
   const calculateGroupTotal = (groupId: number): number => {
-    const findSubGroups = (id: number): number[] => {
+    const findSubGroups = (id: number, visited = new Set<number>()): number[] => {
+      if (visited.has(id)) return [];
+      visited.add(id);
       let results = [id];
       ledgerGroups
         .filter((g) => Number(g.parent) === Number(id))
         .forEach((c) => {
-          results = [...results, ...findSubGroups(Number(c.id))];
+          results = [...results, ...findSubGroups(Number(c.id), visited)];
         });
       return results;
     };
@@ -443,7 +445,9 @@ const BalanceSheet: React.FC<BalanceSheetProps> = ({ showHeader = true, isYearWi
     navigate(`/app/reports/sub-group-summary/${groupId}`, { state: { groupIds } });
   };
 
-  const renderDetailedGroupItems = (parentGroupId: number, level: number = 1) => {
+  const renderDetailedGroupItems = (parentGroupId: number, level: number = 1, visited = new Set<number>()) => {
+    if (visited.has(parentGroupId)) return null;
+    visited.add(parentGroupId);
     const subGroups = ledgerGroups.filter(g => Number(g.parent) === Number(parentGroupId));
     const directLedgers = ledgers.filter(l => Number(l.groupId) === parentGroupId);
 
@@ -467,7 +471,7 @@ const BalanceSheet: React.FC<BalanceSheetProps> = ({ showHeader = true, isYearWi
                   {formatBalance(total)}
                 </span>
               </div>
-              {renderDetailedGroupItems(group.id, level + 1)}
+              {renderDetailedGroupItems(group.id, level + 1, visited)}
             </div>
           );
         })}
