@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../home/context/AuthContext';
 import { useAppContext } from '../../context/AppContext';
+import Swal from 'sweetalert2';
 import {
   Building2,
   Users,
@@ -12,9 +13,9 @@ import {
   ShieldCheck,
   CheckCircle2,
   AlertCircle,
-  FileText,
   Clock,
-  Sparkles
+  Sparkles,
+  UserMinus
 } from 'lucide-react';
 
 interface DashboardData {
@@ -45,10 +46,11 @@ const AccountantDashboard: React.FC = () => {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const fetchDashboard = useCallback(() => {
     const token = localStorage.getItem('token');
     if (!token) return;
 
+    setLoading(true);
     fetch(`${import.meta.env.VITE_API_URL}/api/accountant/dashboard`, {
       headers: { Authorization: `Bearer ${token}` }
     })
@@ -59,6 +61,7 @@ const AccountantDashboard: React.FC = () => {
         }
         if (resData.success) {
           setData(resData);
+          setError(null);
         } else {
           setError(resData.error || 'Failed to load dashboard data');
         }
@@ -67,11 +70,58 @@ const AccountantDashboard: React.FC = () => {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    fetchDashboard();
+  }, [fetchDashboard]);
+
   const handleSelectCompany = (company: any) => {
     updateCompany(String(company.id), company);
     localStorage.setItem("supplier", "employee");
     localStorage.setItem("employee_id", String(company.employee_id || 0));
     navigate('/app');
+  };
+
+  const handleReleaseCompany = async (company: any) => {
+    const result = await Swal.fire({
+      title: 'Are you sure?',
+      html: `Do you want to remove <b>${company.name}</b> from your account?<br/><br/>The client will be able to assign another accountant after this.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, remove',
+      cancelButtonText: 'Cancel',
+      confirmButtonColor: '#dc2626',
+      cancelButtonColor: '#6b7280',
+    });
+    if (!result.isConfirmed) return;
+
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/accountant/companies/${company.id}`,
+        {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      const resData = await res.json();
+      if (!res.ok || !resData.success) {
+        throw new Error(resData.error || resData.message || 'Failed to remove company');
+      }
+      await Swal.fire({
+        title: 'Removed',
+        text: resData.message || 'Company removed successfully.',
+        icon: 'success',
+        timer: 1800,
+        showConfirmButton: false,
+      });
+      fetchDashboard();
+    } catch (err: any) {
+      Swal.fire({
+        title: 'Error',
+        text: err?.message || 'Could not remove company.',
+        icon: 'error',
+      });
+    }
   };
 
   if (loading) {
@@ -293,19 +343,30 @@ const AccountantDashboard: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 pt-3 border-t border-slate-200 dark:border-slate-700/60">
-                  <button
-                    onClick={() => handleSelectCompany(comp)}
-                    className="flex-1 px-3 py-1.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-all shadow-xs inline-flex items-center justify-center gap-1 cursor-pointer"
-                  >
-                    <BookOpen size={13} /> Open Books
-                  </button>
-                  <Link
-                    to={`/accountant/users/create?company_id=${comp.id}`}
-                    className="px-3 py-1.5 text-xs font-semibold border rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors inline-flex items-center gap-1"
-                  >
-                    <UserPlus size={13} /> Add User
-                  </Link>
+                <div className="flex flex-col gap-2 pt-3 border-t border-slate-200 dark:border-slate-700/60">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleSelectCompany(comp)}
+                      className="flex-1 px-3 py-1.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-all shadow-xs inline-flex items-center justify-center gap-1 cursor-pointer"
+                    >
+                      <BookOpen size={13} /> Open Books
+                    </button>
+                    <Link
+                      to={`/accountant/users/create?company_id=${comp.id}`}
+                      className="px-3 py-1.5 text-xs font-semibold border rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors inline-flex items-center gap-1"
+                    >
+                      <UserPlus size={13} /> Add User
+                    </Link>
+                  </div>
+                  {!!comp.is_client_allotted && (
+                    <button
+                      type="button"
+                      onClick={() => handleReleaseCompany(comp)}
+                      className="w-full px-3 py-1.5 text-xs font-semibold border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 rounded-xl hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors inline-flex items-center justify-center gap-1 cursor-pointer"
+                    >
+                      <UserMinus size={13} /> Remove Company
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

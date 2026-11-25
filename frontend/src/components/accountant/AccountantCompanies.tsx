@@ -10,9 +10,6 @@ import {
   Users,
   Eye,
   X,
-  FileText,
-  Calendar,
-  AlertCircle
 } from 'lucide-react';
 
 interface Company {
