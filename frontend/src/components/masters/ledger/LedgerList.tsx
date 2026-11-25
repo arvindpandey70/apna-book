@@ -178,8 +178,15 @@ const LedgerList: React.FC = () => {
     return normalGroups.find((g) => g.id === groupId) || null;
   };
 
-  const getGroupName = (groupId: number | string) => {
-    const gid = Number(groupId); // 🔥 VERY IMPORTANT
+  const getGroupName = (
+    groupId: number | string | null | undefined,
+    fallbackName?: string | null
+  ) => {
+    if (fallbackName && String(fallbackName).trim()) {
+      return String(fallbackName).trim();
+    }
+
+    const gid = Number(groupId);
 
     if (isNaN(gid)) return "—";
 
@@ -206,7 +213,7 @@ const LedgerList: React.FC = () => {
       if (l.groupId !== undefined && l.groupId !== null) {
         const idStr = String(l.groupId);
         if (!map.has(idStr)) {
-          const resolvedName = getGroupName(l.groupId);
+          const resolvedName = getGroupName(l.groupId, l.groupName);
           map.set(idStr, resolvedName !== "—" ? resolvedName : idStr);
         }
       }
@@ -238,7 +245,7 @@ const LedgerList: React.FC = () => {
         const selectedGroupName = selectedGroupObj ? selectedGroupObj.name.toLowerCase() : "";
 
         const ledgerGroupIdStr = String(ledger.groupId);
-        const ledgerGroupName = getGroupName(ledger.groupId).toLowerCase();
+        const ledgerGroupName = getGroupName(ledger.groupId, ledger.groupName).toLowerCase();
 
         matchesGroup =
           ledgerGroupIdStr === selectedGroupFilter ||
@@ -322,7 +329,7 @@ const LedgerList: React.FC = () => {
       const XLSX = await import("xlsx");
       const exportData = filteredLedgers.map((row) => ({
         "Name": row.name || "",
-        "Under Group": getGroupName(row.groupId),
+        "Under Group": getGroupName(row.groupId, row.groupName),
         "GST Number": row.gstNumber || "",
         "State": row.state || "",
         "Address": row.address || "",
@@ -361,7 +368,7 @@ const LedgerList: React.FC = () => {
     xmlString += `      <REQUESTDATA>\n`;
     
     filteredLedgers.forEach((ledger) => {
-      const groupName = getGroupName(ledger.groupId);
+      const groupName = getGroupName(ledger.groupId, ledger.groupName);
       xmlString += `        <TALLYMESSAGE xmlns:UDF="TallyUDF">\n`;
       xmlString += `         <LEDGER NAME="${ledger.name}" RESERVEDNAME="${ledger.name}">\n`;
       xmlString += `          <NAME.LIST>\n`;
@@ -434,7 +441,7 @@ const LedgerList: React.FC = () => {
           </div>
         </td>
         <td className="px-4 py-3">
-          {getGroupName(ledger.groupId)}
+          {getGroupName(ledger.groupId, ledger.groupName)}
         </td>
 
         <td className="px-4 py-3">{ledger.gstNumber}</td>

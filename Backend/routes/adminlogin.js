@@ -250,6 +250,38 @@ router.get('/all-ledgers', authMiddleware, async (req, res) => {
   }
 });
 
+/** Resolve source group_id to a company's local group id (by name). Negative = system group. */
+const resolveCompanyGroupId = async (connection, companyId, sourceGroupId) => {
+  const gid = Number(sourceGroupId);
+  if (!gid || Number.isNaN(gid)) return sourceGroupId;
+  if (gid < 0) return gid;
+
+  const [srcRows] = await connection.execute(
+    `SELECT name, parent, nature, type FROM ledger_groups WHERE id = ?`,
+    [gid]
+  );
+  if (srcRows.length === 0) return gid;
+
+  const src = srcRows[0];
+  const [companyGroups] = await connection.execute(
+    `SELECT id FROM ledger_groups
+     WHERE company_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?))
+     LIMIT 1`,
+    [companyId, src.name]
+  );
+
+  if (companyGroups.length > 0) {
+    return companyGroups[0].id;
+  }
+
+  const [insertResult] = await connection.execute(
+    `INSERT INTO ledger_groups (name, parent, nature, type, company_id, owner_type, owner_id)
+     VALUES (?, ?, ?, ?, ?, 'employee', 0)`,
+    [src.name, src.parent, src.nature, src.type || null, companyId]
+  );
+  return insertResult.insertId;
+};
+
 // ✅ Admin Create Global Ledger
 router.post('/create-global-ledger', authMiddleware, async (req, res) => {
   const { name, groupId, openingBalance, balanceType } = req.body;
@@ -281,7 +313,7 @@ router.post('/create-global-ledger', authMiddleware, async (req, res) => {
     // 2. Fetch all companies
     const [companies] = await connection.execute(`SELECT id FROM tbcompanies`);
 
-    // 3. Insert into all companies (if not already exists)
+    // 3. Insert into all companies with company-local group_id (if not already exists)
     for (const company of companies) {
       const [existing] = await connection.execute(
         `SELECT id FROM ledgers WHERE name = ? AND company_id = ? AND owner_type = 'employee' AND owner_id = 0`,
@@ -289,10 +321,11 @@ router.post('/create-global-ledger', authMiddleware, async (req, res) => {
       );
 
       if (existing.length === 0) {
+        const companyGroupId = await resolveCompanyGroupId(connection, company.id, groupId);
         await connection.execute(
           `INSERT INTO ledgers (name, group_id, opening_balance, balance_type, company_id, owner_type, owner_id)
            VALUES (?, ?, ?, ?, ?, 'employee', 0)`,
-          [name, groupId, openingBalance || 0, balanceType || 'debit', company.id]
+          [name, companyGroupId, openingBalance || 0, balanceType || 'debit', company.id]
         );
       }
     }
@@ -334,17 +367,26 @@ router.put('/global-ledger/:id', authMiddleware, async (req, res) => {
 
     // 2. Update Admin Template
     await connection.execute(
-      `UPDATE ledgers SET name = ?, group_id = ?, opening_balance = ?, balance_type = ? 
+      `UPDATE ledgers SET name = ?, group_id = ?, opening_balance = ?, balance_type = ?
        WHERE id = ? AND company_id = 0 AND owner_type = 'admin'`,
       [name, groupId, openingBalance || 0, balanceType || 'debit', ledgerId]
     );
 
-    // 3. Update copies in all companies (matching by old name and employee owner_type)
-    await connection.execute(
-      `UPDATE ledgers SET name = ?, group_id = ?, opening_balance = ?, balance_type = ? 
+    // 3. Update copies in all companies with each company's local group_id
+    const [companyCopies] = await connection.execute(
+      `SELECT id, company_id FROM ledgers
        WHERE name = ? AND company_id > 0 AND owner_type = 'employee' AND owner_id = 0`,
-      [name, groupId, openingBalance || 0, balanceType || 'debit', oldName]
+      [oldName]
     );
+
+    for (const copy of companyCopies) {
+      const companyGroupId = await resolveCompanyGroupId(connection, copy.company_id, groupId);
+      await connection.execute(
+        `UPDATE ledgers SET name = ?, group_id = ?, opening_balance = ?, balance_type = ?
+         WHERE id = ?`,
+        [name, companyGroupId, openingBalance || 0, balanceType || 'debit', copy.id]
+      );
+    }
 
     await connection.commit();
     res.json({ message: 'Global ledger updated successfully across all companies' });
