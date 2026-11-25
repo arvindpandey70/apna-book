@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
+import { getFinancialYearRange } from "../../../utils/plGroupHelpers";
 
 const SalesAddDetails: React.FC = () => {
   const navigate = useNavigate();
@@ -40,8 +41,9 @@ const SalesAddDetails: React.FC = () => {
       try {
         if (!groupId) return;
 
+        const fy = getFinancialYearRange();
         const res = await fetch(
-          `${import.meta.env.VITE_API_URL}/api/sales/${groupId}?company_id=${companyId}&owner_type=${ownerType}&owner_id=${ownerId}`
+          `${import.meta.env.VITE_API_URL}/api/sales/${groupId}?company_id=${companyId}&owner_type=${ownerType}&owner_id=${ownerId}&fromDate=${fy.fromDate}&toDate=${fy.toDate}`
         );
 
         const data = await res.json();

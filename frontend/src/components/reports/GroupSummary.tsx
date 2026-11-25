@@ -1,7 +1,13 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Printer, Download, Filter, Settings } from "lucide-react";
 import { allSystemGroups as baseGroups } from "../../constants/ledgerGroups";
+import {
+  buildAllGroups,
+  getFinancialYearRange,
+  getGroupParent,
+  getPreviousFinancialYearRange,
+} from "../../utils/plGroupHelpers";
 
 interface Ledger {
   id: number;
@@ -46,6 +52,30 @@ const GroupSummary: React.FC = () => {
     credit: true,
     closing: true
   });
+
+  const currentFy = getFinancialYearRange();
+  const [period, setPeriod] = useState<"current-year" | "previous-year" | "custom">("current-year");
+  const [asOnDate, setAsOnDate] = useState(new Date().toISOString().split("T")[0]);
+  const [customFromDate, setCustomFromDate] = useState(currentFy.fromDate);
+  const [customToDate, setCustomToDate] = useState(currentFy.toDate);
+
+  const dateRange = useMemo(() => {
+    if (period === "previous-year") {
+      const prev = getPreviousFinancialYearRange();
+      return { fromDate: prev.fromDate, toDate: prev.toDate };
+    }
+    if (period === "custom") {
+      return {
+        fromDate: customFromDate || currentFy.fromDate,
+        toDate: asOnDate || customToDate || currentFy.toDate,
+      };
+    }
+    // current-year: FY start → as-on date (or FY end)
+    return {
+      fromDate: currentFy.fromDate,
+      toDate: asOnDate && asOnDate < currentFy.toDate ? asOnDate : currentFy.toDate,
+    };
+  }, [period, asOnDate, customFromDate, customToDate, currentFy.fromDate, currentFy.toDate]);
   const companyId = localStorage.getItem("company_id") || localStorage.getItem("active_company_id") || "";
   const rawOwnerType = localStorage.getItem("supplier") || "";
   const employeeId = localStorage.getItem("employee_id");
@@ -154,10 +184,11 @@ const GroupSummary: React.FC = () => {
 
         // Child groups: they point to the negative ID OR the real DB ID
         const childGroups = [
-          ...groups.filter((g) =>
-            Number(g.parent) === groupIdFromUrl ||
-            (realGroupIds.length > 0 && realGroupIds.includes(Number(g.parent)))
-          ).map(g => ({ ...g, isGroup: true })),
+          ...groups.filter((g) => {
+            const p = getGroupParent(g);
+            return p === groupIdFromUrl ||
+              (realGroupIds.length > 0 && p !== null && realGroupIds.includes(p));
+          }).map(g => ({ ...g, isGroup: true })),
           ...baseGroups.filter(bg =>
             Number(bg.parent) === groupIdFromUrl
           ).map(bg => ({ ...bg, isGroup: true, id: bg.id }))
@@ -168,14 +199,11 @@ const GroupSummary: React.FC = () => {
           a.findIndex(t => (t.id === v.id || t.name === v.name)) === i
         );
 
-        // Direct ledgers: they point to the negative ID OR the real DB ID OR match the type
+        // Direct ledgers only (avoid type-match double-count with subgroup ledgers)
         const directLedgers = allLedgersData.filter((item: any) => {
           const itemGid = Number(item.groupId || item.group_id);
-          const itemGtype = String(item.groupType || item.group_type || "").toLowerCase();
-
           return itemGid === groupIdFromUrl ||
-            (realGroupIds.length > 0 && realGroupIds.includes(itemGid)) ||
-            (targetType && itemGtype === targetType.toLowerCase());
+            (realGroupIds.length > 0 && realGroupIds.includes(itemGid));
         });
 
         // We'll calculate balances later after taxData is loaded
@@ -216,7 +244,9 @@ const GroupSummary: React.FC = () => {
           `?company_id=${companyId}` +
           `&owner_type=${ownerType}` +
           `&owner_id=${ownerId}` +
-          `&ledgerIds=${ledgerIds}`;
+          `&ledgerIds=${ledgerIds}` +
+          `&fromDate=${encodeURIComponent(dateRange.fromDate)}` +
+          `&toDate=${encodeURIComponent(dateRange.toDate)}`;
 
         const res = await fetch(url);
 
@@ -249,7 +279,7 @@ const GroupSummary: React.FC = () => {
 
     fetchTaxData();
 
-  }, [companyId, ownerType, ownerId, allLedgers]);
+  }, [companyId, ownerType, ownerId, allLedgers, dateRange.fromDate, dateRange.toDate]);
 
   // Resolve `groupType` param to a numeric group id.
   const resolveGroupId = (param?: string | null): number | null => {
@@ -362,18 +392,26 @@ const GroupSummary: React.FC = () => {
     return str === "stockinhand" || str.includes("stockinhand");
   };
 
-  // Recursive Balance Calculation
+  const mergedGroupsForBalance = useMemo(
+    () => buildAllGroups(groups, baseGroups as any[]),
+    [groups]
+  );
+
+  // Recursive Balance Calculation (parent + parent_id + system groups)
   const calculateRecursiveBalance = (groupId: number) => {
     const isTargetStock = isStockInHand(groupId);
 
-    const getGroupLedgers = (gid: number): any[] => {
+    const getGroupLedgers = (gid: number, visited = new Set<number>()): any[] => {
+      if (visited.has(Number(gid))) return [];
+      visited.add(Number(gid));
       const direct = allLedgers.filter((l) => Number(l.groupId || l.group_id) === Number(gid));
-      const children = groups.filter((g) => Number(g.parent) === Number(gid));
+      const children = mergedGroupsForBalance.filter((g) => getGroupParent(g) === Number(gid));
       let total = [...direct];
       children.forEach((c) => {
-        total = [...total, ...getGroupLedgers(Number(c.id))];
+        total = [...total, ...getGroupLedgers(Number(c.id), visited)];
       });
-      return total;
+      // Deduplicate
+      return Array.from(new Map(total.map((l) => [Number(l.id), l])).values());
     };
 
     const targetLedgers = getGroupLedgers(groupId);
@@ -577,7 +615,13 @@ const GroupSummary: React.FC = () => {
               <input
                 title="Select Date"
                 type="date"
-                defaultValue={new Date().toISOString().split("T")[0]}
+                value={asOnDate}
+                onChange={(e) => {
+                  setAsOnDate(e.target.value);
+                  if (period === "current-year") {
+                    // keep period; toDate uses asOnDate
+                  }
+                }}
                 className={`w-full p-2 rounded border ${theme === "dark"
                   ? "bg-gray-700 border-gray-600"
                   : "bg-white border-gray-300"
@@ -588,6 +632,22 @@ const GroupSummary: React.FC = () => {
               <label className="block text-sm font-medium mb-1">Period</label>
               <select
                 title="Select Period"
+                value={period}
+                onChange={(e) => {
+                  const v = e.target.value as "current-year" | "previous-year" | "custom";
+                  setPeriod(v);
+                  if (v === "previous-year") {
+                    const prev = getPreviousFinancialYearRange();
+                    setCustomFromDate(prev.fromDate);
+                    setCustomToDate(prev.toDate);
+                    setAsOnDate(prev.toDate);
+                  } else if (v === "current-year") {
+                    const cur = getFinancialYearRange();
+                    setCustomFromDate(cur.fromDate);
+                    setCustomToDate(cur.toDate);
+                    setAsOnDate(new Date().toISOString().split("T")[0]);
+                  }
+                }}
                 className={`w-full p-2 rounded border ${theme === "dark"
                   ? "bg-gray-700 border-gray-600"
                   : "bg-white border-gray-300"
@@ -598,7 +658,24 @@ const GroupSummary: React.FC = () => {
                 <option value="custom">Custom Period</option>
               </select>
             </div>
+            {period === "custom" && (
+              <div>
+                <label className="block text-sm font-medium mb-1">From Date</label>
+                <input
+                  type="date"
+                  value={customFromDate}
+                  onChange={(e) => setCustomFromDate(e.target.value)}
+                  className={`w-full p-2 rounded border ${theme === "dark"
+                    ? "bg-gray-700 border-gray-600"
+                    : "bg-white border-gray-300"
+                    }`}
+                />
+              </div>
+            )}
           </div>
+          <p className="text-xs mt-3 opacity-70">
+            Showing {dateRange.fromDate} to {dateRange.toDate}
+          </p>
         </div>
       )}
 
@@ -674,7 +751,7 @@ const GroupSummary: React.FC = () => {
             {resolvedGroupName || `Group ${groupType}`}
           </h2>
           <p className="text-sm opacity-75">
-            As of {new Date().toLocaleDateString()}
+            As of {new Date(dateRange.toDate).toLocaleDateString()} ({dateRange.fromDate} → {dateRange.toDate})
           </p>
         </div>
 

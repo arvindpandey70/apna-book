@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { useAppContext } from "../../../context/AppContext";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Printer, Download, Filter } from "lucide-react";
+import { getFinancialYearRange } from "../../../utils/plGroupHelpers";
 
 const PurchaseAddDetails: React.FC = () => {
   const { theme } = useAppContext();
@@ -47,8 +48,9 @@ const PurchaseAddDetails: React.FC = () => {
       try {
         if (!groupId) return;
 
+        const fy = getFinancialYearRange();
         const res = await fetch(
-          `${import.meta.env.VITE_API_URL}/api/purchase/${groupId}?company_id=${companyId}&owner_type=${ownerType}&owner_id=${ownerId}`
+          `${import.meta.env.VITE_API_URL}/api/purchase/${groupId}?company_id=${companyId}&owner_type=${ownerType}&owner_id=${ownerId}&fromDate=${fy.fromDate}&toDate=${fy.toDate}`
         );
 
         const data = await res.json();
