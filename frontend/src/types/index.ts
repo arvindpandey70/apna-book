@@ -33,6 +33,10 @@ export type CompanyInfo = {
   maintainBy?: "self" | "accountant";
   accountantName?: string;
   accountantId?: number | string;
+  /** True when accountant is locked until Indian FY end (31 Mar) */
+  accountantLocked?: boolean;
+  /** YYYY-MM-DD lock expiry (typically 31 March) */
+  accountantLockedUntil?: string | null;
   caId?: number | string;
   godowns?: Godown[];
   assesseeName?: string;

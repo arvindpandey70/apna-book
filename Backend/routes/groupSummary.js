@@ -8,7 +8,7 @@ const pool = require('../db');
 router.get("/api/group", async (req, res) => {
   try {
 
-    const { company_id, owner_type, owner_id, ledgerIds } = req.query;
+    const { company_id, owner_type, owner_id, ledgerIds, fromDate, toDate } = req.query;
 
 
     if (!company_id || !ledgerIds) {
@@ -29,6 +29,27 @@ router.get("/api/group", async (req, res) => {
         data: {},
       });
     }
+
+    // Optional period filter (YYYY-MM-DD)
+    const from = fromDate ? String(fromDate).slice(0, 10) : null;
+    const to = toDate ? String(toDate).slice(0, 10) : null;
+    const dateSql = (alias) => {
+      let sql = "";
+      const params = [];
+      if (from) {
+        sql += ` AND ${alias}.date >= ?`;
+        params.push(from);
+      }
+      if (to) {
+        sql += ` AND ${alias}.date <= ?`;
+        params.push(to);
+      }
+      return { sql, params };
+    };
+    const pvDate = dateSql("pv");
+    const svDate = dateSql("sv");
+    const vmDate = dateSql("vm");
+    const pack = (base, datePart) => [...base, ...datePart.params];
 
     // 0️⃣ Resolve GST ledgers and calculate tax debits/credits accurately
     const [targetLedgers] = await pool.query(
@@ -62,8 +83,8 @@ router.get("/api/group", async (req, res) => {
        FROM purchase_voucher_items pvi
        JOIN purchase_vouchers pv ON pvi.voucherId = pv.id
        WHERE pv.company_id = ? AND pv.owner_type = ? AND pv.owner_id = ?
-         AND pv.mode != 'accounting-invoice'`,
-      [company_id, owner_type, owner_id]
+         AND pv.mode != 'accounting-invoice'${pvDate.sql}`,
+      pack([company_id, owner_type, owner_id], pvDate)
     );
 
     const taxData = {};
@@ -102,8 +123,8 @@ router.get("/api/group", async (req, res) => {
        FROM sales_voucher_items svi
        JOIN sales_vouchers sv ON svi.voucherId = sv.id
        WHERE sv.company_id = ? AND sv.owner_type = ? AND sv.owner_id = ?
-         AND sv.mode != 'accounting-invoice'`,
-      [company_id, owner_type, owner_id]
+         AND sv.mode != 'accounting-invoice'${svDate.sql}`,
+      pack([company_id, owner_type, owner_id], svDate)
     );
 
     sTaxItems.forEach((item) => {
@@ -159,6 +180,7 @@ router.get("/api/group", async (req, res) => {
           AND pv.owner_type = ?
           AND pv.owner_id = ?
           AND pv.mode != 'accounting-invoice'
+          ${pvDate.sql}
 
         UNION ALL
 
@@ -174,6 +196,7 @@ router.get("/api/group", async (req, res) => {
           AND pv.owner_type = ?
           AND pv.owner_id = ?
           AND pv.mode != 'accounting-invoice'
+          ${pvDate.sql}
           AND NOT EXISTS (
             SELECT 1 FROM purchase_voucher_items pvi 
             WHERE pvi.voucherId = pv.id AND pvi.purchaseLedgerId > 0
@@ -196,6 +219,7 @@ router.get("/api/group", async (req, res) => {
           AND pv.owner_type = ?
           AND pv.owner_id = ?
           AND pv.mode != 'accounting-invoice'
+          ${pvDate.sql}
 
         /* ================= PURCHASE DISCOUNT (GLOBAL) ================= */
         UNION ALL
@@ -215,6 +239,7 @@ router.get("/api/group", async (req, res) => {
           AND pv.owner_id = ?
           AND pv.mode != 'accounting-invoice'
           AND pv.discountTotal > 0
+          ${pvDate.sql}
 
         /* ================= SALES (ITEM-INVOICE MODE) ================= */
 
@@ -232,6 +257,7 @@ router.get("/api/group", async (req, res) => {
           AND sv.owner_type = ?
           AND sv.owner_id = ?
           AND sv.mode != 'accounting-invoice'
+          ${svDate.sql}
 
         UNION ALL
 
@@ -247,6 +273,7 @@ router.get("/api/group", async (req, res) => {
           AND sv.owner_type = ?
           AND sv.owner_id = ?
           AND sv.mode != 'accounting-invoice'
+          ${svDate.sql}
           AND NOT EXISTS (
             SELECT 1 FROM sales_voucher_items svi 
             WHERE svi.voucherId = sv.id AND svi.salesLedgerId > 0
@@ -268,6 +295,7 @@ router.get("/api/group", async (req, res) => {
           AND sv.owner_id = ?
           AND svi.discount > 0
           AND sv.mode != 'accounting-invoice'
+          ${svDate.sql}
         GROUP BY svi.discountLedgerId
 
 
@@ -286,6 +314,7 @@ router.get("/api/group", async (req, res) => {
           AND sv.owner_id = ?
           AND sv.overallDiscountAmount > 0
           AND sv.mode != 'accounting-invoice'
+          ${svDate.sql}
 
 
         /* ================= PARTY ================= */
@@ -302,6 +331,7 @@ router.get("/api/group", async (req, res) => {
           AND pv.owner_type = ?
           AND pv.owner_id = ?
           AND pv.mode != 'accounting-invoice'
+          ${pvDate.sql}
 
         UNION ALL
 
@@ -315,6 +345,7 @@ router.get("/api/group", async (req, res) => {
           AND sv.owner_type = ?
           AND sv.owner_id = ?
           AND sv.mode != 'accounting-invoice'
+          ${svDate.sql}
 
 
         /* ================= JOURNAL / CONTRA / PAYMENT / RECEIPT ================= */
@@ -342,6 +373,7 @@ router.get("/api/group", async (req, res) => {
           AND vm.company_id = ?
           AND vm.owner_type = ?
           AND vm.owner_id = ?
+          ${vmDate.sql}
 
         /* ================= ACCOUNTING-MODE PURCHASE VOUCHER ENTRIES ================= */
         /* These entries have voucher_id = purchase_vouchers.id (not voucher_main.id) */
@@ -368,6 +400,7 @@ router.get("/api/group", async (req, res) => {
           AND pv.company_id = ?
           AND pv.owner_type = ?
           AND pv.owner_id = ?
+          ${pvDate.sql}
 
         /* ================= ACCOUNTING-MODE SALES VOUCHER ENTRIES ================= */
         /* These entries have voucher_id = sales_vouchers.id (not voucher_main.id) */
@@ -394,6 +427,7 @@ router.get("/api/group", async (req, res) => {
           AND sv.company_id = ?
           AND sv.owner_type = ?
           AND sv.owner_id = ?
+          ${svDate.sql}
 
       ) AS final_data
 
@@ -402,29 +436,27 @@ router.get("/api/group", async (req, res) => {
 
       [
         // Purchase item-invoice mode
-        idArray, company_id, owner_type, owner_id,   // Purchase Ledger (item)
-        idArray, company_id, owner_type, owner_id,   // Purchase Ledger (voucher fallback)
-        idArray, company_id, owner_type, owner_id,   // TDS
-        idArray, company_id, owner_type, owner_id,   // Purchase Discount
+        ...pack([idArray, company_id, owner_type, owner_id], pvDate),
+        ...pack([idArray, company_id, owner_type, owner_id], pvDate),
+        ...pack([idArray, company_id, owner_type, owner_id], pvDate),
+        ...pack([idArray, company_id, owner_type, owner_id], pvDate),
 
         // Sales item-invoice mode
-        idArray, company_id, owner_type, owner_id,   // Sales Ledger (item)
-        idArray, company_id, owner_type, owner_id,   // Sales Ledger (voucher fallback)
-        idArray, company_id, owner_type, owner_id,   // Sales Discount (Items)
-        idArray, company_id, owner_type, owner_id,   // Sales Discount (Overall/Manual)
+        ...pack([idArray, company_id, owner_type, owner_id], svDate),
+        ...pack([idArray, company_id, owner_type, owner_id], svDate),
+        ...pack([idArray, company_id, owner_type, owner_id], svDate),
+        ...pack([idArray, company_id, owner_type, owner_id], svDate),
 
         // Party
-        idArray, company_id, owner_type, owner_id,   // Purchase Party
-        idArray, company_id, owner_type, owner_id,   // Sales Party
+        ...pack([idArray, company_id, owner_type, owner_id], pvDate),
+        ...pack([idArray, company_id, owner_type, owner_id], svDate),
 
-        // Normal vouchers (journal/contra/payment/receipt via voucher_main)
-        idArray, company_id, owner_type, owner_id,
+        // Normal vouchers
+        ...pack([idArray, company_id, owner_type, owner_id], vmDate),
 
-        // Accounting-mode Purchase voucher entries (voucher_id = purchase_vouchers.id)
-        idArray, company_id, owner_type, owner_id,
-
-        // Accounting-mode Sales voucher entries (voucher_id = sales_vouchers.id)
-        idArray, company_id, owner_type, owner_id,
+        // Accounting-mode Purchase / Sales
+        ...pack([idArray, company_id, owner_type, owner_id], pvDate),
+        ...pack([idArray, company_id, owner_type, owner_id], svDate),
       ]
     );
 

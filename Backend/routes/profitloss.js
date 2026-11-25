@@ -163,7 +163,7 @@ router.get("/api/purchase/:id", async (req, res) => {
   try {
 
     const { id } = req.params;
-    const { company_id, owner_id, owner_type } = req.query;
+    const { company_id, owner_id, owner_type, fromDate, toDate } = req.query;
 
     if (!id) {
       return res.status(400).json({
@@ -173,6 +173,20 @@ router.get("/api/purchase/:id", async (req, res) => {
     }
 
     const idArray = id.split(",").map(Number);
+    const from = fromDate ? String(fromDate).slice(0, 10) : null;
+    const to = toDate ? String(toDate).slice(0, 10) : null;
+
+    // Default: current financial year (Apr–Mar)
+    let fyFrom = from;
+    let fyTo = to;
+    if (!fyFrom || !fyTo) {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = now.getMonth();
+      const fyStart = m >= 3 ? y : y - 1;
+      fyFrom = fyFrom || `${fyStart}-04-01`;
+      fyTo = fyTo || `${fyStart + 1}-03-31`;
+    }
 
     const [rows] = await pool.query(
       `
@@ -191,6 +205,7 @@ router.get("/api/purchase/:id", async (req, res) => {
           AND pv.owner_type = ?
           AND pv.owner_id = ?
           AND pv.mode = 'item-invoice'
+          AND pv.date >= ? AND pv.date <= ?
         GROUP BY MONTH(pv.date)
 
         UNION ALL
@@ -206,12 +221,16 @@ router.get("/api/purchase/:id", async (req, res) => {
           AND pv.owner_type = ?
           AND pv.owner_id = ?
           AND pv.mode = 'accounting-invoice'
+          AND pv.date >= ? AND pv.date <= ?
         GROUP BY MONTH(pv.date)
       ) AS combined
       GROUP BY monthNo
       ORDER BY monthNo
       `,
-      [idArray, company_id, owner_type, owner_id, idArray, company_id, owner_type, owner_id]
+      [
+        idArray, company_id, owner_type, owner_id, fyFrom, fyTo,
+        idArray, company_id, owner_type, owner_id, fyFrom, fyTo,
+      ]
     );
 
     res.json({
@@ -235,7 +254,7 @@ router.get("/api/sales/:id", async (req, res) => {
     // console.log('hit hus saled :id')
 
     const { id } = req.params;
-    const { company_id, owner_id, owner_type } = req.query;
+    const { company_id, owner_id, owner_type, fromDate, toDate } = req.query;
 
     if (!id) {
       return res.status(400).json({
@@ -246,6 +265,19 @@ router.get("/api/sales/:id", async (req, res) => {
 
     // ids → array
     const idArray = id.split(",").map(Number);
+    const from = fromDate ? String(fromDate).slice(0, 10) : null;
+    const to = toDate ? String(toDate).slice(0, 10) : null;
+
+    let fyFrom = from;
+    let fyTo = to;
+    if (!fyFrom || !fyTo) {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = now.getMonth();
+      const fyStart = m >= 3 ? y : y - 1;
+      fyFrom = fyFrom || `${fyStart}-04-01`;
+      fyTo = fyTo || `${fyStart + 1}-03-31`;
+    }
 
     const [rows] = await pool.query(
       `
@@ -264,6 +296,7 @@ router.get("/api/sales/:id", async (req, res) => {
           AND sv.owner_type = ?
           AND sv.owner_id = ?
           AND sv.mode = 'item-invoice'
+          AND sv.date >= ? AND sv.date <= ?
         GROUP BY MONTH(sv.date)
 
         UNION ALL
@@ -279,12 +312,16 @@ router.get("/api/sales/:id", async (req, res) => {
           AND sv.owner_type = ?
           AND sv.owner_id = ?
           AND sv.mode = 'accounting-invoice'
+          AND sv.date >= ? AND sv.date <= ?
         GROUP BY MONTH(sv.date)
       ) AS combined
       GROUP BY monthNo
       ORDER BY monthNo
       `,
-      [idArray, company_id, owner_type, owner_id, idArray, company_id, owner_type, owner_id]
+      [
+        idArray, company_id, owner_type, owner_id, fyFrom, fyTo,
+        idArray, company_id, owner_type, owner_id, fyFrom, fyTo,
+      ]
     );
 
     res.json({

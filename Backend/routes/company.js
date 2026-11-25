@@ -2,6 +2,14 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const bcrypt = require('bcryptjs');
+const {
+  assignCompanyToAccountant,
+  unassignCompanyFromAccountants,
+  isAccountantAssignmentLocked,
+  ensureAccountantLockColumn,
+  getIndianFyEndDate,
+  toMysqlDate
+} = require('../utils/accountantCompanyAccess');
 
 router.post('/company', async (req, res) => {
 
@@ -176,10 +184,9 @@ router.post('/company', async (req, res) => {
         }
       }
       if (targetAccountantId) {
-        await connection.query(
-          `INSERT INTO ca_company (ca_id, company_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE id=id`,
-          [targetAccountantId, companyId]
-        );
+        await assignCompanyToAccountant(connection, companyId, targetAccountantId, {
+          accountantName: accountantName || null
+        });
       }
     }
 
@@ -374,6 +381,71 @@ router.put('/company/:companyId', async (req, res) => {
       console.log("✅ company_type column created");
     }
 
+    await ensureAccountantLockColumn(connection);
+
+    const [currentRows] = await connection.query(
+      `SELECT fdAccountType, fdAccountantName, accountant_locked_until
+       FROM tbcompanies WHERE id = ? LIMIT 1`,
+      [companyId]
+    );
+    if (currentRows.length === 0) {
+      await connection.rollback();
+      connection.release();
+      return res.status(404).json({ message: 'Company not found' });
+    }
+
+    const current = currentRows[0];
+    let effectiveMaintainBy = maintainBy || null;
+    let effectiveAccountantName = accountantName || null;
+    let effectiveAccountantId = accountantId;
+
+    // Backfill FY lock for existing accountant assignments that predate the column
+    if (
+      current.fdAccountType === 'accountant' &&
+      current.fdAccountantName &&
+      !current.accountant_locked_until
+    ) {
+      const fyEnd = toMysqlDate(getIndianFyEndDate());
+      await connection.query(
+        `UPDATE tbcompanies SET accountant_locked_until = ? WHERE id = ?`,
+        [fyEnd, companyId]
+      );
+      current.accountant_locked_until = fyEnd;
+    }
+
+    const assignmentLocked = isAccountantAssignmentLocked(current.accountant_locked_until);
+
+    if (assignmentLocked) {
+      const currentName = (current.fdAccountantName || '').trim();
+      const nextName = (accountantName || '').trim();
+      const tryingToRemove =
+        maintainBy !== 'accountant' || !nextName;
+      const tryingToChange =
+        maintainBy === 'accountant' &&
+        nextName &&
+        nextName !== currentName;
+
+      if (tryingToRemove || tryingToChange) {
+        await connection.rollback();
+        connection.release();
+        const lockDate = current.accountant_locked_until;
+        const lockLabel =
+          lockDate instanceof Date
+            ? toMysqlDate(lockDate)
+            : String(lockDate).slice(0, 10);
+        return res.status(403).json({
+          message: `Accountant is locked until financial year end (${lockLabel}). Only the assigned accountant can release this company from their portal.`,
+          accountantLocked: true,
+          accountantLockedUntil: lockLabel
+        });
+      }
+
+      // Keep locked assignment as-is
+      effectiveMaintainBy = current.fdAccountType || 'accountant';
+      effectiveAccountantName = current.fdAccountantName;
+      effectiveAccountantId = null;
+    }
+
     let hashedVaultPassword = null;
 
     if (vaultPassword) {
@@ -421,19 +493,21 @@ router.put('/company/:companyId', async (req, res) => {
       taxType,
       employeeId,
       hashedVaultPassword,
-      maintainBy || null,
-      accountantName || null,
+      effectiveMaintainBy,
+      effectiveAccountantName,
       req.body.backDateAllowed !== undefined ? (req.body.backDateAllowed ? 1 : 0) : 1,
       assesseeName || null,
       companyType || null,
       companyId
     ]);
 
-    // 1. Manage CA assignment (from ca_users)
+    // 1. Manage CA assignment (from ca_users / new_ca)
     await connection.query(
-      `DELETE FROM ca_company WHERE company_id = ? AND ca_id IN (SELECT id FROM ca_users)`,
+      `DELETE cc FROM ca_company cc
+       INNER JOIN ca_users cu ON cc.ca_id = cu.id
+       WHERE cc.company_id = ?`,
       [companyId]
-    ).catch(() => {});
+    );
 
     const parsedCaId = (caId && caId !== 'undefined' && caId !== 'null') ? Number(caId) : null;
     if (parsedCaId && !isNaN(parsedCaId) && parsedCaId > 0) {
@@ -443,35 +517,34 @@ router.put('/company/:companyId', async (req, res) => {
       );
     }
 
-    // 2. Manage Accountant assignment (from tbca)
-    if (maintainBy === 'accountant') {
-      let targetAccountantId = (accountantId && accountantId !== 'undefined' && accountantId !== 'null') ? Number(accountantId) : null;
-      if (!targetAccountantId && accountantName && accountantName.trim()) {
-        const [accRows] = await connection.query(
-          'SELECT fdSiNo FROM tbca WHERE fdname = ? LIMIT 1',
-          [accountantName.trim()]
-        );
-        if (accRows.length > 0) {
-          targetAccountantId = accRows[0].fdSiNo;
+    // 2. Manage Accountant assignment (from tbca) — exclusive, clears previous accountant
+    // Skip reassignment when FY-locked (already validated above)
+    if (!assignmentLocked) {
+      if (effectiveMaintainBy === 'accountant') {
+        let targetAccountantId = (effectiveAccountantId && effectiveAccountantId !== 'undefined' && effectiveAccountantId !== 'null')
+          ? Number(effectiveAccountantId)
+          : null;
+        if (!targetAccountantId && effectiveAccountantName && String(effectiveAccountantName).trim()) {
+          const [accRows] = await connection.query(
+            'SELECT fdSiNo FROM tbca WHERE fdname = ? LIMIT 1',
+            [String(effectiveAccountantName).trim()]
+          );
+          if (accRows.length > 0) {
+            targetAccountantId = accRows[0].fdSiNo;
+          }
         }
-      }
 
-      if (targetAccountantId && !isNaN(targetAccountantId) && targetAccountantId > 0) {
-        await connection.query(
-          `DELETE FROM ca_company WHERE company_id = ? AND ca_id IN (SELECT fdSiNo FROM tbca) AND ca_id != ?`,
-          [companyId, targetAccountantId]
-        ).catch(() => {});
-
-        await connection.query(
-          `INSERT INTO ca_company (ca_id, company_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE id=id`,
-          [targetAccountantId, companyId]
-        );
+        if (targetAccountantId && !isNaN(targetAccountantId) && targetAccountantId > 0) {
+          await assignCompanyToAccountant(connection, companyId, targetAccountantId, {
+            accountantName: effectiveAccountantName || null,
+            lockForFinancialYear: true
+          });
+        } else {
+          await unassignCompanyFromAccountants(connection, companyId);
+        }
+      } else {
+        await unassignCompanyFromAccountants(connection, companyId);
       }
-    } else {
-      await connection.query(
-        `DELETE FROM ca_company WHERE company_id = ? AND ca_id IN (SELECT fdSiNo FROM tbca)`,
-        [companyId]
-      ).catch(() => {});
     }
 
     if (accessControlEnabled && username) {
@@ -592,6 +665,8 @@ router.get('/company/:companyId', async (req, res) => {
       console.log("✅ company_type column auto created (GET)");
     }
 
+    await ensureAccountantLockColumn(connection);
+
     const [rows] = await connection.query(`
       SELECT 
         c.id,
@@ -614,6 +689,7 @@ router.get('/company/:companyId', async (req, res) => {
         c.fdAccountType AS maintainBy,
         c.fdAccountantName AS accountantName,
         (SELECT a.fdSiNo FROM tbca a WHERE a.fdname = c.fdAccountantName LIMIT 1) AS accountantId,
+        c.accountant_locked_until AS accountantLockedUntil,
         c.vault_password IS NOT NULL as vaultEnabled,
         c.back_date_allowed as backDateAllowed,
         u.username,
@@ -629,7 +705,30 @@ router.get('/company/:companyId', async (req, res) => {
       return res.status(404).json({ message: 'Company not found' });
     }
 
-    return res.status(200).json(rows[0]);
+    const company = rows[0];
+
+    // Backfill lock for companies already on accountant before this feature
+    if (
+      company.maintainBy === 'accountant' &&
+      company.accountantName &&
+      !company.accountantLockedUntil
+    ) {
+      const fyEnd = toMysqlDate(getIndianFyEndDate());
+      await connection.query(
+        `UPDATE tbcompanies SET accountant_locked_until = ? WHERE id = ?`,
+        [fyEnd, companyId]
+      );
+      company.accountantLockedUntil = fyEnd;
+    }
+
+    company.accountantLocked = isAccountantAssignmentLocked(company.accountantLockedUntil);
+    if (company.accountantLockedUntil instanceof Date) {
+      company.accountantLockedUntil = toMysqlDate(company.accountantLockedUntil);
+    } else if (company.accountantLockedUntil) {
+      company.accountantLockedUntil = String(company.accountantLockedUntil).slice(0, 10);
+    }
+
+    return res.status(200).json(company);
 
   } catch (err) {
 

@@ -6,6 +6,10 @@ const upload = require('../middlewares/userUpload');
 const cloudinary = require('../utils/cloudnary');
 const streamifier = require('streamifier');
 const { computeTrialDetails, getAccountantSubscriptionStatus } = require('../utils/accountantTrial');
+const {
+  assignCompanyToAccountant,
+  revokeAccountantCompanyAccess
+} = require('../utils/accountantCompanyAccess');
 
 // Helper to upload to Cloudinary
 const uploadToCloudinary = (fileBuffer, folder = 'user_terms') => {
@@ -417,7 +421,7 @@ router.get('/:userId/companies', async (req, res) => {
   }
 });
 
-// ✅ Assign companies to an accountant
+// ✅ Assign companies to an accountant (exclusive — previous accountant loses access)
 router.post('/:userId/companies', async (req, res) => {
   try {
     if (req.user.role !== 'super_admin') {
@@ -430,16 +434,31 @@ router.post('/:userId/companies', async (req, res) => {
       return res.status(400).json({ error: 'companyIds must be an array' });
     }
 
-    await db.query('DELETE FROM ca_company WHERE ca_id = ?', [userId]);
+    const accountantId = Number(userId);
+    const newCompanyIds = [...new Set(
+      companyIds.map((id) => Number(id)).filter((id) => id && !Number.isNaN(id))
+    )];
 
-    for (const compId of companyIds) {
-      await db.query(
-        'INSERT INTO ca_company (ca_id, company_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE id=id',
-        [userId, compId]
-      );
+    const [prevRows] = await db.query(
+      'SELECT company_id FROM ca_company WHERE ca_id = ?',
+      [accountantId]
+    );
+    const prevCompanyIds = prevRows.map((r) => Number(r.company_id));
+    const removedCompanyIds = prevCompanyIds.filter((id) => !newCompanyIds.includes(id));
+
+    // Companies removed from this accountant's list → revoke all access paths
+    for (const compId of removedCompanyIds) {
+      await revokeAccountantCompanyAccess(db, compId, accountantId);
     }
 
-    res.json({ message: 'Companies assigned successfully', count: companyIds.length });
+    // Newly / still assigned companies → exclusive to this accountant
+    for (const compId of newCompanyIds) {
+      await assignCompanyToAccountant(db, compId, accountantId, {
+        syncCompanyFields: true
+      });
+    }
+
+    res.json({ message: 'Companies assigned successfully', count: newCompanyIds.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

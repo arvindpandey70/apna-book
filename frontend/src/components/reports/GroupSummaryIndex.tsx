@@ -1,8 +1,15 @@
-import React, { useEffect, useState, type ReactNode } from "react";
+import React, { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAppContext } from "../../context/AppContext";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Building } from "lucide-react";
 import { allSystemGroups as baseGroups } from "../../constants/ledgerGroups";
+import {
+  buildAllGroups,
+  getFinancialYearRange,
+  getGroupParent,
+  resolveLedgerNature,
+} from "../../utils/plGroupHelpers";
+
 interface GroupType {
   id: number;
   name: string;
@@ -11,6 +18,7 @@ interface GroupType {
   icon: ReactNode;
   color: string;
   parent_id?: number | null;
+  parent?: number | null;
 }
 
 const GroupSummaryIndex: React.FC = () => {
@@ -34,9 +42,7 @@ const GroupSummaryIndex: React.FC = () => {
   const [selectedNature, setSelectedNature] = useState<string | null>(null);
   const [ledgers, setLedgers] = useState<any[]>([]);
   const [taxData, setTaxData] = useState<Record<number, { debit: number; credit: number }>>({});
-
-
-  //fixed ui
+  const [allGroups, setAllGroups] = useState<any[]>([]);
 
   const Assets = [
     {
@@ -78,33 +84,40 @@ const GroupSummaryIndex: React.FC = () => {
         );
 
         const data = await res.json();
-        console.log("Fetched groups data:", data);
 
-        const backendGroups = (data.ledgerGroups || []).map((g: any) => ({
-          id: g.id,
-          type: g.id,
-          name: g.name,
-          nature: g.nature,
-          parent_id: g.parent_id,
-          description: `View ${g.name} accounts summary`,
-          icon: <Building size={24} />,
-          color: "bg-blue-500",
-        }));
+        const backendGroups = (data.ledgerGroups || []).map((g: any) => {
+          const parent = g.parent !== undefined && g.parent !== null
+            ? Number(g.parent)
+            : (g.parent_id !== undefined && g.parent_id !== null ? Number(g.parent_id) : null);
+          return {
+            id: Number(g.id),
+            type: Number(g.id),
+            name: g.name,
+            nature: g.nature,
+            parent,
+            parent_id: parent,
+            description: `View ${g.name} accounts summary`,
+            icon: <Building size={24} />,
+            color: "bg-blue-500",
+          };
+        });
 
         const baseGroupMapped = baseGroups.map((g: any) => ({
           id: g.id,
-          // type: `base-${Math.abs(g.id)}`,
           type: g.id,
           name: g.name,
           nature: g.nature,
+          parent: g.parent ?? null,
+          parent_id: g.parent ?? null,
           description: `View ${g.name} accounts summary`,
           icon: <Building size={24} />,
           color: "bg-green-500",
         }));
 
-        // marge backed or baseGroup data
         const mergedGroups = [...baseGroupMapped, ...backendGroups];
+        const groupsForResolve = buildAllGroups(data.ledgerGroups || [], mergedGroups);
 
+        setAllGroups(groupsForResolve);
         setGroupTypes(mergedGroups);
         setLedgers(data.ledgers || []);
       } catch (err) {
@@ -126,8 +139,9 @@ const GroupSummaryIndex: React.FC = () => {
 
       try {
         const ledgerIds = ledgers.map((l) => l.id).join(",");
+        const fy = getFinancialYearRange();
         const url = `${import.meta.env.VITE_API_URL
-          }/api/group?company_id=${companyId}&owner_type=${ownerType}&owner_id=${ownerId}&ledgerIds=${ledgerIds}`;
+          }/api/group?company_id=${companyId}&owner_type=${ownerType}&owner_id=${ownerId}&ledgerIds=${ledgerIds}&fromDate=${fy.fromDate}&toDate=${fy.toDate}`;
 
         const res = await fetch(url);
         if (!res.ok) throw new Error("API Failed");
@@ -153,86 +167,104 @@ const GroupSummaryIndex: React.FC = () => {
     fetchTaxData();
   }, [companyId, ownerType, ownerId, ledgers]);
 
+  const ledgerNetClosing = (ledger: any): number => {
+    const gid = Number(ledger.groupId || ledger.group_id);
+    const gname = String(ledger.groupName || ledger.group_name || "")
+      .toLowerCase()
+      .replace(/[\s-_]/g, "");
+    const isStock =
+      gid === -108 || gname === "stockinhand" || gname.includes("stockinhand");
+
+    if (isStock) {
+      const rawClosing =
+        ledger.closingBalance !== undefined && ledger.closingBalance !== null
+          ? parseFloat(ledger.closingBalance)
+          : ledger.closing_balance !== undefined && ledger.closing_balance !== null
+            ? parseFloat(ledger.closing_balance)
+            : NaN;
+      const rawOpening =
+        parseFloat(ledger.opening_balance || ledger.openingBalance) || 0;
+      const val =
+        !isNaN(rawClosing) && rawClosing !== 0
+          ? rawClosing
+          : !isNaN(rawOpening)
+            ? rawOpening
+            : 0;
+      const type = (
+        ledger.balance_type ||
+        ledger.balanceType ||
+        "debit"
+      ).toLowerCase();
+      return type === "credit" || type === "cr" ? -val : val;
+    }
+
+    const opening =
+      Number(ledger.opening_balance || ledger.openingBalance) || 0;
+    const tData = taxData[Number(ledger.id)] || { debit: 0, credit: 0 };
+    const type = (
+      ledger.balance_type ||
+      ledger.balanceType ||
+      "debit"
+    ).toLowerCase();
+
+    if (type === "debit" || type === "dr") {
+      return opening + tData.debit - tData.credit;
+    }
+    return -(opening + tData.credit - tData.debit);
+  };
+
   const calculateGroupBalance = (groupIdOrNature: number | string) => {
-    // Collect all ledgers belonging to this group OR its children
     const getGroupLedgers = (idOrNature: number | string): any[] => {
+      // Nature category: Assets / Liabilities / Expenses / Income
       if (typeof idOrNature === "string") {
-        return ledgers.filter((l) => (l.nature || l.group_nature) === idOrNature);
+        return ledgers.filter(
+          (l) => resolveLedgerNature(l, allGroups) === idOrNature
+        );
       }
 
       const directLedgers = ledgers.filter(
         (l) => Number(l.groupId || l.group_id) === Number(idOrNature)
       );
 
-      // Also include ledgers from subgroups
-      const childGroups = groupTypes.filter(
-        (g) => Number(g.parent_id) === Number(idOrNature)
+      const childGroups = allGroups.filter(
+        (g) => getGroupParent(g) === Number(idOrNature)
       );
-      let allLedgers = [...directLedgers];
+      let collected = [...directLedgers];
       childGroups.forEach((cg) => {
-        allLedgers = [...allLedgers, ...getGroupLedgers(cg.id)];
+        collected = [...collected, ...getGroupLedgers(cg.id)];
       });
-
-      return allLedgers;
+      return collected;
     };
 
     const groupLedgers = getGroupLedgers(groupIdOrNature);
+    // Deduplicate by ledger id (nested walk can overlap)
+    const unique = Array.from(
+      new Map(groupLedgers.map((l) => [Number(l.id), l])).values()
+    );
 
-    let netBalance = 0; // positive for debit, negative for credit (arbitrary)
-
-    groupLedgers.forEach((ledger) => {
-      const gid = Number(ledger.groupId || ledger.group_id);
-      const gname = String(ledger.groupName || ledger.group_name || "").toLowerCase().replace(/[\s-_]/g, "");
-      const isStock = gid === -108 || gname === "stockinhand" || gname.includes("stockinhand");
-
-      if (isStock) {
-        const rawClosing = ledger.closingBalance !== undefined && ledger.closingBalance !== null
-          ? parseFloat(ledger.closingBalance)
-          : (ledger.closing_balance !== undefined && ledger.closing_balance !== null ? parseFloat(ledger.closing_balance) : NaN);
-        const rawOpening = parseFloat(ledger.opening_balance || ledger.openingBalance) || 0;
-        const val = !isNaN(rawClosing) && rawClosing !== 0 ? rawClosing : (!isNaN(rawOpening) ? rawOpening : 0);
-        const type = (ledger.balance_type || ledger.balanceType || "debit").toLowerCase();
-        const signed = (type === "credit" || type === "cr") ? -val : val;
-        netBalance += signed;
-        return;
-      }
-
-      const opening =
-        Number(ledger.opening_balance || ledger.openingBalance) || 0;
-      const tData = taxData[Number(ledger.id)] || { debit: 0, credit: 0 };
-      const debit = tData.debit;
-      const credit = tData.credit;
-      const type = (
-        ledger.balance_type ||
-        ledger.balanceType ||
-        "debit"
-      ).toLowerCase();
-
-      let closing = 0;
-      if (type === "debit" || type === "dr") {
-        closing = opening + debit - credit;
-        netBalance += closing;
-      } else {
-        closing = opening + credit - debit;
-        netBalance -= closing; // credit reduces the "debit" netBalance
-      }
+    let netBalance = 0;
+    unique.forEach((ledger) => {
+      netBalance += ledgerNetClosing(ledger);
     });
 
     if (netBalance >= 0) {
       return `₹ ${Math.abs(netBalance).toLocaleString()} Dr`;
-    } else {
-      return `₹ ${Math.abs(netBalance).toLocaleString()} Cr`;
     }
+    return `₹ ${Math.abs(netBalance).toLocaleString()} Cr`;
   };
-
 
   const handleBackClick = () => {
     navigate("/app/reports");
   };
 
-  const filteredGroups = selectedNature
-    ? groupTypes.filter((g) => g.nature === selectedNature && !g.parent_id)
-    : [];
+  const filteredGroups = useMemo(() => {
+    if (!selectedNature) return [];
+    return groupTypes.filter((g) => {
+      const nature = g.nature || resolveLedgerNature({ group_id: g.id }, allGroups);
+      const isTopLevel = getGroupParent(g) === null;
+      return nature === selectedNature && isTopLevel;
+    });
+  }, [selectedNature, groupTypes, allGroups]);
 
   return (
     <div className="pt-[56px] px-4">
@@ -275,7 +307,7 @@ const GroupSummaryIndex: React.FC = () => {
         </button>
       )}
 
-      {/* GroupType Assest */}
+      {/* Nature categories */}
       {!selectedNature && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
           {Assets.map((group, index) => (
@@ -312,12 +344,12 @@ const GroupSummaryIndex: React.FC = () => {
         </div>
       )}
 
-      {/* Group Type Cards */}
+      {/* Top-level groups under selected nature */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-10">
         {Array.isArray(groupTypes) &&
           filteredGroups.map((group, index) => (
             <div
-              key={index}
+              key={`${group.id}-${index}`}
               onClick={() => navigate(`/app/reports/group-summary/${group.id}`)}
               className={`p-6 rounded-lg cursor-pointer transition-all duration-200 transform hover:scale-105 ${theme === "dark"
                 ? "bg-gray-800 hover:bg-gray-700"

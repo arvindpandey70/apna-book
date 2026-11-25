@@ -123,11 +123,32 @@ interface SelectFieldProps {
   options: { value: string; label: string }[];
   icon?: React.ReactNode;
   theme: string;
+  disabled?: boolean;
 }
 interface Accountant {
   fdSiNo: number;
   fdname: string;
 }
+
+/** Indian FY end (31 Mar): Jan–Mar → this year; Apr–Dec → next year */
+const getIndianFyEndLabel = (fromDate = new Date()): string => {
+  const year = fromDate.getFullYear();
+  const month = fromDate.getMonth();
+  const endYear = month <= 2 ? year : year + 1;
+  return `31 March ${endYear}`;
+};
+
+const formatLockDate = (iso?: string | null): string => {
+  if (!iso) return getIndianFyEndLabel();
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return getIndianFyEndLabel();
+  return d.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+};
+
 const SelectField: React.FC<SelectFieldProps> = ({
   id,
   name,
@@ -138,6 +159,7 @@ const SelectField: React.FC<SelectFieldProps> = ({
   options,
   icon,
   theme,
+  disabled = false,
 }) => (
   <div>
     <label className="block text-sm font-medium mb-1" htmlFor={id}>
@@ -150,7 +172,8 @@ const SelectField: React.FC<SelectFieldProps> = ({
       value={value}
       onChange={onChange}
       required={required}
-      className={`w-full p-2 rounded border ${theme === "dark"
+      disabled={disabled}
+      className={`w-full p-2 rounded border ${disabled ? (theme === "dark" ? "bg-gray-600 cursor-not-allowed opacity-70" : "bg-gray-100 cursor-not-allowed opacity-70") : ""} ${theme === "dark"
         ? "bg-gray-700 border-gray-600 text-white"
         : "bg-white border-gray-300 text-black"
         } outline-none transition-colors`}
@@ -208,6 +231,9 @@ const Profile: React.FC = () => {
   const [vaultEnabled, setVaultEnabled] = useState<boolean>(false);
   const [vaultPassword, setVaultPassword] = useState<string>("");
   const [showVaultPassword, setShowVaultPassword] = useState<boolean>(false);
+  const [accountantLocked, setAccountantLocked] = useState<boolean>(false);
+  const [accountantLockedUntil, setAccountantLockedUntil] = useState<string | null>(null);
+  const [savedAccountantName, setSavedAccountantName] = useState<string>("");
 
   const companyId = localStorage.getItem("company_id");
   useEffect(() => {
@@ -248,7 +274,13 @@ const Profile: React.FC = () => {
           caId: data.caId || "",
           assesseeName: data.assesseeName || "",
           companyType: data.companyType || "",
+          accountantLocked: !!data.accountantLocked,
+          accountantLockedUntil: data.accountantLockedUntil || null,
         });
+
+        setAccountantLocked(!!data.accountantLocked);
+        setAccountantLockedUntil(data.accountantLockedUntil || null);
+        setSavedAccountantName(data.accountantName || "");
 
         // Set Security States
         const isAccessEnabled = !!data.accessControlEnabled;
@@ -322,23 +354,77 @@ const Profile: React.FC = () => {
   // Form validation errors
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
 
-  const handleChange = (
+  const handleChange = async (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => {
     const { name, value } = e.target;
+
+    if (accountantLocked && (name === "maintainBy" || name === "accountantName")) {
+      await Swal.fire({
+        title: "Accountant Locked",
+        html: `This accountant is locked until <b>${formatLockDate(accountantLockedUntil)}</b> (financial year end).<br/><br/>You cannot change or remove them. Only the assigned accountant can release this company from their portal.`,
+        icon: "info",
+        confirmButtonColor: "#2563eb",
+      });
+      return;
+    }
+
     if (name === "accountantName") {
-      const selectedAcc = accountantsList.find((a) => a.fdname === value);
-      setCompany((prev) => ({
-        ...prev,
-        accountantName: value,
-        accountantId: selectedAcc ? selectedAcc.fdSiNo : "",
-      }));
+      if (!value) {
+        setCompany((prev) => ({
+          ...prev,
+          accountantName: "",
+          accountantId: "",
+        }));
+      } else if (value === savedAccountantName) {
+        const selectedAcc = accountantsList.find((a) => a.fdname === value);
+        setCompany((prev) => ({
+          ...prev,
+          accountantName: value,
+          accountantId: selectedAcc ? selectedAcc.fdSiNo : "",
+        }));
+      } else {
+        const fyEnd = getIndianFyEndLabel();
+        const result = await Swal.fire({
+          title: "Are you sure?",
+          html: `Once you assign <b>${value}</b>, this accountant will be locked until <b>${fyEnd}</b> (financial year: April–March).<br/><br/>You will not be able to remove or change them until then. Only the accountant can release the company earlier from their portal.`,
+          icon: "warning",
+          showCancelButton: true,
+          confirmButtonText: "Yes, assign",
+          cancelButtonText: "Cancel",
+          confirmButtonColor: "#2563eb",
+          cancelButtonColor: "#6b7280",
+        });
+        if (!result.isConfirmed) return;
+        const selectedAcc = accountantsList.find((a) => a.fdname === value);
+        setCompany((prev) => ({
+          ...prev,
+          accountantName: value,
+          accountantId: selectedAcc ? selectedAcc.fdSiNo : "",
+        }));
+      }
     } else if (name === "maintainBy") {
-      setCompany((prev) => ({
-        ...prev,
-        maintainBy: value as "self" | "accountant",
-        ...(value === "self" ? { accountantName: "", accountantId: "" } : {}),
-      }));
+      if (value === "self" && savedAccountantName && accountantLocked) {
+        await Swal.fire({
+          title: "Accountant Locked",
+          html: `This accountant is locked until <b>${formatLockDate(accountantLockedUntil)}</b>. Only the accountant can release from their portal.`,
+          icon: "info",
+        });
+        return;
+      }
+      if (value === "accountant" && !company.accountantName) {
+        // Just switch mode; confirm happens when they pick a name
+        setCompany((prev) => ({
+          ...prev,
+          maintainBy: "accountant",
+        }));
+      } else {
+        setCompany((prev) => ({
+          ...prev,
+          maintainBy: value as "self" | "accountant",
+          ...(value === "self" ? { accountantName: "", accountantId: "" } : {}),
+        }));
+      }
     } else {
       setCompany((prev) => ({ ...prev, [name]: value }));
     }
@@ -584,27 +670,49 @@ const Profile: React.FC = () => {
       const data = await res.json();
 
       if (!res.ok) {
+        if (data.accountantLocked) {
+          setAccountantLocked(true);
+          setAccountantLockedUntil(data.accountantLockedUntil || null);
+        }
         throw new Error(data.message || "Failed to update company");
       }
 
       // ✅ 5️⃣ SUCCESS MESSAGE (NO REDIRECT)
+      const newlyAssigned =
+        company.maintainBy === "accountant" &&
+        !!company.accountantName &&
+        company.accountantName !== savedAccountantName;
+
       await Swal.fire({
         title: "✅ Company Updated",
-        text: "Company information updated successfully",
+        text: newlyAssigned
+          ? `Accountant assigned and locked until ${getIndianFyEndLabel()}.`
+          : "Company information updated successfully",
         icon: "success",
-        timer: 1500,
+        timer: newlyAssigned ? 2500 : 1500,
         showConfirmButton: false,
       });
 
-
+      if (company.maintainBy === "accountant" && company.accountantName) {
+        const y = new Date().getFullYear();
+        const m = new Date().getMonth();
+        const endYear = m <= 2 ? y : y + 1;
+        setAccountantLocked(true);
+        setAccountantLockedUntil(`${endYear}-03-31`);
+        setSavedAccountantName(company.accountantName);
+      } else if (company.maintainBy === "self") {
+        setAccountantLocked(false);
+        setAccountantLockedUntil(null);
+        setSavedAccountantName("");
+      }
 
       setCompanyInfo(company);
 
-    } catch (err) {
+    } catch (err: any) {
       console.error("Submit error:", err);
       Swal.fire({
-        title: "Network Error!",
-        text: "Could not update company. Please try again.",
+        title: err?.message?.includes("locked") ? "Accountant Locked" : "Error!",
+        text: err?.message || "Could not update company. Please try again.",
         icon: "error",
         confirmButtonColor: "#d33",
       });
@@ -949,7 +1057,14 @@ const Profile: React.FC = () => {
                   options={maintainByOptions}
                   icon={<User size={16} />}
                   theme={theme}
+                  disabled={accountantLocked}
                 />
+                {accountantLocked && (
+                  <p className={`text-xs mt-1.5 flex items-start gap-1 ${theme === "dark" ? "text-amber-300" : "text-amber-700"}`}>
+                    <Lock size={12} className="mt-0.5 shrink-0" />
+                    Locked until {formatLockDate(accountantLockedUntil)}. Only the accountant can release from their portal.
+                  </p>
+                )}
               </div>
               {company.maintainBy === "accountant" && (
                 <div>
@@ -965,7 +1080,8 @@ const Profile: React.FC = () => {
                     name="accountantName"
                     value={company.accountantName || ""}
                     onChange={handleChange}
-                    className={`w-full p-2 rounded border ${theme === "dark"
+                    disabled={accountantLocked}
+                    className={`w-full p-2 rounded border ${accountantLocked ? (theme === "dark" ? "bg-gray-600 cursor-not-allowed opacity-70" : "bg-gray-100 cursor-not-allowed opacity-70") : ""} ${theme === "dark"
                       ? "bg-gray-700 border-gray-600 text-white focus:border-blue-500"
                       : "bg-white border-gray-300 text-black focus:border-blue-500"
                       } outline-none transition-colors`}

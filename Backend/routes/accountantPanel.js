@@ -3,6 +3,10 @@ const router = express.Router();
 const db = require('../db');
 const bcrypt = require('bcryptjs');
 const { getAccountantSubscriptionStatus } = require('../utils/accountantTrial');
+const {
+  assignCompanyToAccountant,
+  revokeAccountantCompanyAccess
+} = require('../utils/accountantCompanyAccess');
 
 // Middleware: ensure caller has accountant role
 function ensureAccountant(req, res, next) {
@@ -177,9 +181,17 @@ router.get('/dashboard', async (req, res) => {
     const accountantInfo = accRows[0] || { id: accountantId, name: 'Accountant', email: req.user.email };
 
     // Authorized companies query
+    // is_client_allotted: company owned by a trader (employee_id > 0) who allotted this accountant
+    // Accountant-created companies use employee_id = 0 — no Remove button for those
     const [companies] = await db.query(`
       SELECT DISTINCT c.id, c.name, c.financial_year, c.address, c.pan_number, c.gst_number, c.email, c.phone_number, c.employee_id,
-        (SELECT COUNT(*) FROM tbusers WHERE company_id = c.id AND accountant_id = ?) AS user_count
+        c.fdAccountType,
+        (SELECT COUNT(*) FROM tbusers WHERE company_id = c.id AND accountant_id = ?) AS user_count,
+        CASE
+          WHEN c.employee_id IS NOT NULL AND c.employee_id > 0
+               AND c.fdAccountType = 'accountant'
+          THEN 1 ELSE 0
+        END AS is_client_allotted
       FROM tbcompanies c
       LEFT JOIN ca_company cc ON c.id = cc.company_id AND cc.ca_id = ?
       LEFT JOIN tbusers u ON c.id = u.company_id AND u.accountant_id = ?
@@ -352,11 +364,11 @@ router.post('/companies', ensureActiveTrialOrSubscription, async (req, res) => {
 
     const companyId = companyResult.insertId;
 
-    // 2. Link company in ca_company
-    await connection.query(
-      'INSERT INTO ca_company (ca_id, company_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE id=id',
-      [accountantId, companyId]
-    );
+    // 2. Link company exclusively to this accountant (no client FY lock — accountant created it)
+    await assignCompanyToAccountant(connection, companyId, accountantId, {
+      accountantName,
+      lockForFinancialYear: false
+    });
 
     // 3. Client users have 0-day trial and must pay for subscription before accessing company
     const [subTable] = await connection.query("SHOW TABLES LIKE 'company_subscriptions'");
@@ -485,6 +497,35 @@ router.put('/companies/:companyId', ensureActiveTrialOrSubscription, async (req,
     });
   } catch (err) {
     console.error('Error updating company:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// -----------------------------------------------------------------------------
+// 2d. DELETE /api/accountant/companies/:companyId
+// Accountant releases a client company (clears FY lock so the user can re-assign)
+// -----------------------------------------------------------------------------
+router.delete('/companies/:companyId', ensureActiveTrialOrSubscription, async (req, res) => {
+  try {
+    const accountantId = req.user.id;
+    const { companyId } = req.params;
+
+    const isAuthorized = await checkAccountantCompanyAccess(accountantId, companyId);
+    if (!isAuthorized) {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden: You do not have access to this company.'
+      });
+    }
+
+    await revokeAccountantCompanyAccess(db, companyId, accountantId);
+
+    res.json({
+      success: true,
+      message: 'Company released successfully. The client can now assign another accountant.'
+    });
+  } catch (err) {
+    console.error('Error releasing company from accountant:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -631,11 +672,8 @@ router.post('/users', ensureActiveTrialOrSubscription, async (req, res) => {
 
     const newUserId = result.insertId;
 
-    // 8. Ensure assignment in ca_company so accountant has bidirectional link
-    await connection.query(
-      'INSERT INTO ca_company (ca_id, company_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE id=id',
-      [accountantId, company_id]
-    );
+    // 8. Ensure exclusive assignment so previous accountants lose portal access
+    await assignCompanyToAccountant(connection, company_id, accountantId);
 
     // 9. Sync to central users table for unified login
     await connection.query(`
