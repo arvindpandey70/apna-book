@@ -1,6 +1,11 @@
 import { useState, useEffect, useMemo } from "react";
 import { useAppContext } from "../context/AppContext";
-import { allSystemGroups } from "../constants/ledgerGroups";
+import {
+  buildAllGroups,
+  isDescendant,
+  isUnderPurchaseAccounts,
+  isUnderSalesAccounts,
+} from "../utils/plGroupHelpers";
 
 export const useProfitLossSync = () => {
     const { ledgerGroups } = useAppContext();
@@ -54,42 +59,14 @@ export const useProfitLossSync = () => {
                 const groupSummaryRes = await fetch(`${import.meta.env.VITE_API_URL}/api/group-summary?company_id=${companyId}&owner_type=${ownerType}&owner_id=${ownerId}`);
                 const groupSummaryJson = await groupSummaryRes.json();
                 const ledgers = groupSummaryJson.ledgers || [];
-                const fetchedGroups = (groupSummaryJson.ledgerGroups || []).map((g: any) => ({
-                    ...g,
-                    id: Number(g.id),
-                    parent: g.parent !== undefined && g.parent !== null ? Number(g.parent) : (g.parent_id !== undefined && g.parent_id !== null ? Number(g.parent_id) : null)
-                }));
+                const allGroups = buildAllGroups(groupSummaryJson.ledgerGroups || [], ledgerGroups || []);
 
-                const systemGroupsMapped = allSystemGroups.map(g => ({
-                    id: Number(g.id),
-                    name: g.name,
-                    parent: g.parent !== null && g.parent !== undefined ? Number(g.parent) : null,
-                    type: g.nature?.toLowerCase().replace(' ', '-') || null
-                }));
-
-                const existingIds = new Set(fetchedGroups.map((g: any) => g.id));
-                const allGroups = [
-                    ...systemGroupsMapped.filter(sg => !existingIds.has(sg.id)),
-                    ...fetchedGroups
-                ];
-
-                // Helper to check if a group is a descendant of another
-                const isDescendant = (childId: number | string, targetParentId: number | string, visited = new Set<string>()): boolean => {
-                    if (String(childId) === String(targetParentId)) return true;
-                    if (visited.has(String(childId))) return false;
-                    visited.add(String(childId));
-                    const group = allGroups.find(g => String(g.id) === String(childId));
-                    const parent = group ? (group.parent !== undefined && group.parent !== null ? group.parent : (group as any).parent_id) : null;
-                    if (group && parent !== null && parent !== undefined) return isDescendant(parent, targetParentId, visited);
-                    return false;
-                };
-
-                // Filter ledgers by group
-                setDirectexpense(ledgers.filter((l: any) => isDescendant(l.group_id, -7)));
-                setIndirectExpenses(ledgers.filter((l: any) => isDescendant(l.group_id, -10)));
-                setIndirectIncome(ledgers.filter((l: any) => isDescendant(l.group_id, -11)));
-                setPurchaseLedgers(ledgers.filter((l: any) => isDescendant(l.group_id, -15)));
-                setSalesLedgers(ledgers.filter((l: any) => isDescendant(l.group_id, -16)));
+                // Filter ledgers by group (nested subgroups + company-local Purchase/Sales copies)
+                setDirectexpense(ledgers.filter((l: any) => isDescendant(allGroups, l.group_id, -7)));
+                setIndirectExpenses(ledgers.filter((l: any) => isDescendant(allGroups, l.group_id, -10)));
+                setIndirectIncome(ledgers.filter((l: any) => isDescendant(allGroups, l.group_id, -11)));
+                setPurchaseLedgers(ledgers.filter((l: any) => isUnderPurchaseAccounts(allGroups, l.group_id)));
+                setSalesLedgers(ledgers.filter((l: any) => isUnderSalesAccounts(allGroups, l.group_id)));
 
                 const normalizeStr = (s: string) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, '');
                 const stockInHandGroup = (ledgerGroups || []).find(g => {
