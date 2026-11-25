@@ -36,6 +36,76 @@ const deduplicateLedgerRows = (rows) => {
   return Array.from(seenNames.values());
 };
 
+/**
+ * Ensure company has copies of admin groups, then remap any ledger.group_id
+ * that still points at an admin template group (company_id=0) to the company's
+ * matching group id. System groups (negative ids) are left unchanged.
+ */
+const ensureCompanyGroupsAndRemapLedgerGroupIds = async (connection, companyId) => {
+  // 1. Copy missing admin groups into this company
+  await connection.execute(
+    `INSERT INTO ledger_groups (name, parent, nature, type, company_id, owner_type, owner_id)
+     SELECT ag.name, ag.parent, ag.nature, ag.type, ?, 'employee', 0
+     FROM ledger_groups ag
+     WHERE ag.company_id = 0 AND ag.owner_type = 'admin'
+       AND NOT EXISTS (
+         SELECT 1 FROM ledger_groups cg
+         WHERE cg.company_id = ?
+           AND LOWER(TRIM(cg.name)) = LOWER(TRIM(ag.name))
+       )`,
+    [companyId, companyId]
+  );
+
+  // 2. Remap ledgers that still reference admin template group ids
+  await connection.execute(
+    `UPDATE ledgers l
+     INNER JOIN ledger_groups ag
+       ON l.group_id = ag.id
+      AND ag.company_id = 0
+      AND ag.owner_type = 'admin'
+     INNER JOIN ledger_groups cg
+       ON cg.company_id = l.company_id
+      AND LOWER(TRIM(cg.name)) = LOWER(TRIM(ag.name))
+     SET l.group_id = cg.id
+     WHERE l.company_id = ?
+       AND l.group_id <> cg.id`,
+    [companyId]
+  );
+};
+
+/** Resolve a source group_id to the company's local group id (by name). */
+const resolveCompanyGroupId = async (connection, companyId, sourceGroupId) => {
+  const gid = Number(sourceGroupId);
+  if (!gid || Number.isNaN(gid)) return sourceGroupId;
+  // System / base groups keep negative ids
+  if (gid < 0) return gid;
+
+  const [srcRows] = await connection.execute(
+    `SELECT name, parent, nature, type FROM ledger_groups WHERE id = ?`,
+    [gid]
+  );
+  if (srcRows.length === 0) return gid;
+
+  const src = srcRows[0];
+  const [companyGroups] = await connection.execute(
+    `SELECT id FROM ledger_groups
+     WHERE company_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?))
+     LIMIT 1`,
+    [companyId, src.name]
+  );
+
+  if (companyGroups.length > 0) {
+    return companyGroups[0].id;
+  }
+
+  const [insertResult] = await connection.execute(
+    `INSERT INTO ledger_groups (name, parent, nature, type, company_id, owner_type, owner_id)
+     VALUES (?, ?, ?, ?, ?, 'employee', 0)`,
+    [src.name, src.parent, src.nature, src.type || null, companyId]
+  );
+  return insertResult.insertId;
+};
+
 // Check for duplicate ledger name
 router.get("/check-duplicate", async (req, res) => {
   const { name, gst_number, company_id, owner_type, owner_id, exclude_id } = req.query;
@@ -84,6 +154,13 @@ router.get("/", async (req, res) => {
   }
 
   try {
+    // Auto-heal: remap admin template group_ids → company local group_ids
+    try {
+      await ensureCompanyGroupsAndRemapLedgerGroupIds(db, company_id);
+    } catch (remapErr) {
+      console.error("Ledger group remap skipped:", remapErr.message);
+    }
+
     const [rows] = await db.execute(
       `SELECT 
         l.id,
@@ -676,6 +753,9 @@ router.post("/import-from-admin", async (req, res) => {
 
     const existingNamesSet = new Set(existingLedgers.map((l) => l.name_lower));
 
+    // Ensure company has local copies of admin groups before importing ledgers
+    await ensureCompanyGroupsAndRemapLedgerGroupIds(connection, companyId);
+
     let importedCount = 0;
     let skippedCount = 0;
 
@@ -683,7 +763,7 @@ router.post("/import-from-admin", async (req, res) => {
     const placeholdersStr = new Array(validCols.length + 4).fill("?").join(", ");
     const insertQuery = `INSERT INTO ledgers (${insertColsStr}) VALUES (${placeholdersStr})`;
 
-    // 3. Import missing Admin ledgers safely
+    // 3. Import missing Admin ledgers safely (remap group_id to company local group)
     for (const ledger of adminLedgers) {
       const nameKey = (ledger.name || "").trim().toLowerCase();
 
@@ -704,9 +784,17 @@ router.post("/import-from-admin", async (req, res) => {
         continue;
       }
 
+      const remappedGroupId =
+        validCols.includes("group_id") && ledger.group_id != null
+          ? await resolveCompanyGroupId(connection, companyId, ledger.group_id)
+          : ledger.group_id;
+
       const paramValues = [
         ledger.name,
         ...validCols.map((col) => {
+          if (col === "group_id") {
+            return remappedGroupId ?? null;
+          }
           if (col === "opening_balance" || col === "closing_balance") {
             return ledger[col] ?? 0;
           }
@@ -725,6 +813,9 @@ router.post("/import-from-admin", async (req, res) => {
       importedCount++;
       existingNamesSet.add(nameKey);
     }
+
+    // Remap again for any previously-imported ledgers still on admin group ids
+    await ensureCompanyGroupsAndRemapLedgerGroupIds(connection, companyId);
 
     // 4. Mark Admin ledgers import as completed in database
     await connection.execute(
