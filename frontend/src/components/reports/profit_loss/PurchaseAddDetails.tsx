@@ -117,12 +117,10 @@ const PurchaseAddDetails: React.FC = () => {
     };
 
     const monthNo = mysqlMonthMap[monthName];
-    // Based on user data (Dec 2025, Jan 2026), current financial year starts in 2025
-    const startYear = 2025;
-    let year = startYear;
-    if (monthNo < 4) {
-      year++;
-    }
+    // Current financial year (Apr–Mar), not hardcoded year
+    const now = new Date();
+    const fyStartYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+    const year = monthNo >= 4 ? fyStartYear : fyStartYear + 1;
 
     const firstDay = `${year}-${String(monthNo).padStart(2, "0")}-01`;
     const lastDayDate = new Date(year, monthNo, 0);

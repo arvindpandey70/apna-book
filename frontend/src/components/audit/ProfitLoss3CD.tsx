@@ -2,7 +2,12 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { useCompany } from '../../context/CompanyContext';
 import { Loader2, ChevronDown, ChevronRight } from 'lucide-react';
-import { allSystemGroups } from '../../constants/ledgerGroups';
+import {
+  buildAllGroups,
+  isDescendant as isGroupDescendant,
+  isUnderPurchaseAccounts,
+  isUnderSalesAccounts,
+} from '../../utils/plGroupHelpers';
 
 interface LedgerItem {
   id: number;
@@ -84,13 +89,7 @@ const ProfitLoss3CD: React.FC = () => {
           fetchedGroups = await groupsRes.json();
         }
 
-        // Combine system groups and DB fetched groups
-        const combinedGroupsMap = new Map<string, any>();
-        allSystemGroups.forEach(g => combinedGroupsMap.set(String(g.id), { ...g, parent_id: g.parent }));
-        (contextLedgerGroups || []).forEach(g => combinedGroupsMap.set(String(g.id), { ...g, parent_id: g.parent ?? (g as any).parent_id }));
-        (fetchedGroups || []).forEach(g => combinedGroupsMap.set(String(g.id), { ...g, parent_id: g.parent ?? g.parent_id }));
-
-        const mergedGroups = Array.from(combinedGroupsMap.values());
+        const mergedGroups = buildAllGroups(fetchedGroups || [], contextLedgerGroups || []);
         if (isMounted) setAllGroups(mergedGroups);
 
         // Fetch group-summary for ledgers
@@ -101,29 +100,18 @@ const ProfitLoss3CD: React.FC = () => {
 
         if (isMounted) setLedgers(fetchedLedgers);
 
-        // Helper to check if group is descendant
-        const isDescendant = (childId: number | string, targetParentId: number | string): boolean => {
-          if (String(childId) === String(targetParentId)) return true;
-          const group = mergedGroups.find(g => String(g.id) === String(childId));
-          const parent = group ? (group.parent_id ?? group.parent) : null;
-          if (group && parent !== undefined && parent !== null) {
-            return isDescendant(parent, targetParentId);
-          }
-          return false;
-        };
-
         // Categorize ledgers for Trading Account calculations
-        const purLeds = fetchedLedgers.filter(l => isDescendant(l.group_id, -15));
-        const saleLeds = fetchedLedgers.filter(l => isDescendant(l.group_id, -16));
+        const purLeds = fetchedLedgers.filter(l => isUnderPurchaseAccounts(mergedGroups, l.group_id));
+        const saleLeds = fetchedLedgers.filter(l => isUnderSalesAccounts(mergedGroups, l.group_id));
         const dirExpLeds = fetchedLedgers.filter(l => {
           const gid = String(l.group_id);
           const gtype = (l.groupType || "").toLowerCase();
-          return isDescendant(gid, -7) || gtype.includes("direct-expense");
+          return isGroupDescendant(mergedGroups, gid, -7) || gtype.includes("direct-expense");
         });
         const dirIncLeds = fetchedLedgers.filter(l => {
           const gid = String(l.group_id);
           const gtype = (l.groupType || "").toLowerCase();
-          return isDescendant(gid, -8) || gtype.includes("direct-income");
+          return isGroupDescendant(mergedGroups, gid, -8) || gtype.includes("direct-income");
         });
 
         const normalizeStr = (s: string) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, '');

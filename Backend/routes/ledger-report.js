@@ -968,10 +968,26 @@ ORDER BY vm.date ASC
     /* ===============================
        🔟 SORT BY DATE & FILTER
     =============================== */
+    // Timezone-safe YYYY-MM-DD (avoids UTC shift dropping month-edge vouchers)
+    const toDateOnly = (val) => {
+      if (val == null || val === "") return "";
+      if (typeof val === "string") {
+        const m = val.match(/(\d{4}-\d{2}-\d{2})/);
+        if (m) return m[1];
+      }
+      const d = val instanceof Date ? val : new Date(val);
+      if (Number.isNaN(d.getTime())) return "";
+      // MySQL DATE often arrives as UTC midnight for that calendar day
+      if (d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0) {
+        return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+      }
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    };
+
     transactions.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-    const fromDate = req.query.fromDate;
-    const toDate = req.query.toDate;
+    const fromDate = req.query.fromDate ? String(req.query.fromDate).slice(0, 10) : null;
+    const toDate = req.query.toDate ? String(req.query.toDate).slice(0, 10) : null;
 
     let periodOpeningBalance = Number(ledger.opening_balance || 0);
     let periodDebit = 0;
@@ -981,16 +997,17 @@ ORDER BY vm.date ASC
     const isDebitLedger = ledger.balance_type === "debit";
 
     transactions.forEach((t) => {
-      const d = new Date(t.date);
-      const tDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const tDate = toDateOnly(t.date);
+      // Normalize date on the transaction so frontend doesn't re-shift
+      t.date = tDate || t.date;
 
-      if (fromDate && tDate < fromDate) {
+      if (fromDate && tDate && tDate < fromDate) {
         if (isDebitLedger) {
           periodOpeningBalance += (t.debit - t.credit);
         } else {
           periodOpeningBalance += (t.credit - t.debit);
         }
-      } else if ((!fromDate || tDate >= fromDate) && (!toDate || tDate <= toDate)) {
+      } else if ((!fromDate || !tDate || tDate >= fromDate) && (!toDate || !tDate || tDate <= toDate)) {
         periodDebit += t.debit;
         periodCredit += t.credit;
         filteredTransactions.push(t);

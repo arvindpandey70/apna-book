@@ -210,12 +210,25 @@ const LedgerReport: React.FC = () => {
     activeCompany?.phoneNumber ||
     "";
 
-  // Initialize from URL params
+  // Initialize / sync from URL params (ledger id + month date range)
   useEffect(() => {
     if (id) {
       setLedgerId(id);
     }
   }, [id]);
+
+  useEffect(() => {
+    const urlFrom = searchParams.get("fromDate");
+    const urlTo = searchParams.get("toDate");
+    if (urlFrom) {
+      setFromDate(urlFrom);
+      setSelectedDateRange("custom");
+    }
+    if (urlTo) {
+      setToDate(urlTo);
+      setSelectedDateRange("custom");
+    }
+  }, [searchParams]);
 
   const [ledgerSearchTerm, setLedgerSearchTerm] = useState<string>("");
   const [isLedgerDropdownOpen, setIsLedgerDropdownOpen] = useState<boolean>(false);
