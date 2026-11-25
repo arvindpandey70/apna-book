@@ -2,6 +2,10 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const bcrypt = require('bcryptjs');
+const {
+  assignCompanyToAccountant,
+  unassignCompanyFromAccountants
+} = require('../utils/accountantCompanyAccess');
 
 router.post('/company', async (req, res) => {
 
@@ -176,10 +180,9 @@ router.post('/company', async (req, res) => {
         }
       }
       if (targetAccountantId) {
-        await connection.query(
-          `INSERT INTO ca_company (ca_id, company_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE id=id`,
-          [targetAccountantId, companyId]
-        );
+        await assignCompanyToAccountant(connection, companyId, targetAccountantId, {
+          accountantName: accountantName || null
+        });
       }
     }
 
@@ -429,11 +432,13 @@ router.put('/company/:companyId', async (req, res) => {
       companyId
     ]);
 
-    // 1. Manage CA assignment (from ca_users)
+    // 1. Manage CA assignment (from ca_users / new_ca)
     await connection.query(
-      `DELETE FROM ca_company WHERE company_id = ? AND ca_id IN (SELECT id FROM ca_users)`,
+      `DELETE cc FROM ca_company cc
+       INNER JOIN ca_users cu ON cc.ca_id = cu.id
+       WHERE cc.company_id = ?`,
       [companyId]
-    ).catch(() => {});
+    );
 
     const parsedCaId = (caId && caId !== 'undefined' && caId !== 'null') ? Number(caId) : null;
     if (parsedCaId && !isNaN(parsedCaId) && parsedCaId > 0) {
@@ -443,7 +448,7 @@ router.put('/company/:companyId', async (req, res) => {
       );
     }
 
-    // 2. Manage Accountant assignment (from tbca)
+    // 2. Manage Accountant assignment (from tbca) — exclusive, clears previous accountant
     if (maintainBy === 'accountant') {
       let targetAccountantId = (accountantId && accountantId !== 'undefined' && accountantId !== 'null') ? Number(accountantId) : null;
       if (!targetAccountantId && accountantName && accountantName.trim()) {
@@ -457,21 +462,14 @@ router.put('/company/:companyId', async (req, res) => {
       }
 
       if (targetAccountantId && !isNaN(targetAccountantId) && targetAccountantId > 0) {
-        await connection.query(
-          `DELETE FROM ca_company WHERE company_id = ? AND ca_id IN (SELECT fdSiNo FROM tbca) AND ca_id != ?`,
-          [companyId, targetAccountantId]
-        ).catch(() => {});
-
-        await connection.query(
-          `INSERT INTO ca_company (ca_id, company_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE id=id`,
-          [targetAccountantId, companyId]
-        );
+        await assignCompanyToAccountant(connection, companyId, targetAccountantId, {
+          accountantName: accountantName || null
+        });
+      } else {
+        await unassignCompanyFromAccountants(connection, companyId);
       }
     } else {
-      await connection.query(
-        `DELETE FROM ca_company WHERE company_id = ? AND ca_id IN (SELECT fdSiNo FROM tbca)`,
-        [companyId]
-      ).catch(() => {});
+      await unassignCompanyFromAccountants(connection, companyId);
     }
 
     if (accessControlEnabled && username) {

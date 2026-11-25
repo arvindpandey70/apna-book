@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require('../db');
 const bcrypt = require('bcryptjs');
 const { getAccountantSubscriptionStatus } = require('../utils/accountantTrial');
+const { assignCompanyToAccountant } = require('../utils/accountantCompanyAccess');
 
 // Middleware: ensure caller has accountant role
 function ensureAccountant(req, res, next) {
@@ -352,11 +353,10 @@ router.post('/companies', ensureActiveTrialOrSubscription, async (req, res) => {
 
     const companyId = companyResult.insertId;
 
-    // 2. Link company in ca_company
-    await connection.query(
-      'INSERT INTO ca_company (ca_id, company_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE id=id',
-      [accountantId, companyId]
-    );
+    // 2. Link company exclusively to this accountant
+    await assignCompanyToAccountant(connection, companyId, accountantId, {
+      accountantName
+    });
 
     // 3. Client users have 0-day trial and must pay for subscription before accessing company
     const [subTable] = await connection.query("SHOW TABLES LIKE 'company_subscriptions'");
@@ -631,11 +631,8 @@ router.post('/users', ensureActiveTrialOrSubscription, async (req, res) => {
 
     const newUserId = result.insertId;
 
-    // 8. Ensure assignment in ca_company so accountant has bidirectional link
-    await connection.query(
-      'INSERT INTO ca_company (ca_id, company_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE id=id',
-      [accountantId, company_id]
-    );
+    // 8. Ensure exclusive assignment so previous accountants lose portal access
+    await assignCompanyToAccountant(connection, company_id, accountantId);
 
     // 9. Sync to central users table for unified login
     await connection.query(`
