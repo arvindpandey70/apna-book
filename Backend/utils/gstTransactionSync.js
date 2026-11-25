@@ -355,7 +355,7 @@ async function syncSalesVoucherToPurchaseVoucher(salesVoucherId) {
     let targetPurchaseVoucherNumber = null;
 
     if (existingSyncRows.length > 0) {
-      // UPDATE EXISTING PURCHASE VOUCHER
+      // UPDATE EXISTING PURCHASE VOUCHER (or recreate if orphan / deleted)
       targetPurchaseVoucherId = existingSyncRows[0].target_voucher_id;
       targetPurchaseVoucherNumber = existingSyncRows[0].target_voucher_number;
 
@@ -365,8 +365,126 @@ async function syncSalesVoucherToPurchaseVoucher(salesVoucherId) {
         [targetPurchaseVoucherId]
       );
 
+      // Orphan sync record: purchase voucher was deleted but sync row still says "synced"
+      if (pvCheck.length === 0) {
+        console.log(
+          `🧩 Orphan sync detected for sales #${salesVoucher.number} → missing PV id ${targetPurchaseVoucherId}. Recreating...`
+        );
+
+        targetPurchaseVoucherNumber =
+          existingSyncRows[0].target_voucher_number || `PUR-SYNC-${salesVoucher.number}`;
+        try {
+          const generated = await generateVoucherNumber({
+            companyId: targetCompany.id,
+            ownerType: targetCompany.employee_id
+              ? "employee"
+              : salesVoucher.owner_type || "user",
+            ownerId: targetCompany.employee_id || salesVoucher.owner_id || 1,
+            voucherType: "purchase",
+            date: salesVoucher.date
+          });
+          if (generated) targetPurchaseVoucherNumber = generated;
+        } catch (e) {
+          // keep fallback number
+        }
+
+        const [pvResult] = await db.execute(
+          `INSERT INTO purchase_vouchers (
+             number, date, supplierInvoiceDate, narration, partyId, referenceNo,
+             purchaseLedgerId, subtotal, cgstTotal, sgstTotal, igstTotal, discountTotal,
+             total, company_id, owner_type, owner_id, mode,
+             synced_from_sales_voucher_id, synced_from_company_id
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            targetPurchaseVoucherNumber,
+            salesVoucher.date,
+            salesVoucher.date,
+            `Auto-synced from ${sourceName} (Sales Inv #${salesVoucher.number})`,
+            targetPartyId,
+            salesVoucher.number,
+            targetPurchaseLedgerId,
+            salesVoucher.subtotal || 0,
+            salesVoucher.cgstTotal || 0,
+            salesVoucher.sgstTotal || 0,
+            salesVoucher.igstTotal || 0,
+            salesVoucher.discountTotal || 0,
+            salesVoucher.total || 0,
+            targetCompany.id,
+            targetCompany.employee_id ? "employee" : salesVoucher.owner_type || "user",
+            targetCompany.employee_id || salesVoucher.owner_id || 1,
+            salesVoucher.mode || "item-invoice",
+            salesVoucher.id,
+            salesVoucher.company_id
+          ]
+        );
+        targetPurchaseVoucherId = pvResult.insertId;
+
+        if (targetItemsToInsert.length > 0) {
+          const itemRows = targetItemsToInsert.map((i) => [
+            targetPurchaseVoucherId,
+            i.itemId,
+            i.quantity,
+            i.rate,
+            i.discount,
+            i.cgstRate,
+            i.sgstRate,
+            i.igstRate,
+            i.amount,
+            0,
+            i.godownId,
+            i.purchaseLedgerId,
+            null,
+            null
+          ]);
+          await db.query(
+            `INSERT INTO purchase_voucher_items (
+               voucherId, itemId, quantity, rate, discount, cgstRate, sgstRate,
+               igstRate, amount, tdsRate, godownId, purchaseLedgerId, discountLedgerId, tracking_id
+             ) VALUES ?`,
+            [itemRows]
+          );
+        }
+
+        await db.execute(
+          `UPDATE company_gst_synced_vouchers SET
+             target_voucher_id = ?,
+             target_voucher_number = ?,
+             total_amount = ?,
+             sync_status = 'synced',
+             synced_at = NOW()
+           WHERE id = ?`,
+          [
+            targetPurchaseVoucherId,
+            targetPurchaseVoucherNumber,
+            salesVoucher.total || 0,
+            existingSyncRows[0].id
+          ]
+        );
+
+        await db.execute(
+          `UPDATE sales_vouchers SET is_gst_synced = 1, synced_to_company_id = ? WHERE id = ?`,
+          [targetCompany.id, salesVoucherId]
+        );
+
+        console.log(
+          `🎉 Recreated orphan synced purchase #${targetPurchaseVoucherNumber} (id: ${targetPurchaseVoucherId}) in ${targetCompany.name}`
+        );
+
+        return {
+          synced: true,
+          action: "recreated_orphan",
+          targetCompany: {
+            id: targetCompany.id,
+            name: targetCompany.name,
+            gst_number: targetCompany.gst_number
+          },
+          purchaseVoucherId: targetPurchaseVoucherId,
+          purchaseVoucherNumber: targetPurchaseVoucherNumber,
+          message: `Orphan sync repaired: Purchase Voucher #${targetPurchaseVoucherNumber}`
+        };
+      }
+
       const isUnchanged =
-        pvCheck.length > 0 &&
         Math.abs(Number(pvCheck[0].total || 0) - Number(salesVoucher.total || 0)) < 0.01 &&
         Number(pvCheck[0].partyId) === Number(targetPartyId);
 
@@ -396,7 +514,9 @@ async function syncSalesVoucherToPurchaseVoucher(salesVoucherId) {
            igstTotal = ?,
            discountTotal = ?,
            total = ?,
-           mode = ?
+           mode = ?,
+           synced_from_sales_voucher_id = ?,
+           synced_from_company_id = ?
          WHERE id = ?`,
         [
           salesVoucher.date,
@@ -412,6 +532,8 @@ async function syncSalesVoucherToPurchaseVoucher(salesVoucherId) {
           salesVoucher.discountTotal || 0,
           salesVoucher.total || 0,
           salesVoucher.mode || 'item-invoice',
+          salesVoucher.id,
+          salesVoucher.company_id,
           targetPurchaseVoucherId
         ]
       );
@@ -615,11 +737,61 @@ async function deleteSyncedPurchaseVoucher(salesVoucherId, sourceCompanyId) {
 }
 
 /**
+ * Repair sync rows whose target purchase voucher was deleted.
+ * Optionally scoped to a target company (the company viewing Creditors Statement).
+ */
+async function repairOrphanSyncedVouchers(targetCompanyId = null) {
+  await ensureSyncSchema();
+  try {
+    let query = `
+      SELECT csv.source_voucher_id, csv.target_company_id, csv.target_voucher_id,
+             csv.source_voucher_number
+      FROM company_gst_synced_vouchers csv
+      LEFT JOIN purchase_vouchers pv ON pv.id = csv.target_voucher_id
+      WHERE csv.source_voucher_type = 'sales'
+        AND csv.sync_status = 'synced'
+        AND pv.id IS NULL
+    `;
+    const params = [];
+    if (targetCompanyId) {
+      query += " AND csv.target_company_id = ?";
+      params.push(targetCompanyId);
+    }
+
+    const [orphans] = await db.execute(query, params);
+    const results = [];
+
+    for (const orphan of orphans) {
+      const syncRes = await syncSalesVoucherToPurchaseVoucher(orphan.source_voucher_id);
+      results.push({
+        sourceVoucherId: orphan.source_voucher_id,
+        sourceVoucherNumber: orphan.source_voucher_number,
+        oldTargetVoucherId: orphan.target_voucher_id,
+        syncResult: syncRes
+      });
+    }
+
+    return {
+      success: true,
+      orphanCount: orphans.length,
+      repairedCount: results.filter((r) => r.syncResult?.synced).length,
+      details: results
+    };
+  } catch (err) {
+    console.error("🔥 repairOrphanSyncedVouchers error:", err);
+    return { success: false, error: err.message, orphanCount: 0, repairedCount: 0 };
+  }
+}
+
+/**
  * Bulk scan and sync any eligible sales vouchers that have not yet been synced.
  */
 async function syncAllPendingSalesVouchers(specificCompanyId = null, force = false) {
   await ensureSyncSchema();
   try {
+    // Always repair orphans first (deleted target purchases with leftover sync rows)
+    const orphanRepair = await repairOrphanSyncedVouchers(null);
+
     let query = `
       SELECT sv.id, sv.company_id, sv.partyId, sv.number, sv.total, l.name as partyName, l.gst_number as partyGst
       FROM sales_vouchers sv
@@ -661,6 +833,7 @@ async function syncAllPendingSalesVouchers(specificCompanyId = null, force = fal
       success: true,
       scannedCount: vouchers.length,
       syncedCount: results.filter(r => r.syncResult?.synced).length,
+      orphanRepair,
       details: results
     };
   } catch (err) {
@@ -674,5 +847,6 @@ module.exports = {
   detectTargetCompany,
   syncSalesVoucherToPurchaseVoucher,
   deleteSyncedPurchaseVoucher,
-  syncAllPendingSalesVouchers
+  syncAllPendingSalesVouchers,
+  repairOrphanSyncedVouchers
 };

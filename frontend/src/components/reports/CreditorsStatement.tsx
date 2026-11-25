@@ -7,7 +7,6 @@ import {
   Printer,
   Download,
   Search,
-  Filter,
   ChevronDown,
   Building,
   FileText,
@@ -16,8 +15,7 @@ import {
   AlertCircle,
   ChevronLeft,
   ChevronRight,
-  Check,
-  Calendar
+  Check
 } from "lucide-react";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
@@ -101,7 +99,7 @@ const CreditorsStatement: React.FC = () => {
 
   const [statementSummary, setStatementSummary] = useState({
     openingBalance: 0,
-    openingBalanceType: "Cr",
+    openingBalanceType: "Cr" as "Cr" | "Dr",
     totalPurchases: 0,
     totalPayments: 0,
     totalDebitNotes: 0,
@@ -111,7 +109,7 @@ const CreditorsStatement: React.FC = () => {
     totalCgst: 0,
     totalSgst: 0,
     closingBalance: 0,
-    closingBalanceType: "Cr",
+    closingBalanceType: "Cr" as "Cr" | "Dr",
     transactionCount: 0
   });
 
@@ -203,10 +201,6 @@ const CreditorsStatement: React.FC = () => {
       };
     });
   }, [fyYear]);
-
-  // Table filters & Search
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedVoucherType, setSelectedVoucherType] = useState<string>("all");
 
   const printAreaRef = useRef<HTMLDivElement>(null);
   const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:5000";
@@ -379,30 +373,6 @@ const CreditorsStatement: React.FC = () => {
     fetchStatementData(cred.id);
   };
 
-  // Filtered transactions by voucher type and search keyword
-  const filteredTransactions = useMemo(() => {
-    return statementTransactions.filter((tx) => {
-      // Voucher filter
-      if (selectedVoucherType !== "all" && tx.voucherType !== selectedVoucherType) {
-        return false;
-      }
-
-      // Search keyword
-      if (searchTerm.trim()) {
-        const q = searchTerm.toLowerCase();
-        const matchesParticulars = (tx.particulars || "").toLowerCase().includes(q);
-        const matchesVoucher = (tx.voucherNo || "").toLowerCase().includes(q);
-        const matchesRef = (tx.refNo || "").toLowerCase().includes(q);
-        const matchesNarration = (tx.narration || "").toLowerCase().includes(q);
-        if (!matchesParticulars && !matchesVoucher && !matchesRef && !matchesNarration) {
-          return false;
-        }
-      }
-
-      return true;
-    });
-  }, [statementTransactions, selectedVoucherType, searchTerm]);
-
   // Currency Formatter
   const formatINR = (val: number | undefined) => {
     return new Intl.NumberFormat("en-IN", {
@@ -445,35 +415,23 @@ const CreditorsStatement: React.FC = () => {
         "Particulars",
         "Voucher Type",
         "Voucher No",
-        "Ref / Bill No",
-        "Due Date",
-        "IGST (₹)",
-        "CGST (₹)",
-        "SGST (₹)",
         "Debit (₹)",
         "Credit (₹)",
         "Balance (₹)",
-        "Type",
-        "Narration"
+        "Dr/Cr"
       ]);
 
       // Transaction Rows
-      filteredTransactions.forEach((tx) => {
+      statementTransactions.forEach((tx) => {
         rows.push([
           tx.date,
           tx.particulars,
           tx.voucherType,
           tx.voucherNo,
-          tx.refNo,
-          tx.dueDate,
-          tx.igst || 0,
-          tx.cgst || 0,
-          tx.sgst || 0,
           tx.debit,
           tx.credit,
           tx.balance,
-          tx.balanceType,
-          tx.narration || ""
+          tx.balanceType
         ]);
       });
 
@@ -481,19 +439,13 @@ const CreditorsStatement: React.FC = () => {
       rows.push([]);
       rows.push([
         toDate || new Date().toISOString().split("T")[0],
-        "Closing Balance c/d",
-        "Totals",
+        "Closing Balance",
         "",
         "",
-        "",
-        statementSummary.totalIgst || 0,
-        statementSummary.totalCgst || 0,
-        statementSummary.totalSgst || 0,
-        statementSummary.totalDebits,
-        statementSummary.totalCredits,
+        statementSummary.closingBalanceType === "Dr" ? statementSummary.closingBalance : 0,
+        statementSummary.closingBalanceType === "Cr" ? statementSummary.closingBalance : 0,
         statementSummary.closingBalance,
-        statementSummary.closingBalanceType,
-        "Net Outstanding Payable"
+        statementSummary.closingBalanceType
       ]);
 
       const ws = XLSX.utils.aoa_to_sheet(rows);
@@ -1113,19 +1065,20 @@ const CreditorsStatement: React.FC = () => {
                 </span>
                 <h3 className="text-sm font-bold truncate mt-0.5">{currentCreditor.name}</h3>
                 <div className={`text-[11px] mt-1 space-y-0.5 ${theme === "dark" ? "text-gray-300" : "text-gray-600"}`}>
-                  <p className="truncate">{currentCreditor.address || "-"}</p>
+                  {currentCreditor.address ? (
+                    <p className="truncate">{currentCreditor.address}</p>
+                  ) : null}
                   <p>
                     <span className="font-medium">GSTIN:</span> {currentCreditor.gstNumber || "-"}
                   </p>
-                  {currentCreditor.contactPerson && (
+                  {currentCreditor.phone ? (
                     <p>
-                      <span className="font-medium">Contact:</span> {currentCreditor.contactPerson}{" "}
-                      {currentCreditor.phone ? `(${currentCreditor.phone})` : ""}
+                      <span className="font-medium">Phone:</span> {currentCreditor.phone}
                     </p>
-                  )}
-                  {currentCreditor.creditPeriodDays ? (
-                    <p>
-                      <span className="font-medium">Terms:</span> {currentCreditor.creditPeriodDays} Days Credit
+                  ) : null}
+                  {currentCreditor.isMultiCompanySynced && currentCreditor.linkedCompanyName ? (
+                    <p className="text-blue-600 dark:text-blue-400 font-medium">
+                      Linked company: {currentCreditor.linkedCompanyName}
                     </p>
                   ) : null}
                 </div>
@@ -1166,48 +1119,11 @@ const CreditorsStatement: React.FC = () => {
           </div>
         </div>
 
-        {/* Table Filters (Search & Voucher Type) */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mb-4 no-print">
-          <div className="relative w-full sm:w-72">
-            <Search size={14} className="absolute left-3 top-2.5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search transaction, bill no, voucher..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className={`w-full pl-9 pr-3 py-1.5 text-xs rounded-lg border focus:outline-none ${
-                theme === "dark"
-                  ? "bg-gray-700 border-gray-600 text-white focus:border-blue-500"
-                  : "bg-white border-gray-300 text-gray-800 focus:border-blue-500"
-              }`}
-            />
-          </div>
-
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <Filter size={14} className="text-gray-400" />
-            <select
-              value={selectedVoucherType}
-              onChange={(e) => setSelectedVoucherType(e.target.value)}
-              className={`px-3 py-1.5 text-xs rounded-lg border focus:outline-none ${
-                theme === "dark"
-                  ? "bg-gray-700 border-gray-600 text-white focus:border-blue-500"
-                  : "bg-white border-gray-300 text-gray-800 focus:border-blue-500"
-              }`}
-            >
-              <option value="all">All Voucher Types</option>
-              <option value="Purchase">Purchases (Cr)</option>
-              <option value="Payment">Payments (Dr)</option>
-              <option value="Debit Note">Debit Notes (Dr)</option>
-              <option value="Journal">Journal Adjustments</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Statement Transaction Table */}
+        {/* Clean ledger table */}
         <div className="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-lg">
-          <table className="w-full text-xs text-left">
+          <table className="w-full text-sm text-left">
             <thead
-              className={`uppercase tracking-wider font-semibold border-b ${
+              className={`uppercase tracking-wider text-xs font-semibold border-b ${
                 theme === "dark"
                   ? "bg-gray-750 text-gray-300 border-gray-700"
                   : "bg-gray-100 text-gray-700 border-gray-300"
@@ -1215,108 +1131,90 @@ const CreditorsStatement: React.FC = () => {
             >
               <tr>
                 <th className="py-2.5 px-3">Date</th>
-                <th className="py-2.5 px-3">Particulars / Account Head</th>
-                <th className="py-2.5 px-3">Vch Type</th>
+                <th className="py-2.5 px-3">Particulars</th>
+                <th className="py-2.5 px-3">Type</th>
                 <th className="py-2.5 px-3">Vch No.</th>
-                <th className="py-2.5 px-3">Ref / Inv No.</th>
-                <th className="py-2.5 px-3">Due Date</th>
-                <th className="py-2.5 px-3 text-right">IGST (₹)</th>
-                <th className="py-2.5 px-3 text-right">CGST (₹)</th>
-                <th className="py-2.5 px-3 text-right">SGST (₹)</th>
                 <th className="py-2.5 px-3 text-right">Debit (₹)</th>
                 <th className="py-2.5 px-3 text-right">Credit (₹)</th>
                 <th className="py-2.5 px-3 text-right">Balance (₹)</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-              {/* Live Transaction Rows */}
-              {filteredTransactions.map((tx) => {
-                let badgeColor =
-                  tx.voucherType === "Purchase"
-                    ? "bg-blue-100 text-blue-800 dark:bg-blue-950/70 dark:text-blue-300"
-                    : tx.voucherType === "Payment"
-                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300"
-                    : tx.voucherType === "Debit Note"
-                    ? "bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300"
-                    : "bg-purple-100 text-purple-800 dark:bg-purple-950/70 dark:text-purple-300";
+            <tbody className="divide-y divide-gray-200 dark:divide-gray-700 text-xs">
+              {currentCreditor && statementSummary.openingBalance > 0 && (
+                <tr className={theme === "dark" ? "bg-gray-750/40" : "bg-slate-50"}>
+                  <td className="py-2.5 px-3 text-gray-500">{fromDate || "-"}</td>
+                  <td className="py-2.5 px-3 font-semibold">Opening Balance</td>
+                  <td className="py-2.5 px-3 text-gray-400">-</td>
+                  <td className="py-2.5 px-3 text-gray-400">-</td>
+                  <td className="py-2.5 px-3 text-right">
+                    {statementSummary.openingBalanceType === "Dr"
+                      ? formatINR(statementSummary.openingBalance)
+                      : "-"}
+                  </td>
+                  <td className="py-2.5 px-3 text-right">
+                    {statementSummary.openingBalanceType === "Cr"
+                      ? formatINR(statementSummary.openingBalance)
+                      : "-"}
+                  </td>
+                  <td className="py-2.5 px-3 text-right font-semibold whitespace-nowrap">
+                    {formatINR(statementSummary.openingBalance)}{" "}
+                    <span className="text-[10px] text-gray-500">
+                      {statementSummary.openingBalanceType}
+                    </span>
+                  </td>
+                </tr>
+              )}
 
-                return (
-                  <tr
-                    key={tx.id}
-                    className="hover:bg-gray-50/70 dark:hover:bg-gray-750/70 transition-colors"
-                  >
-                    <td className="py-2.5 px-3 whitespace-nowrap text-gray-600 dark:text-gray-300 font-mono">
-                      {tx.date}
-                    </td>
-                    <td className="py-2.5 px-3">
-                      <div className="font-medium text-gray-900 dark:text-gray-100">{tx.particulars}</div>
-                      {tx.narration && (
-                        <div className={`text-[11px] italic mt-0.5 ${theme === "dark" ? "text-gray-400" : "text-gray-500"}`}>
-                          Narration: {tx.narration}
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-2.5 px-3 whitespace-nowrap">
-                      <span className={`inline-block px-2 py-0.5 text-[10px] font-semibold rounded ${badgeColor}`}>
-                        {tx.voucherType}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-3 font-mono text-gray-700 dark:text-gray-300 whitespace-nowrap">
-                      {tx.voucherNo}
-                    </td>
-                    <td className="py-2.5 px-3 font-mono text-gray-500 whitespace-nowrap">
-                      {tx.refNo || "-"}
-                    </td>
-                    <td className="py-2.5 px-3 whitespace-nowrap text-gray-500">
-                      {tx.dueDate}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-medium text-gray-700 dark:text-gray-300">
-                      {(tx.igst || 0) > 0 ? formatINR(tx.igst) : "-"}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-medium text-gray-700 dark:text-gray-300">
-                      {(tx.cgst || 0) > 0 ? formatINR(tx.cgst) : "-"}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-medium text-gray-700 dark:text-gray-300">
-                      {(tx.sgst || 0) > 0 ? formatINR(tx.sgst) : "-"}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-medium text-emerald-600 dark:text-emerald-400">
-                      {tx.debit > 0 ? formatINR(tx.debit) : "-"}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-medium text-indigo-600 dark:text-indigo-400">
-                      {tx.credit > 0 ? formatINR(tx.credit) : "-"}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-bold whitespace-nowrap">
-                      {formatINR(tx.balance)}{" "}
-                      <span
-                        className={`text-[10px] ${
-                          tx.balanceType === "Cr" ? "text-rose-600 dark:text-rose-400" : "text-emerald-600"
-                        }`}
-                      >
-                        {tx.balanceType}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
+              {statementTransactions.map((tx) => (
+                <tr
+                  key={tx.id}
+                  className="hover:bg-gray-50/70 dark:hover:bg-gray-750/70 transition-colors"
+                >
+                  <td className="py-2.5 px-3 whitespace-nowrap font-mono text-gray-600 dark:text-gray-300">
+                    {tx.date}
+                  </td>
+                  <td className="py-2.5 px-3 font-medium text-gray-900 dark:text-gray-100">
+                    {tx.particulars}
+                  </td>
+                  <td className="py-2.5 px-3 whitespace-nowrap text-gray-600 dark:text-gray-300">
+                    {tx.voucherType}
+                  </td>
+                  <td className="py-2.5 px-3 font-mono whitespace-nowrap text-gray-700 dark:text-gray-300">
+                    {tx.voucherNo}
+                  </td>
+                  <td className="py-2.5 px-3 text-right text-emerald-600 dark:text-emerald-400">
+                    {tx.debit > 0 ? formatINR(tx.debit) : "-"}
+                  </td>
+                  <td className="py-2.5 px-3 text-right text-indigo-600 dark:text-indigo-400">
+                    {tx.credit > 0 ? formatINR(tx.credit) : "-"}
+                  </td>
+                  <td className="py-2.5 px-3 text-right font-semibold whitespace-nowrap">
+                    {formatINR(tx.balance)}{" "}
+                    <span
+                      className={`text-[10px] ${
+                        tx.balanceType === "Cr"
+                          ? "text-rose-600 dark:text-rose-400"
+                          : "text-emerald-600"
+                      }`}
+                    >
+                      {tx.balanceType}
+                    </span>
+                  </td>
+                </tr>
+              ))}
 
-              {filteredTransactions.length === 0 && !loading && (
+              {statementTransactions.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={12} className="py-12 text-center text-gray-500">
-                    <div className="max-w-md mx-auto space-y-2">
-                      <FileText size={28} className="mx-auto text-gray-400 opacity-60" />
-                      <p className="font-semibold text-gray-700 dark:text-gray-300">
-                        No transactions found for the selected period.
-                      </p>
-                      <p className="text-xs text-gray-400">
-                        Try selecting a different date range or creditor account.
-                      </p>
-                    </div>
+                  <td colSpan={7} className="py-12 text-center text-gray-500">
+                    <FileText size={28} className="mx-auto text-gray-400 opacity-60 mb-2" />
+                    <p className="font-semibold text-gray-700 dark:text-gray-300">
+                      No transactions found for the selected period.
+                    </p>
                   </td>
                 </tr>
               )}
             </tbody>
 
-            {/* Total & Closing Summary Footer */}
             <tfoot
               className={`font-semibold border-t-2 ${
                 theme === "dark"
@@ -1325,25 +1223,23 @@ const CreditorsStatement: React.FC = () => {
               }`}
             >
               <tr>
-                <td colSpan={6} className="py-3 px-3 text-right uppercase tracking-wider text-xs">
-                  Period Totals:
-                </td>
-                <td className="py-3 px-3 text-right text-gray-700 dark:text-gray-300">
-                  {statementSummary.totalIgst > 0 ? formatINR(statementSummary.totalIgst) : "-"}
-                </td>
-                <td className="py-3 px-3 text-right text-gray-700 dark:text-gray-300">
-                  {statementSummary.totalCgst > 0 ? formatINR(statementSummary.totalCgst) : "-"}
-                </td>
-                <td className="py-3 px-3 text-right text-gray-700 dark:text-gray-300">
-                  {statementSummary.totalSgst > 0 ? formatINR(statementSummary.totalSgst) : "-"}
+                <td colSpan={4} className="py-3 px-3 text-right text-xs uppercase tracking-wider">
+                  Closing Balance
                 </td>
                 <td className="py-3 px-3 text-right text-emerald-600 dark:text-emerald-400">
-                  {formatINR(statementSummary.totalDebits)}
+                  {statementSummary.closingBalanceType === "Dr"
+                    ? formatINR(statementSummary.closingBalance)
+                    : "-"}
                 </td>
                 <td className="py-3 px-3 text-right text-indigo-600 dark:text-indigo-400">
-                  {formatINR(statementSummary.totalCredits)}
+                  {statementSummary.closingBalanceType === "Cr"
+                    ? formatINR(statementSummary.closingBalance)
+                    : "-"}
                 </td>
-                <td className="py-3 px-3 text-right text-gray-400">-</td>
+                <td className="py-3 px-3 text-right text-rose-700 dark:text-rose-300 whitespace-nowrap">
+                  {formatINR(statementSummary.closingBalance)}{" "}
+                  <span className="text-[10px]">{statementSummary.closingBalanceType}</span>
+                </td>
               </tr>
             </tfoot>
           </table>

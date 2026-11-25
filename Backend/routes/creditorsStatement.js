@@ -1,7 +1,10 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db");
-const { syncAllPendingSalesVouchers } = require("../utils/gstTransactionSync");
+const {
+  syncAllPendingSalesVouchers,
+  repairOrphanSyncedVouchers
+} = require("../utils/gstTransactionSync");
 
 /**
  * Clean & normalize GST number
@@ -11,10 +14,20 @@ function normalizeGst(gst) {
 }
 
 /**
- * Helper to safely format Date to YYYY-MM-DD
+ * Helper to safely format Date to YYYY-MM-DD (avoid timezone day-shift)
  */
 function formatDate(d) {
   if (!d) return "";
+  if (typeof d === "string") {
+    const m = d.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (m) return m[1];
+  }
+  if (d instanceof Date && !isNaN(d.getTime())) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
   const dateObj = new Date(d);
   if (isNaN(dateObj.getTime())) return String(d).split("T")[0] || "";
   const y = dateObj.getFullYear();
@@ -44,6 +57,15 @@ router.get("/", async (req, res) => {
 
     if (!company_id) {
       return res.status(400).json({ success: false, message: "company_id parameter is required" });
+    }
+
+    // 0. Repair orphan syncs (deleted target PVs) + sync any pending multi-company sales
+    let syncMeta = { orphanRepair: null, pendingSync: null };
+    try {
+      syncMeta.orphanRepair = await repairOrphanSyncedVouchers(company_id);
+      syncMeta.pendingSync = await syncAllPendingSalesVouchers(null, false);
+    } catch (syncErr) {
+      console.warn("⚠️ Creditors Statement sync-on-load warning:", syncErr.message);
     }
 
     // 1. Fetch Company Master Info
@@ -207,11 +229,19 @@ router.get("/", async (req, res) => {
       const credDebitNotes = allDebitNotes.filter((d) => Number(d.party_id) === Number(cred.id));
       const totalDebitNotesAmount = credDebitNotes.reduce((sum, d) => sum + Number(d.total || 0), 0);
 
+      const credJournals = allJournals.filter((j) => Number(j.ledger_id) === Number(cred.id));
+      const journalNet = credJournals.reduce((sum, j) => {
+        const amt = Number(j.amount || 0);
+        // Credit increases payable (Cr), Debit decreases payable
+        return sum + (j.entry_type === "credit" ? amt : -amt);
+      }, 0);
+
       const opBal = Number(cred.openingBalance || 0);
       const isOpCr = cred.balanceType.toLowerCase() === "credit" || cred.balanceType.toLowerCase() === "cr";
       const signedOp = isOpCr ? opBal : -opBal;
 
-      const closingNet = signedOp + totalPurchasesAmount - totalPaymentsAmount - totalDebitNotesAmount;
+      const closingNet =
+        signedOp + totalPurchasesAmount - totalPaymentsAmount - totalDebitNotesAmount + journalNet;
       const closingBalance = Math.abs(closingNet);
       const closingBalanceType = closingNet >= 0 ? "Cr" : "Dr";
 
@@ -219,16 +249,16 @@ router.get("/", async (req, res) => {
         id: String(cred.id),
         name: cred.name,
         alias: "",
-        contactPerson: "Accounts Dept",
-        phone: cred.phone || "-",
-        email: cred.email || "-",
-        address: cred.address || "-",
-        city: cred.city || cred.state || "India",
-        state: cred.state || "-",
-        gstNumber: cred.gstNumber || "-",
-        panNumber: cred.panNumber || "-",
-        creditPeriodDays: 30,
-        creditLimit: 500000,
+        contactPerson: "",
+        phone: cred.phone || "",
+        email: cred.email || "",
+        address: cred.address || "",
+        city: cred.city || cred.state || "",
+        state: cred.state || "",
+        gstNumber: cred.gstNumber || "",
+        panNumber: cred.panNumber || "",
+        creditPeriodDays: null,
+        creditLimit: null,
         openingBalance: opBal,
         openingBalanceType: isOpCr ? "Cr" : "Dr",
         totalPurchases: totalPurchasesAmount,
@@ -287,7 +317,8 @@ router.get("/", async (req, res) => {
           totalPending: 0
         },
         syncedTransactions: syncedVoucherRows,
-        connectedCompanies: otherCompanies
+        connectedCompanies: otherCompanies,
+        syncMeta
       });
     }
 
@@ -480,6 +511,7 @@ router.get("/", async (req, res) => {
                             selDebitNotes.reduce((s, d) => s + Number(d.total || 0), 0);
 
     const pendingBills = [];
+    const purchaseStatusMap = {};
     let b0_30 = 0;
     let b31_60 = 0;
     let b61_90 = 0;
@@ -499,10 +531,18 @@ router.get("/", async (req, res) => {
       }
 
       const pendingAmount = origAmt - paidAgainstThis;
+      if (pendingAmount <= 0) {
+        purchaseStatusMap[pv.id] = "Paid";
+      } else if (paidAgainstThis > 0) {
+        purchaseStatusMap[pv.id] = "Partially Paid";
+      } else {
+        purchaseStatusMap[pv.id] = "Unpaid";
+      }
+
       if (pendingAmount > 0) {
         const billDateStr = formatDate(pv.date);
         const dueDateStr = formatDate(pv.supplierInvoiceDate || pv.date);
-        const dueDateTime = new Date(dueDateStr).getTime();
+        const dueDateTime = new Date(dueDateStr + "T00:00:00").getTime();
         const diffMs = today.getTime() - dueDateTime;
         const daysOverdue = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
         const bracket = getAgeBucket(daysOverdue);
@@ -515,6 +555,7 @@ router.get("/", async (req, res) => {
         const isSynced = pv.synced_from_sales_voucher_id != null;
 
         pendingBills.push({
+          voucherId: pv.id,
           billNo: pv.number,
           refNo: pv.referenceNo || "-",
           billDate: billDateStr,
@@ -527,6 +568,13 @@ router.get("/", async (req, res) => {
           isMultiCompanySynced: isSynced,
           syncedFromCompany: isSynced ? (selectedCreditor.linkedCompanyName || "Sister Company") : null
         });
+      }
+    }
+
+    // Apply FIFO-based payment status on purchase rows
+    for (const tx of finalTransactions) {
+      if (tx.voucherType === "Purchase" && tx.voucherId != null && purchaseStatusMap[tx.voucherId]) {
+        tx.status = purchaseStatusMap[tx.voucherId];
       }
     }
 
@@ -562,7 +610,8 @@ router.get("/", async (req, res) => {
         totalPending
       },
       syncedTransactions: syncedVoucherRows,
-      connectedCompanies: otherCompanies
+      connectedCompanies: otherCompanies,
+      syncMeta
     });
   } catch (err) {
     console.error("🔥 Creditors Statement Error:", err);
