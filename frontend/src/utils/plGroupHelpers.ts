@@ -244,3 +244,151 @@ export const isUnderSalesAccounts = (
     systemId: -16,
     rootNameNormalized: "salesaccounts",
   });
+
+export type AccountRootOpts = {
+  systemId: number;
+  rootNameNormalized: string;
+};
+
+/** Resolve root group IDs (system root preferred, deduplicated by normalized name). */
+export const findAccountRootIds = (
+  allGroups: PlGroup[],
+  opts: AccountRootOpts
+): number[] => {
+  const roots = allGroups.filter((g) => {
+    const name = normalizeStr(g.name || "");
+    const parent = getGroupParent(g);
+    return (
+      Number(g.id) === opts.systemId ||
+      (name === opts.rootNameNormalized &&
+        (parent === null || parent === 0 || parent === opts.systemId))
+    );
+  });
+
+  const sortedRoots = [...roots].sort((a, b) =>
+    Number(a.id) === opts.systemId ? -1 : Number(b.id) === opts.systemId ? 1 : 0
+  );
+  const seen = new Set<string>();
+  const ids: number[] = [];
+  sortedRoots.forEach((g) => {
+    const key = normalizeStr(g.name || "") || String(g.id);
+    if (seen.has(key)) return;
+    seen.add(key);
+    ids.push(Number(g.id));
+  });
+
+  if (ids.length === 0) ids.push(opts.systemId);
+  return ids;
+};
+
+/** Direct child subgroups under `parentId` (including same-named company copies), deduplicated by name. */
+export const getChildAccountGroups = (
+  allGroups: PlGroup[],
+  parentId: number,
+  opts: AccountRootOpts
+): PlGroup[] => {
+  const parentGroup = allGroups.find((g) => Number(g.id) === Number(parentId));
+  const parentName = normalizeStr(parentGroup?.name || "");
+
+  const equivalentParentIds = new Set<number>([Number(parentId)]);
+  if (parentName) {
+    allGroups.forEach((g) => {
+      if (normalizeStr(g.name || "") === parentName) {
+        equivalentParentIds.add(Number(g.id));
+      }
+    });
+  }
+  if (Number(parentId) === opts.systemId || parentName === opts.rootNameNormalized) {
+    allGroups.forEach((g) => {
+      if (normalizeStr(g.name || "") === opts.rootNameNormalized) {
+        equivalentParentIds.add(Number(g.id));
+      }
+    });
+    equivalentParentIds.add(opts.systemId);
+  }
+
+  const children = allGroups.filter((g) => {
+    const p = getGroupParent(g);
+    if (p === null) return false;
+    if (!equivalentParentIds.has(Number(p))) return false;
+    if (
+      equivalentParentIds.has(Number(g.id)) &&
+      parentName &&
+      normalizeStr(g.name || "") === parentName
+    ) {
+      return false;
+    }
+    return isUnderAccountRoot(allGroups, g.id, opts);
+  });
+
+  const unique: PlGroup[] = [];
+  const seenNames = new Set<string>();
+  children.forEach((g) => {
+    const key = normalizeStr(g.name || "") || String(g.id);
+    if (seenNames.has(key)) return;
+    seenNames.add(key);
+    unique.push(g);
+  });
+
+  return unique.sort((a, b) =>
+    String(a.name || "").localeCompare(String(b.name || ""))
+  );
+};
+
+/** Ledgers directly attached to `groupId` (or same-named company copies). */
+export const getDirectGroupLedgers = <
+  T extends { group_id: number; name: string }
+>(
+  allGroups: PlGroup[],
+  ledgers: T[],
+  groupId: number
+): T[] => {
+  const group = allGroups.find((g) => Number(g.id) === Number(groupId));
+  const groupName = normalizeStr(group?.name || "");
+
+  const equivalentIds = new Set<number>([Number(groupId)]);
+  if (groupName) {
+    allGroups.forEach((g) => {
+      if (normalizeStr(g.name || "") === groupName) {
+        equivalentIds.add(Number(g.id));
+      }
+    });
+  }
+
+  return ledgers
+    .filter((l) => equivalentIds.has(Number(l.group_id)))
+    .sort((a, b) => a.name.localeCompare(b.name));
+};
+
+/** All ledgers directly under `groupId` or any of its descendant subgroups, deduplicated by id. */
+export const collectGroupDescendantLedgers = <
+  T extends { id: number; group_id: number; name: string }
+>(
+  allGroups: PlGroup[],
+  ledgers: T[],
+  groupId: number,
+  opts: AccountRootOpts,
+  visited = new Set<number>()
+): T[] => {
+  if (visited.has(Number(groupId))) return [];
+  visited.add(Number(groupId));
+
+  const direct = getDirectGroupLedgers(allGroups, ledgers, groupId);
+  const childGroups = getChildAccountGroups(allGroups, groupId, opts);
+  let all = [...direct];
+
+  childGroups.forEach((cg) => {
+    all = [
+      ...all,
+      ...collectGroupDescendantLedgers(
+        allGroups,
+        ledgers,
+        Number(cg.id),
+        opts,
+        visited
+      ),
+    ];
+  });
+
+  return Array.from(new Map(all.map((l) => [l.id, l])).values());
+};
