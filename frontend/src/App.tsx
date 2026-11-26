@@ -114,6 +114,7 @@ import CashFlow from "./components/reports/CashFlow";
 import CashFlowSummary from "./components/reports/CashFlowSummary";
 import GroupCashFlow from "./components/reports/GroupCashFlow";
 import FundFlow from "./components/reports/FundFlow";
+import RatioAnalysis from "./components/reports/RatioAnalysis";
 import LedgerVouchers from "./components/reports/LedgerVouchers";
 import VoucherView from "./components/vouchers/view/VoucherView";
 import StockSummary from "./components/reports/StockSummary";
@@ -2081,7 +2082,7 @@ function App() {
                   element={
                     <RequireCompany>
                       <RequireSubscription>
-                        <ReportComingSoon title="Ratio Analysis" category="Accounting Reports" />
+                        <RatioAnalysis />
                       </RequireSubscription>
                     </RequireCompany>
                   }

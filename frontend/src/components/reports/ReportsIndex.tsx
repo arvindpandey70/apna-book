@@ -62,7 +62,7 @@ const ReportsIndex: React.FC = () => {
         { icon: <FileText size={20} />, name: 'Receipt and Payment Account', path: '/app/reports/receipt-payment-account', isPending: true },
         { icon: <FileText size={20} />, name: 'Tax Status', path: '/app/reports/tax-status', isPending: true },
         { icon: <BarChart2 size={20} />, name: 'Financial Analysis', path: '/app/reports/financial-analysis', isPending: true },
-        { icon: <TrendingUp size={20} />, name: 'Ratio Analysis', path: '/app/reports/ratio-analysis', isPending: true },
+        { icon: <TrendingUp size={20} />, name: 'Ratio Analysis', path: '/app/reports/ratio-analysis' },
         { icon: <Activity size={20} />, name: 'Financial Changes', path: '/app/reports/financial-changes', isPending: true },
         { icon: <PackageX size={20} />, name: 'Dead Stock Report', path: '/app/reports/ded-stock', isPending: false, isRed: false }
       ]
