@@ -261,6 +261,7 @@ const PurchaseDetail: React.FC = () => {
           Number(group.id),
           PURCHASE_ROOT_OPTS
         );
+        if (descendants.length === 0) return;
         const totals = sumLedgers(descendants);
 
         rows.push({
