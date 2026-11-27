@@ -80,6 +80,13 @@ function findCompanyById(companies: Company[], companyId: string | number): Comp
 }
 
 /**
+ * Normalize boolean-like DB/API values (true, 1, '1', 'true') to boolean
+ */
+function normalizeBoolean(val: unknown): boolean {
+  return val === true || val === 1 || val === '1' || val === 'true';
+}
+
+/**
  * Convert company object to CompanyInfo format
  */
 function convertToCompanyInfo(company: Company): CompanyInfo {
@@ -100,14 +107,22 @@ function convertToCompanyInfo(company: Company): CompanyInfo {
     state: (company as any).state || '',
     country: (company as any).country || 'India',
     taxType: (company as any).taxType || (company as any).tax_type || 'GST',
-    maintainBy: (company as any).maintainBy || (company as any).maintain_by || 'self',
-    accountantName: (company as any).accountantName || (company as any).accountant_name || '',
+    employeeId: (company as any).employeeId ?? (company as any).employee_id,
+    maintainBy: (company as any).maintainBy || (company as any).maintain_by || (company as any).fdAccountType || 'self',
+    accountantName: (company as any).accountantName || (company as any).accountant_name || (company as any).fdAccountantName || '',
+    backDateAllowed: normalizeBoolean((company as any).backDateAllowed ?? (company as any).back_date_allowed),
   };
 
-  // Include any additional properties from company, but don't overwrite existing ones
+  // Include any additional properties from company, keeping normalized core fields
   const { id, name, ...additionalProps } = company;
 
-  return { ...baseInfo, ...additionalProps } as CompanyInfo;
+  return {
+    ...baseInfo,
+    ...additionalProps,
+    maintainBy: baseInfo.maintainBy,
+    accountantName: baseInfo.accountantName,
+    backDateAllowed: baseInfo.backDateAllowed,
+  } as CompanyInfo;
 }
 
 /**
@@ -163,8 +178,9 @@ async function syncCompanyInfo(
   if (storedCompanyInfo) {
     const parsedInfo = safeParseJSON<CompanyInfo | null>(storedCompanyInfo, null);
     if (parsedInfo && String(parsedInfo.id) === String(activeCompanyId)) {
-      // companyInfo matches active_company_id, use it
-      setCompanyInfo(parsedInfo);
+      // Normalize stored info so legacy/raw DB fields (e.g. fdAccountType, back_date_allowed) stay consistent
+      const normalizedInfo = convertToCompanyInfo(parsedInfo as unknown as Company);
+      setCompanyInfo(normalizedInfo);
       return;
     }
   }

@@ -41,6 +41,7 @@ export type CompanyInfo = {
   godowns?: Godown[];
   assesseeName?: string;
   companyType?: string;
+  backDateAllowed?: boolean;
 };
 
 export type LedgerType =
