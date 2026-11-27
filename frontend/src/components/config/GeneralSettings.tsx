@@ -1,21 +1,58 @@
-import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Save, Loader2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { ArrowLeft, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useCompany } from '../../context/CompanyContext';
 import Swal from 'sweetalert2';
+
+function isTruthyFlag(val: unknown): boolean {
+  return val === true || val === 1 || val === '1' || val === 'true';
+}
 
 const GeneralSettings = () => {
   const navigate = useNavigate();
   const { companyInfo, updateCompany, activeCompanyId } = useCompany();
   const [backDateAllowed, setBackDateAllowed] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const updateCompanyRef = useRef(updateCompany);
+  updateCompanyRef.current = updateCompany;
 
   useEffect(() => {
     if (companyInfo) {
-      // Default to false if undefined
-      setBackDateAllowed(companyInfo.backDateAllowed === true);
+      const legacyFlag = (companyInfo as Record<string, unknown>).back_date_allowed;
+      setBackDateAllowed(isTruthyFlag(companyInfo.backDateAllowed ?? legacyFlag));
     }
   }, [companyInfo]);
+
+  useEffect(() => {
+    if (!activeCompanyId) return;
+    let cancelled = false;
+
+    const loadSettings = async () => {
+      try {
+        const apiUrl = import.meta.env.VITE_API_URL;
+        const response = await fetch(`${apiUrl}/api/company/company/${activeCompanyId}`, {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        });
+        if (!response.ok || cancelled) return;
+        const data: Record<string, unknown> = await response.json();
+        const isAllowed = isTruthyFlag(data.backDateAllowed ?? data.back_date_allowed);
+        if (!cancelled) {
+          setBackDateAllowed(isAllowed);
+          updateCompanyRef.current(activeCompanyId, { backDateAllowed: isAllowed });
+        }
+      } catch (err) {
+        console.error('Failed to load general settings:', err);
+      }
+    };
+
+    loadSettings();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCompanyId]);
 
   const handleToggle = async (checked: boolean) => {
     if (!activeCompanyId) return;
@@ -24,17 +61,18 @@ const GeneralSettings = () => {
     setIsSaving(true);
     try {
       const apiUrl = import.meta.env.VITE_API_URL;
-      const response = await fetch(`${apiUrl}/api/company/company/${activeCompanyId}`, {
-        method: 'PUT',
+      const response = await fetch(`${apiUrl}/api/company/company/${activeCompanyId}/general-settings`, {
+        method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify({
-          ...companyInfo,
           backDateAllowed: checked
         })
       });
+
+      const data = await response.json().catch(() => ({})) as { message?: string };
 
       if (response.ok) {
         updateCompany(activeCompanyId, { backDateAllowed: checked });
@@ -48,15 +86,16 @@ const GeneralSettings = () => {
           timer: 2000
         });
       } else {
-        throw new Error('Failed to update');
+        throw new Error(data.message || 'Failed to update');
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Save error:', error);
       setBackDateAllowed(!checked); // Revert on failure
+      const message = error instanceof Error ? error.message : 'Failed to save';
       Swal.fire({
         icon: 'error',
         title: 'Error',
-        text: 'Failed to save'
+        text: message
       });
     } finally {
       setIsSaving(false);

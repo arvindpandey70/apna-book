@@ -11,6 +11,14 @@ const {
   toMysqlDate
 } = require('../utils/accountantCompanyAccess');
 
+async function ensureBackDateAllowedColumn(connection) {
+  const [bdCols] = await connection.query(`SHOW COLUMNS FROM tbcompanies LIKE 'back_date_allowed'`);
+  if (bdCols.length === 0) {
+    await connection.query(`ALTER TABLE tbcompanies ADD COLUMN back_date_allowed TINYINT(1) DEFAULT 0`);
+    console.log("✅ back_date_allowed column created");
+  }
+}
+
 router.post('/company', async (req, res) => {
 
   const {
@@ -615,6 +623,56 @@ router.put('/company/:companyId', async (req, res) => {
 
 
 
+router.patch('/company/:companyId/general-settings', async (req, res) => {
+  const { companyId } = req.params;
+  const { backDateAllowed } = req.body || {};
+
+  if (!companyId) {
+    return res.status(400).json({ message: 'Company ID is required' });
+  }
+
+  if (backDateAllowed === undefined || backDateAllowed === null) {
+    return res.status(400).json({ message: 'backDateAllowed is required' });
+  }
+
+  const normalizedBackDate =
+    backDateAllowed === true ||
+    backDateAllowed === 1 ||
+    backDateAllowed === '1' ||
+    backDateAllowed === 'true'
+      ? 1
+      : 0;
+
+  const connection = await db.getConnection();
+  try {
+    await ensureBackDateAllowedColumn(connection);
+
+    const [result] = await connection.query(
+      `UPDATE tbcompanies SET back_date_allowed = ? WHERE id = ?`,
+      [normalizedBackDate, companyId]
+    );
+
+    if (!result || result.affectedRows === 0) {
+      return res.status(404).json({ message: 'Company not found' });
+    }
+
+    return res.status(200).json({
+      message: 'General settings updated successfully',
+      companyId,
+      backDateAllowed: normalizedBackDate === 1
+    });
+  } catch (err) {
+    console.error('❌ General settings update error:', err);
+    return res.status(500).json({
+      message: 'Server error',
+      error: err.message
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+
 router.get('/company/:companyId', async (req, res) => {
 
   const { companyId } = req.params;
@@ -721,6 +779,7 @@ router.get('/company/:companyId', async (req, res) => {
       company.accountantLockedUntil = fyEnd;
     }
 
+    company.backDateAllowed = Boolean(company.backDateAllowed);
     company.accountantLocked = isAccountantAssignmentLocked(company.accountantLockedUntil);
     if (company.accountantLockedUntil instanceof Date) {
       company.accountantLockedUntil = toMysqlDate(company.accountantLockedUntil);
