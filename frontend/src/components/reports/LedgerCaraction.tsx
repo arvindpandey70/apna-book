@@ -200,13 +200,13 @@ const LedgerCaraction: React.FC = () => {
     wsData.push([]);
 
     // Headers
-    wsData.push(["Date", "Particulars", "Vch Type", "Vch No.", "Debit", "Credit"]);
+    wsData.push(["Date", "Particulars", "Vch Type", "Vch No.", "Narration", "Debit", "Credit"]);
 
     // Opening Balance
     if (summaryTotals.openingBalance !== 0) {
       let debit = ((summaryTotals.openingBalance > 0 && isDebitLedger) || (summaryTotals.openingBalance < 0 && !isDebitLedger)) ? Math.abs(summaryTotals.openingBalance) : '';
       let credit = ((summaryTotals.openingBalance < 0 && isDebitLedger) || (summaryTotals.openingBalance > 0 && !isDebitLedger)) ? Math.abs(summaryTotals.openingBalance) : '';
-      wsData.push(["", "Opening Balance", "", "", debit, credit]);
+      wsData.push(["", "Opening Balance", "", "", "", debit, credit]);
     }
 
     // Transactions
@@ -217,24 +217,25 @@ const LedgerCaraction: React.FC = () => {
         ledgerIdNameMap[String(txn.particulars)] || txn.particulars,
         txn.isQuotation ? "Quotation" : txn.voucherType,
         txn.voucherNo,
+        txn.narration || "",
         txn.debit > 0 ? txn.debit : '',
         txn.credit > 0 ? txn.credit : ''
       ]);
     });
 
     // Sub Totals
-    wsData.push(["", "", "", "", summaryTotals.totalDebit, summaryTotals.totalCredit]);
+    wsData.push(["", "", "", "", "", summaryTotals.totalDebit, summaryTotals.totalCredit]);
 
     // Closing Balance
     if (Math.abs(summaryTotals.totalDebit - summaryTotals.totalCredit) > 0) {
       let debit = summaryTotals.totalCredit > summaryTotals.totalDebit ? Math.abs(summaryTotals.totalDebit - summaryTotals.totalCredit) : '';
       let credit = summaryTotals.totalDebit > summaryTotals.totalCredit ? Math.abs(summaryTotals.totalDebit - summaryTotals.totalCredit) : '';
-      wsData.push(["", "Closing Balance", "", "", debit, credit]);
+      wsData.push(["", "Closing Balance", "", "", "", debit, credit]);
     }
 
     // Grand Totals
     const grandTotal = Math.max(summaryTotals.totalDebit, summaryTotals.totalCredit);
-    wsData.push(["", "", "", "", grandTotal, grandTotal]);
+    wsData.push(["", "", "", "", "", grandTotal, grandTotal]);
 
     const ws = XLSX.utils.aoa_to_sheet(wsData);
     const wb = XLSX.utils.book_new();
@@ -1163,6 +1164,10 @@ const LedgerCaraction: React.FC = () => {
                         Voucher No
                       </th>
 
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">
+                        Narration
+                      </th>
+
                       <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider">
                         Debit
                       </th>
@@ -1212,6 +1217,11 @@ const LedgerCaraction: React.FC = () => {
 
                               {/* Voucher No */}
                               <td className="px-4 py-3 text-sm font-mono">{txn.voucherNo}</td>
+
+                              {/* Narration */}
+                              <td className="px-4 py-3 text-sm max-w-xs break-words">
+                                {txn.narration || ""}
+                              </td>
 
                               {/* Debit */}
                               <td className="px-4 py-3 text-sm text-right font-mono">
@@ -1305,7 +1315,7 @@ const LedgerCaraction: React.FC = () => {
 
                     {groupedByVoucher.length === 0 && (
                       <tr>
-                        <td colSpan={9} className="px-4 py-8 text-center border-b border-gray-200 dark:border-gray-700">
+                        <td colSpan={10} className="px-4 py-8 text-center border-b border-gray-200 dark:border-gray-700">
                           <p className="text-gray-500 mb-2">
                             No transactions found for the selected period ({formatDate(fromDate)} to {formatDate(toDate)}).
                           </p>
@@ -1329,7 +1339,7 @@ const LedgerCaraction: React.FC = () => {
                         : "bg-gray-100 text-gray-800"
                         }`}
                     >
-                      <td className="px-4 py-4" colSpan={4}>
+                      <td className="px-4 py-4" colSpan={5}>
                         Grand Total
                       </td>
 

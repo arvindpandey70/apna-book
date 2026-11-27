@@ -297,14 +297,17 @@ SELECT
   vm.voucher_type,
   vm.voucher_number,
   vm.date,
+  vm.narration AS voucher_narration,
 
   ve.entry_type,
   ve.amount,
+  ve.narration AS entry_narration,
 
   ve.ledger_id AS current_ledger,
 
   other.ledger_id AS opposite_ledger,
-  l2.name AS opposite_ledger_name
+  l2.name AS opposite_ledger_name,
+  other.narration AS opposite_entry_narration
 
 FROM voucher_entries ve
 
@@ -353,8 +356,8 @@ ORDER BY vm.date ASC
 
       const [accRows] = await connection.execute(
         `SELECT ve.id AS entry_id, ve.voucher_id, ve.ledger_id, COALESCE(l.name, ve.ledger_name) AS ledger_name,
-                ve.amount, ve.entry_type, pv.number AS voucher_number, pv.date,
-                pv.partyId, pv.mode, pv.total, l_header.name AS header_party_name
+                ve.amount, ve.entry_type, ve.narration AS entry_narration, pv.number AS voucher_number, pv.date,
+                pv.partyId, pv.mode, pv.total, pv.narration AS voucher_narration, l_header.name AS header_party_name
          FROM voucher_entries ve
          LEFT JOIN ledgers l ON l.id = ve.ledger_id
          LEFT JOIN purchase_vouchers pv ON pv.id = ve.voucher_id
@@ -394,8 +397,8 @@ ORDER BY vm.date ASC
 
       const [accRows] = await connection.execute(
         `SELECT ve.id AS entry_id, ve.voucher_id, ve.ledger_id, COALESCE(l.name, ve.ledger_name) AS ledger_name,
-                ve.amount, ve.entry_type, sv.number AS voucher_number, sv.date,
-                sv.partyId, sv.mode, sv.total, l_header.name AS header_party_name
+                ve.amount, ve.entry_type, ve.narration AS entry_narration, sv.number AS voucher_number, sv.date,
+                sv.partyId, sv.mode, sv.total, sv.narration AS voucher_narration, l_header.name AS header_party_name
          FROM voucher_entries ve
          LEFT JOIN ledgers l ON l.id = ve.ledger_id
          LEFT JOIN sales_vouchers sv ON sv.id = ve.voucher_id
@@ -475,7 +478,7 @@ ORDER BY vm.date ASC
         debit,
         credit,
         balance,
-        narration: row.narration || "",
+        narration: (row.entry_narration || row.voucher_narration || row.opposite_entry_narration || "").trim(),
       });
     });
 
@@ -510,7 +513,7 @@ ORDER BY vm.date ASC
           debit,
           credit,
           balance,
-          narration: parsed.narration || note.narration || "",
+          narration: parsed.note ?? parsed.narration ?? "",
         });
       });
     });
@@ -545,7 +548,7 @@ ORDER BY vm.date ASC
           debit,
           credit,
           balance,
-          narration: parsed.narration || note.narration || "",
+          narration: parsed.note ?? parsed.narration ?? "",
         });
       });
     });
@@ -790,6 +793,7 @@ ORDER BY vm.date ASC
             debit,
             credit,
             balance,
+            narration: mainVoucher.voucher_narration || mainVoucher.entry_narration || "",
           });
         } else {
           // If viewing non-party ledger (Purchase/Tax), show its own amount, particulars = Party Name from identified party
@@ -806,6 +810,7 @@ ORDER BY vm.date ASC
             debit,
             credit,
             balance,
+            narration: sel.entry_narration || sel.voucher_narration || "",
           });
         }
       });
@@ -852,6 +857,7 @@ ORDER BY vm.date ASC
             debit,
             credit,
             balance,
+            narration: mainVoucher.voucher_narration || mainVoucher.entry_narration || "",
           });
         } else {
           const debit = sel.entry_type === "debit" ? Number(sel.amount) : 0;
@@ -867,6 +873,7 @@ ORDER BY vm.date ASC
             debit,
             credit,
             balance,
+            narration: sel.entry_narration || sel.voucher_narration || "",
           });
         }
       });
@@ -886,6 +893,7 @@ ORDER BY vm.date ASC
         debit: 0,
         credit,
         balance,
+        narration: qt.narration || "",
         isQuotation: true,
       });
     });
@@ -939,6 +947,7 @@ ORDER BY vm.date ASC
         debit: 0,
         credit,
         balance,
+        narration: so.narration || "",
       });
     });
 
@@ -991,6 +1000,7 @@ ORDER BY vm.date ASC
         debit,
         credit: 0,
         balance,
+        narration: po.narration || "",
       });
     });
 
