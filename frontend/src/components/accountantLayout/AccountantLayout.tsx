@@ -20,7 +20,8 @@ import {
   Clock,
   Sparkles,
   AlertCircle,
-  CreditCard
+  CreditCard,
+  FileSpreadsheet
 } from 'lucide-react';
 
 interface AuthorizedCompany {
@@ -127,6 +128,7 @@ const AccountantLayout: React.FC = () => {
     { label: 'Create Company', path: '/accountant/companies/create', icon: PlusCircle },
     { label: 'Managed Users', path: '/accountant/users', icon: Users },
     { label: 'Create User', path: '/accountant/users/create', icon: UserPlus },
+    { label: 'Turnover Sheet', path: '/accountant/turnover-sheet', icon: FileSpreadsheet },
     { label: 'Subscription Plans', path: '/accountant/pricing', icon: CreditCard },
   ];
 
