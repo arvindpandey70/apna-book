@@ -44,6 +44,60 @@ interface RawLedger {
   groupType: string | null;
 }
 
+interface ApiLedgerRow {
+  id: number | string;
+  name: string;
+  group_id?: number | string;
+  groupId?: number | string;
+  opening_balance?: number | string;
+  openingBalance?: number | string;
+  balance_type?: "debit" | "credit";
+  balanceType?: "debit" | "credit";
+  closing_balance?: number | string | null;
+  closingBalance?: number | string | null;
+  group_name?: string;
+  groupName?: string;
+  group_type?: string | null;
+  groupType?: string | null;
+}
+
+interface StockBatchRecord {
+  batchQuantity?: number | string;
+  openingRate?: number | string;
+}
+
+interface StockItemRecord {
+  name: string;
+  openingBalance?: number | string;
+  quantity?: number | string;
+  openingRate?: number | string;
+  rate?: number | string;
+  batches?: StockBatchRecord[];
+}
+
+interface PurchaseHistoryRecord {
+  date?: string;
+  voucherDate?: string;
+  itemName?: string;
+  purchaseQuantity?: number | string;
+  rate?: number | string;
+  purchaseRate?: number | string;
+}
+
+interface SalesHistoryRecord {
+  date?: string;
+  voucherDate?: string;
+  itemName?: string;
+  qtyChange?: number | string;
+}
+
+interface ExtendedCompanyFields {
+  companyName?: string;
+  company_name?: string;
+  gst_number?: string;
+  phone_number?: string;
+}
+
 type HealthStatus = "healthy" | "warning" | "critical" | "neutral";
 
 interface RatioItem {
@@ -134,10 +188,12 @@ const RatioAnalysis: React.FC = () => {
     );
   }, [companies, activeCompanyId, companyId]);
 
+  const extCompany = companyInfo as (typeof companyInfo & ExtendedCompanyFields) | null;
+
   const companyName =
     companyInfo?.name ||
-    (companyInfo as any)?.companyName ||
-    (companyInfo as any)?.company_name ||
+    extCompany?.companyName ||
+    extCompany?.company_name ||
     activeCompany?.name ||
     "Company";
 
@@ -150,12 +206,12 @@ const RatioAnalysis: React.FC = () => {
     .join(" - ");
   const companyGst =
     companyInfo?.gstNumber ||
-    (companyInfo as any)?.gst_number ||
+    extCompany?.gst_number ||
     activeCompany?.gstNumber ||
     "";
   const companyPhone =
     companyInfo?.phoneNumber ||
-    (companyInfo as any)?.phone_number ||
+    extCompany?.phone_number ||
     activeCompany?.phoneNumber ||
     "";
 
@@ -176,9 +232,9 @@ const RatioAnalysis: React.FC = () => {
   const [debitCreditData, setDebitCreditData] = useState<
     Record<number, { debit: number; credit: number }>
   >({});
-  const [stockItems, setStockItems] = useState<any[]>([]);
-  const [purchaseHistory, setPurchaseHistory] = useState<any[]>([]);
-  const [salesHistory, setSalesHistory] = useState<any[]>([]);
+  const [stockItems, setStockItems] = useState<StockItemRecord[]>([]);
+  const [purchaseHistory, setPurchaseHistory] = useState<PurchaseHistoryRecord[]>([]);
+  const [salesHistory, setSalesHistory] = useState<SalesHistoryRecord[]>([]);
 
   const fetchRatioData = useCallback(async () => {
     if (!companyId || !ownerType || !ownerId) {
@@ -209,17 +265,17 @@ const RatioAnalysis: React.FC = () => {
       const purJson = purRes.ok ? await purRes.json() : { data: [] };
       const saleJson = saleRes.ok ? await saleRes.json() : { data: [] };
 
-      const rawLedgers: any[] = bsJson.ledgers || [];
+      const rawLedgers: ApiLedgerRow[] = bsJson.ledgers || [];
       const normalizedLedgers: RawLedger[] = rawLedgers.map((l) => {
         const gid = Number(l.group_id || l.groupId);
         const bg = allSystemGroups.find((g) => g.id === gid);
         const rawClosing =
           l.closing_balance !== undefined && l.closing_balance !== null
-            ? parseFloat(l.closing_balance)
+            ? parseFloat(String(l.closing_balance))
             : l.closingBalance !== undefined && l.closingBalance !== null
-              ? parseFloat(l.closingBalance)
+              ? parseFloat(String(l.closingBalance))
               : NaN;
-        const rawOpening = parseFloat(l.opening_balance || l.openingBalance) || 0;
+        const rawOpening = parseFloat(String(l.opening_balance || l.openingBalance || 0)) || 0;
         const closingBalance =
           !isNaN(rawClosing) && rawClosing !== 0
             ? rawClosing
@@ -271,9 +327,9 @@ const RatioAnalysis: React.FC = () => {
       } else {
         setDebitCreditData({});
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Ratio Analysis fetch error:", err);
-      setError(err?.message || "Failed to load Ratio Analysis data");
+      setError(err instanceof Error ? err.message : "Failed to load Ratio Analysis data");
     } finally {
       setLoading(false);
     }
@@ -375,7 +431,7 @@ const RatioAnalysis: React.FC = () => {
       { openingQty: number; openingValue: number; inwardQty: number; inwardValue: number; outwardQty: number }
     > = {};
 
-    stockItems.forEach((item: any) => {
+    stockItems.forEach((item: StockItemRecord) => {
       const itemName = item.name;
       if (!itemMap[itemName]) {
         itemMap[itemName] = {
@@ -387,7 +443,7 @@ const RatioAnalysis: React.FC = () => {
         };
       }
       if (item.batches && item.batches.length > 0) {
-        item.batches.forEach((b: any) => {
+        item.batches.forEach((b: StockBatchRecord) => {
           const q = Number(b.batchQuantity || 0);
           const r = Number(b.openingRate || 0);
           itemMap[itemName].openingQty += q;
@@ -410,7 +466,7 @@ const RatioAnalysis: React.FC = () => {
       return true;
     };
 
-    purchaseHistory.forEach((p: any) => {
+    purchaseHistory.forEach((p: PurchaseHistoryRecord) => {
       if (!inPeriod(p.date || p.voucherDate)) return;
       const itemName = p.itemName;
       if (!itemName) return;
@@ -429,7 +485,7 @@ const RatioAnalysis: React.FC = () => {
       itemMap[itemName].inwardValue += v;
     });
 
-    salesHistory.forEach((s: any) => {
+    salesHistory.forEach((s: SalesHistoryRecord) => {
       if (!inPeriod(s.date || s.voucherDate)) return;
       const itemName = s.itemName;
       if (!itemName || !itemMap[itemName]) return;
