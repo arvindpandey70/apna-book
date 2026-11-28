@@ -103,112 +103,292 @@ const normalizeStr = (v, maxLen = 255) => {
   return s ? s.slice(0, maxLen) : null;
 };
 
+const DEPOSIT_GROUP_NAMES = new Set([
+  'deposite(assest)',
+  'deposite(assets)',
+  'deposites(assest)',
+  'deposites(assets)',
+  'deposit(assest)',
+  'deposit(assets)',
+  'deposits(assest)',
+  'deposits(assets)',
+  'deposit(asset)',
+  'deposits(asset)',
+  'deposite(asset)',
+]);
+
+const normalizeGroupKey = (name) =>
+  String(name || '')
+    .toLowerCase()
+    .replace(/\s+/g, '');
+
+/**
+ * Resolves all group IDs belonging to Current Assets -> Deposite(Assest) (-102)
+ * including company copies and any nested custom sub-groups under it.
+ */
+async function resolveDepositAssetGroupIds(company_id, owner_type, owner_id) {
+  const groupIds = new Set([-102]);
+  const groupNameById = new Map([[-102, 'Deposite(Assest)']]);
+
+  let groupSql = `
+    SELECT id, name, parent
+    FROM ledger_groups
+    WHERE (company_id = ? AND ((owner_type = ? AND owner_id = ?) OR owner_id = 0))
+       OR (company_id = 0 AND owner_type = 'admin')
+  `;
+  const groupParams = [company_id, owner_type || 'employee', owner_id || 0];
+
+  if (!owner_type || !owner_id) {
+    groupSql = `
+      SELECT id, name, parent
+      FROM ledger_groups
+      WHERE company_id = ?
+         OR (company_id = 0 AND owner_type = 'admin')
+    `;
+    groupParams.length = 1;
+  }
+
+  const [groupRows] = await pool.query(groupSql, groupParams);
+
+  for (const g of groupRows || []) {
+    const gid = Number(g.id);
+    if (!Number.isFinite(gid)) continue;
+    groupNameById.set(gid, g.name);
+    if (DEPOSIT_GROUP_NAMES.has(normalizeGroupKey(g.name))) {
+      groupIds.add(gid);
+    }
+  }
+
+  // Recursively include any custom sub-groups created under Deposite(Assest)
+  let added = true;
+  while (added) {
+    added = false;
+    for (const g of groupRows || []) {
+      const gid = Number(g.id);
+      const pid = g.parent !== null && g.parent !== undefined ? Number(g.parent) : null;
+      if (Number.isFinite(gid) && pid !== null && groupIds.has(pid) && !groupIds.has(gid)) {
+        groupIds.add(gid);
+        added = true;
+      }
+    }
+  }
+
+  return { groupIds: Array.from(groupIds), groupNameById };
+}
+
 /**
  * GET /api/books-vs-ats-168/books-tds (alias: /api/books-vs-26as/books-tds)
- * Books side: purchase vouchers where TDS was deducted.
+ * Books side: Ledgers under Current Assets -> Deposite(Assest) with entries
+ * passed from Journal, Contra, Receipt, or Payment vouchers only (no Sales/Purchase).
  */
 async function handleGetBooksTds(req, res) {
   try {
     const company_id = req.query.company_id || req.query.companyId;
     const owner_type = req.query.owner_type || req.query.ownerType;
     const owner_id = req.query.owner_id || req.query.ownerId;
-    const fromDate = req.query.from_date || req.query.fromDate || '';
-    const toDate = req.query.to_date || req.query.toDate || '';
+    const fromDate = toYmdDate(req.query.from_date || req.query.fromDate);
+    const toDate = toYmdDate(req.query.to_date || req.query.toDate);
 
     if (!company_id) {
       return res.status(400).json({ success: false, error: 'company_id is required' });
     }
 
-    let sql = `
-      SELECT
-        pv.id,
-        pv.number AS voucherNumber,
-        pv.date,
-        pv.referenceNo,
-        pv.subtotal,
-        pv.total,
-        pv.tdsTotal,
-        pv.partyId,
-        l.name AS partyName,
-        l.tan_number AS partyTan,
-        l.pan_number AS partyPan
-      FROM purchase_vouchers pv
-      LEFT JOIN ledgers l ON l.id = pv.partyId
-      WHERE pv.company_id = ?
-        AND ABS(IFNULL(pv.tdsTotal, 0)) > 0
+    const { groupIds, groupNameById } = await resolveDepositAssetGroupIds(
+      company_id,
+      owner_type,
+      owner_id
+    );
+
+    let ledgerSql = `
+      SELECT id, name, group_id, tan_number, pan_number
+      FROM ledgers
+      WHERE company_id = ?
+        AND group_id IN (?)
     `;
-    const params = [company_id];
+    const ledgerParams = [company_id, groupIds];
 
     if (owner_type && owner_id) {
-      sql += ` AND pv.owner_type = ? AND pv.owner_id = ?`;
-      params.push(owner_type, owner_id);
+      ledgerSql += ` AND ((owner_type = ? AND owner_id = ?) OR owner_id = 0)`;
+      ledgerParams.push(owner_type, owner_id);
+    }
+
+    const [depositLedgers] = await pool.query(ledgerSql, ledgerParams);
+
+    if (!depositLedgers || depositLedgers.length === 0) {
+      return res.json({
+        success: true,
+        groupName: 'Deposite(Assest)',
+        ledgersCount: 0,
+        summary: {
+          totalEntries: 0,
+          totalAmountPaid: 0,
+          totalTdsDeducted: 0,
+        },
+        data: [],
+      });
+    }
+
+    const ledgerMap = new Map();
+    const depositLedgerIds = [];
+    for (const l of depositLedgers) {
+      const lid = Number(l.id);
+      depositLedgerIds.push(lid);
+      ledgerMap.set(lid, {
+        id: lid,
+        name: l.name || '',
+        groupId: Number(l.group_id),
+        groupName: groupNameById.get(Number(l.group_id)) || 'Deposite(Assest)',
+        tanNumber: String(l.tan_number || '').trim().toUpperCase(),
+        panNumber: String(l.pan_number || '').trim().toUpperCase(),
+      });
+    }
+
+    let entrySql = `
+      SELECT
+        ve.id AS entryId,
+        ve.voucher_id AS voucherId,
+        ve.ledger_id AS ledgerId,
+        ve.ledger_name AS entryLedgerName,
+        ve.amount,
+        ve.entry_type AS entryType,
+        ve.narration AS entryNarration,
+        vm.voucher_type AS voucherType,
+        vm.voucher_number AS voucherNumber,
+        DATE_FORMAT(vm.date, '%Y-%m-%d') AS date,
+        vm.reference_no AS referenceNo,
+        vm.narration AS voucherNarration
+      FROM voucher_entries ve
+      INNER JOIN voucher_main vm ON vm.id = ve.voucher_id
+      WHERE ve.ledger_id IN (?)
+        AND vm.company_id = ?
+        AND LOWER(TRIM(vm.voucher_type)) IN ('journal', 'contra', 'receipt', 'payment')
+        AND (ve.voucher_type IS NULL OR LOWER(TRIM(ve.voucher_type)) IN ('accounting', 'journal', 'contra', 'receipt', 'payment', ''))
+    `;
+    const entryParams = [depositLedgerIds, company_id];
+
+    if (owner_type && owner_id) {
+      entrySql += ` AND vm.owner_type = ? AND vm.owner_id = ?`;
+      entryParams.push(owner_type, owner_id);
     }
     if (fromDate) {
-      sql += ` AND pv.date >= ?`;
-      params.push(fromDate);
+      entrySql += ` AND vm.date >= ?`;
+      entryParams.push(fromDate);
     }
     if (toDate) {
-      sql += ` AND pv.date <= ?`;
-      params.push(toDate);
+      entrySql += ` AND vm.date <= ?`;
+      entryParams.push(toDate);
     }
 
-    sql += ` ORDER BY pv.date ASC, pv.id ASC`;
+    entrySql += ` ORDER BY vm.date ASC, vm.id ASC, ve.id ASC`;
 
-    const [rows] = await pool.query(sql, params);
+    const [entryRows] = await pool.query(entrySql, entryParams);
 
-    const ids = (rows || []).map((r) => r.id);
-    const sectionByVoucher = {};
-    if (ids.length > 0) {
-      try {
-        const [itemRows] = await pool.query(
-          `
-          SELECT pvi.voucherId, pvi.tdsRate, tds_l.name AS tdsLedgerName
-          FROM purchase_voucher_items pvi
-          LEFT JOIN ledgers tds_l
-            ON tds_l.id = CAST(pvi.tdsRate AS UNSIGNED)
-           AND CAST(pvi.tdsRate AS DECIMAL(15,2)) > 40
-          WHERE pvi.voucherId IN (?)
-          `,
-          [ids]
-        );
-        for (const row of itemRows || []) {
-          if (sectionByVoucher[row.voucherId]) continue;
-          const ledgerName = String(row.tdsLedgerName || '');
-          const sectionMatch = ledgerName.match(/194[A-Z]?|192[A-Z]?|193|195|196[A-Z]?|10\d{2}/i);
-          if (sectionMatch) {
-            sectionByVoucher[row.voucherId] = sectionMatch[0].toUpperCase();
-          }
+    // Batch fetch all lines for matched vouchers so we can resolve opposite party / TAN without row duplication
+    const voucherIds = Array.from(
+      new Set((entryRows || []).map((r) => r.voucherId).filter(Boolean))
+    );
+    const linesByVoucher = new Map();
+
+    if (voucherIds.length > 0) {
+      const [allVoucherLines] = await pool.query(
+        `
+        SELECT
+          ve.id AS entryId,
+          ve.voucher_id AS voucherId,
+          ve.ledger_id AS ledgerId,
+          COALESCE(l.name, ve.ledger_name) AS ledgerName,
+          ve.amount,
+          ve.entry_type AS entryType,
+          l.tan_number AS tanNumber,
+          l.pan_number AS panNumber
+        FROM voucher_entries ve
+        LEFT JOIN ledgers l ON l.id = ve.ledger_id
+        WHERE ve.voucher_id IN (?)
+        ORDER BY ve.id ASC
+        `,
+        [voucherIds]
+      );
+
+      for (const line of allVoucherLines || []) {
+        if (!linesByVoucher.has(line.voucherId)) {
+          linesByVoucher.set(line.voucherId, []);
         }
-      } catch (e) {
-        // non-fatal
+        linesByVoucher.get(line.voucherId).push(line);
       }
     }
 
-    const data = (rows || []).map((r) => {
-      const tds = Math.abs(parseFloat(r.tdsTotal || 0) || 0);
-      const amountPaid = parseFloat(r.subtotal || r.total || 0) || 0;
+    const data = (entryRows || []).map((r) => {
+      const ledgerInfo = ledgerMap.get(Number(r.ledgerId));
+      const ledgerName = ledgerInfo?.name || r.entryLedgerName || '';
+      const entryType = String(r.entryType || 'debit').toLowerCase();
+      const absAmount = Math.abs(parseFloat(r.amount || 0) || 0);
+      const signedAmount = entryType === 'credit' ? -absAmount : absAmount;
+
+      const allLines = linesByVoucher.get(r.voucherId) || [];
+      const otherLines = allLines.filter((l) => l.entryId !== r.entryId);
+      const oppositeSideLines = otherLines.filter(
+        (l) => String(l.entryType || '').toLowerCase() !== entryType
+      );
+      const candidateLines = oppositeSideLines.length > 0 ? oppositeSideLines : otherLines;
+
+      // Prefer a candidate line that carries TAN or PAN (party/deductor ledger)
+      const tanCandidate =
+        candidateLines.find((l) => String(l.tanNumber || '').trim()) ||
+        candidateLines.find((l) => String(l.panNumber || '').trim()) ||
+        candidateLines[0];
+
+      const oppositeLedgerName = Array.from(
+        new Set(candidateLines.map((l) => String(l.ledgerName || '').trim()).filter(Boolean))
+      ).join(', ');
+
+      const oppositeAmount = Number(
+        candidateLines.reduce((s, l) => s + Math.abs(parseFloat(l.amount || 0) || 0), 0).toFixed(2)
+      );
+
+      const deductorTan = String(
+        tanCandidate?.tanNumber || ledgerInfo?.tanNumber || ''
+      )
+        .trim()
+        .toUpperCase();
+      const deductorPan = String(
+        tanCandidate?.panNumber || ledgerInfo?.panNumber || ''
+      )
+        .trim()
+        .toUpperCase();
+      const deductorName = String(
+        tanCandidate?.ledgerName || oppositeLedgerName || ledgerName
+      ).trim();
+
+      const textForSection = `${ledgerName} ${r.entryNarration || ''} ${r.voucherNarration || ''}`;
+      const sectionMatch = textForSection.match(/\b(10\d{2}|194[A-Z]?|192[A-Z]?|193|195|196[A-Z]?)\b/i);
 
       return {
-        id: r.id,
+        id: r.entryId,
+        voucherId: r.voucherId,
         date: r.date,
+        voucherType: String(r.voucherType || '').toLowerCase(),
         voucherNumber: r.voucherNumber || '',
         referenceNo: r.referenceNo || '',
-        partyId: r.partyId,
-        deductorName: r.partyName || '',
-        deductorTan: String(r.partyTan || '')
-          .trim()
-          .toUpperCase(),
-        deductorPan: String(r.partyPan || '')
-          .trim()
-          .toUpperCase(),
-        section: sectionByVoucher[r.id] || '',
-        amountPaid,
-        tdsDeducted: tds,
+        narration: r.entryNarration || r.voucherNarration || '',
+        ledgerId: r.ledgerId,
+        ledgerName,
+        groupName: ledgerInfo?.groupName || 'Deposite(Assest)',
+        entryType,
+        amount: absAmount,
+        oppositeLedgerName,
+        deductorName,
+        deductorTan,
+        deductorPan,
+        section: sectionMatch ? sectionMatch[1].toUpperCase() : '',
+        amountPaid: oppositeAmount,
+        tdsDeducted: Number(signedAmount.toFixed(2)),
       };
     });
 
     res.json({
       success: true,
+      groupName: 'Deposite(Assest)',
+      ledgersCount: depositLedgers.length,
       summary: {
         totalEntries: data.length,
         totalAmountPaid: parseFloat(

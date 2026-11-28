@@ -19,8 +19,16 @@ import {
 
 interface BooksTdsRow {
   id: number | string;
+  voucherId?: number | string;
   date: string;
+  voucherType?: string;
   voucherNumber: string;
+  narration?: string;
+  ledgerName?: string;
+  groupName?: string;
+  entryType?: string;
+  amount?: number;
+  oppositeLedgerName?: string;
   deductorName: string;
   deductorTan: string;
   section: string;
@@ -65,11 +73,6 @@ const normalizeTan = (v: any) =>
     .trim()
     .toUpperCase();
 
-const normalizeName = (v: any) =>
-  String(v || "")
-    .trim()
-    .toLowerCase();
-
 const Form26ASReport: React.FC = () => {
   const { theme } = useAppContext();
   const navigate = useNavigate();
@@ -87,7 +90,9 @@ const Form26ASReport: React.FC = () => {
   const [toDate, setToDate] = useState("");
 
   const companyId = localStorage.getItem("company_id") || "";
-  const ownerType = localStorage.getItem("supplier") || localStorage.getItem("userType") || "employee";
+  const ownerType =
+    localStorage.getItem("supplier") ||
+    (localStorage.getItem("employee_id") ? "employee" : "user");
   const ownerId =
     localStorage.getItem(ownerType === "employee" ? "employee_id" : "user_id") || "";
 
@@ -251,8 +256,11 @@ const Form26ASReport: React.FC = () => {
     const t = searchTerm.toLowerCase();
     return booksRows.filter(
       (r) =>
+        (r.ledgerName || "").toLowerCase().includes(t) ||
+        (r.oppositeLedgerName || "").toLowerCase().includes(t) ||
         r.deductorName.toLowerCase().includes(t) ||
         r.deductorTan.toLowerCase().includes(t) ||
+        (r.voucherType || "").toLowerCase().includes(t) ||
         r.section.toLowerCase().includes(t) ||
         r.voucherNumber.toLowerCase().includes(t) ||
         String(r.tdsDeducted).includes(t)
@@ -292,55 +300,6 @@ const Form26ASReport: React.FC = () => {
   );
   const variance = booksTotalTds - as26TotalDeposited;
 
-  const matchStatusForBooks = (row: BooksTdsRow): string => {
-    const tan = normalizeTan(row.deductorTan);
-    const name = normalizeName(row.deductorName);
-    const hit = as26Rows.find(
-      (a) =>
-        (tan && a.deductorTan === tan) ||
-        (name && normalizeName(a.deductorName) === name)
-    );
-    if (!hit) return "Books Only";
-    const diff = Math.abs(row.tdsDeducted - (hit.tdsDeposited || hit.tdsDeducted));
-    return diff < 1 ? "Matched" : "Amount Diff";
-  };
-
-  const matchStatusForAs26 = (row: As26Row): string => {
-    const explicit = row.status.trim().toLowerCase();
-    if (
-      explicit === "matched" ||
-      explicit === "amount diff" ||
-      explicit === "26as only" ||
-      explicit === "ats 168 only"
-    ) {
-      return row.status;
-    }
-    const tan = normalizeTan(row.deductorTan);
-    const name = normalizeName(row.deductorName);
-    const hit = booksRows.find(
-      (b) =>
-        (tan && normalizeTan(b.deductorTan) === tan) ||
-        (name && normalizeName(b.deductorName) === name)
-    );
-    if (!hit) return "ATS 168 Only";
-    const diff = Math.abs((row.tdsDeposited || row.tdsDeducted) - hit.tdsDeducted);
-    return diff < 1 ? "Matched" : "Amount Diff";
-  };
-
-  const statusClass = (status: string) => {
-    const s = status.toLowerCase();
-    if (s.includes("match")) {
-      return "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300";
-    }
-    if (s.includes("diff") || s.includes("mismatch")) {
-      return "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300";
-    }
-    if (s.includes("only")) {
-      return "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300";
-    }
-    return "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300";
-  };
-
   const cardBg = isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200";
   const pageBg = isDark ? "bg-gray-900 text-gray-100" : "bg-gray-50 text-gray-800";
 
@@ -362,7 +321,7 @@ const Form26ASReport: React.FC = () => {
               Books vs ATS 168
             </h1>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Reconcile Books TDS with ATS 168 (Annual Tax Statement) tax credit
+              Current Assets → Deposite(Assest) (Journal, Contra, Receipt, Payment) vs ATS 168
             </p>
           </div>
         </div>
@@ -481,10 +440,12 @@ const Form26ASReport: React.FC = () => {
           isDark ? "bg-blue-950/30 border-blue-900/50" : "bg-blue-50 border-blue-200"
         }`}>
           <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600">Books (50%)</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600">
+              Books • Deposite(Assest) (50%)
+            </span>
             <span className="text-[10px] text-gray-500">{filteredBooks.length} entries</span>
           </div>
-          <p className="text-[11px] text-gray-500">TDS Deducted in Books</p>
+          <p className="text-[11px] text-gray-500">Journal / Contra / Receipt / Payment</p>
           <p className="text-xl font-bold text-blue-600 leading-tight">{fmtMoney(booksTotalTds)}</p>
         </div>
         <div className={`px-3 py-2.5 rounded-lg border min-w-0 ${
@@ -534,7 +495,7 @@ const Form26ASReport: React.FC = () => {
         <div className={`border rounded-xl overflow-hidden min-w-0 flex flex-col ${cardBg}`}>
           <div className="px-3 py-2.5 bg-blue-50 dark:bg-blue-950/40 border-b border-blue-200 dark:border-blue-900 flex items-center justify-between shrink-0">
             <span className="text-sm font-semibold text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
-              <BookOpen size={15} /> Books TDS (50%)
+              <BookOpen size={15} /> Books • Deposite(Assest) (50%)
             </span>
             <span className="text-[10px] font-medium text-blue-700 dark:text-blue-300">
               {filteredBooks.length} rows
@@ -545,49 +506,51 @@ const Form26ASReport: React.FC = () => {
               <thead className="bg-gray-100 dark:bg-gray-900 sticky top-0">
                 <tr>
                   <th className="px-2.5 py-2 text-left">Date</th>
-                  <th className="px-2.5 py-2 text-left">Party / TAN</th>
-                  <th className="px-2.5 py-2 text-left">Section</th>
+                  <th className="px-2.5 py-2 text-left">Ledger / Party</th>
+                  <th className="px-2.5 py-2 text-left">Voucher</th>
                   <th className="px-2.5 py-2 text-right">Amount</th>
-                  <th className="px-2.5 py-2 text-right">TDS</th>
-                  <th className="px-2.5 py-2 text-center">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                 {loadingBooks ? (
                   <tr>
-                    <td colSpan={6} className="px-3 py-8 text-center text-gray-500">
-                      Loading Books TDS...
+                    <td colSpan={4} className="px-3 py-8 text-center text-gray-500">
+                      Loading Books Deposite(Assest) entries...
                     </td>
                   </tr>
                 ) : filteredBooks.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-3 py-8 text-center text-gray-500 whitespace-normal">
-                      No TDS entries found in purchase vouchers for this period.
+                    <td colSpan={4} className="px-3 py-8 text-center text-gray-500 whitespace-normal">
+                      No Journal, Contra, Receipt or Payment entries found under Current Assets → Deposite(Assest).
                     </td>
                   </tr>
                 ) : (
                   filteredBooks.map((r) => {
-                    const st = matchStatusForBooks(r);
+                    const isCredit = (r.entryType || "").toLowerCase() === "credit";
+                    const displayAmount = r.amount ?? Math.abs(r.tdsDeducted);
                     return (
                       <tr key={r.id} className="hover:bg-blue-50/40 dark:hover:bg-gray-750">
                         <td className="px-2.5 py-2">{fmtDate(r.date)}</td>
                         <td className="px-2.5 py-2">
-                          <span className="font-medium">{r.deductorName || "—"}</span>
-                          {r.deductorTan ? (
-                            <span className="ml-1.5 text-[10px] text-gray-400 font-mono">
-                              {r.deductorTan}
-                            </span>
-                          ) : null}
+                          <div className="font-medium">{r.ledgerName || r.deductorName || "—"}</div>
+                          {(r.oppositeLedgerName || r.deductorTan) && (
+                            <div className="text-[10px] text-gray-400">
+                              {r.oppositeLedgerName ? `A/c: ${r.oppositeLedgerName}` : ""}
+                              {r.deductorTan ? (
+                                <span className="ml-1.5 font-mono">{r.deductorTan}</span>
+                              ) : null}
+                            </div>
+                          )}
                         </td>
-                        <td className="px-2.5 py-2">{r.section || "—"}</td>
-                        <td className="px-2.5 py-2 text-right">{fmtMoney(r.amountPaid)}</td>
-                        <td className="px-2.5 py-2 text-right font-semibold text-blue-600">
-                          {fmtMoney(r.tdsDeducted)}
-                        </td>
-                        <td className="px-2.5 py-2 text-center">
-                          <span className={`inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${statusClass(st)}`}>
-                            {st}
+                        <td className="px-2.5 py-2">
+                          <span className="inline-block px-1.5 py-0.5 rounded bg-slate-100 dark:bg-gray-700 text-[10px] font-semibold uppercase mr-1">
+                            {r.voucherType || "voucher"}
                           </span>
+                          <span className="text-[11px] text-gray-500">{r.voucherNumber || "—"}</span>
+                        </td>
+                        <td className={`px-2.5 py-2 text-right font-semibold ${isCredit ? "text-amber-600" : "text-blue-600"}`}>
+                          {fmtMoney(displayAmount)}{" "}
+                          <span className="text-[10px] font-normal">{isCredit ? "Cr" : "Dr"}</span>
                         </td>
                       </tr>
                     );
@@ -616,13 +579,12 @@ const Form26ASReport: React.FC = () => {
                   <th className="px-2.5 py-2 text-left">Deductor / TAN</th>
                   <th className="px-2.5 py-2 text-left">Section</th>
                   <th className="px-2.5 py-2 text-right">Deposited</th>
-                  <th className="px-2.5 py-2 text-center">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                 {filteredAs26.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-3 py-8 text-center text-gray-500 whitespace-normal">
+                    <td colSpan={4} className="px-3 py-8 text-center text-gray-500 whitespace-normal">
                       <p className="mb-2">No ATS 168 data found for this period.</p>
                       <button
                         onClick={() => navigate("/app/vouchers/import/ats-168")}
@@ -634,31 +596,23 @@ const Form26ASReport: React.FC = () => {
                     </td>
                   </tr>
                 ) : (
-                  filteredAs26.map((r, i) => {
-                    const st = matchStatusForAs26(r);
-                    return (
-                      <tr key={i} className="hover:bg-purple-50/40 dark:hover:bg-gray-750">
-                        <td className="px-2.5 py-2">{fmtDate(r.transactionDate)}</td>
-                        <td className="px-2.5 py-2">
-                          <span className="font-medium">{r.deductorName || "—"}</span>
-                          {r.deductorTan ? (
-                            <span className="ml-1.5 text-[10px] text-gray-400 font-mono">
-                              {r.deductorTan}
-                            </span>
-                          ) : null}
-                        </td>
-                        <td className="px-2.5 py-2">{r.section || "—"}</td>
-                        <td className="px-2.5 py-2 text-right font-semibold text-green-600">
-                          {fmtMoney(r.tdsDeposited || r.tdsDeducted)}
-                        </td>
-                        <td className="px-2.5 py-2 text-center">
-                          <span className={`inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${statusClass(st)}`}>
-                            {st}
+                  filteredAs26.map((r, i) => (
+                    <tr key={i} className="hover:bg-purple-50/40 dark:hover:bg-gray-750">
+                      <td className="px-2.5 py-2">{fmtDate(r.transactionDate)}</td>
+                      <td className="px-2.5 py-2">
+                        <span className="font-medium">{r.deductorName || "—"}</span>
+                        {r.deductorTan ? (
+                          <span className="ml-1.5 text-[10px] text-gray-400 font-mono">
+                            {r.deductorTan}
                           </span>
-                        </td>
-                      </tr>
-                    );
-                  })
+                        ) : null}
+                      </td>
+                      <td className="px-2.5 py-2">{r.section || "—"}</td>
+                      <td className="px-2.5 py-2 text-right font-semibold text-green-600">
+                        {fmtMoney(r.tdsDeposited || r.tdsDeducted)}
+                      </td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>
