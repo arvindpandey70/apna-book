@@ -21,12 +21,14 @@ import {
   type AisManualEntry,
 } from "../../services/booksVsAisService";
 
-type VoucherKind = "sales" | "purchase" | "receipt";
+type VoucherKind = "sales" | "purchase" | "receipt" | "indirect-income";
 
 interface BooksVoucherRecord {
   key: string;
   id: string;
   voucherType: VoucherKind;
+  badgeLabel?: string;
+  entryType?: string;
   date: string; // normalized YYYY-MM-DD
   voucherNumber: string;
   partyName: string;
@@ -189,7 +191,7 @@ const BooksVsAisReport: React.FC = () => {
     )}&ownerId=${encodeURIComponent(ownerId)}`;
 
     try {
-      const [salesRes, purchaseRes, receiptRes, ledgerRes] = await Promise.allSettled([
+      const [salesRes, purchaseRes, receiptRes, ledgerRes, indirectIncomeRes] = await Promise.allSettled([
         fetch(`${apiBase}/api/sales-report?${snakeQuery}`).then(async (r) => {
           if (!r.ok) throw new Error(`Sales (${r.status})`);
           return r.json();
@@ -206,9 +208,14 @@ const BooksVsAisReport: React.FC = () => {
           if (!r.ok) return [];
           return r.json();
         }),
+        fetch(`${apiBase}/api/books-vs-ais/indirect-income?${snakeQuery}`).then(async (r) => {
+          if (!r.ok) throw new Error(`IndirectIncome (${r.status})`);
+          return r.json();
+        }),
       ]);
 
       const ledgerMap = new Map<string, string>();
+      const indirectIncomeLedgerIds = new Set<string>();
       if (ledgerRes.status === "fulfilled") {
         const ledgerRaw = ledgerRes.value;
         const ledgerArr = Array.isArray(ledgerRaw)
@@ -219,6 +226,11 @@ const BooksVsAisReport: React.FC = () => {
         for (const l of ledgerArr) {
           if (l?.id != null && l?.name) {
             ledgerMap.set(String(l.id), String(l.name));
+          }
+          const gid = Number(l?.group_id ?? l?.groupId);
+          const gname = String(l?.groupName || l?.group_name || "").toLowerCase();
+          if (gid === -11 || gname.includes("indirect income")) {
+            if (l?.id != null) indirectIncomeLedgerIds.add(String(l.id));
           }
         }
       }
@@ -373,6 +385,108 @@ const BooksVsAisReport: React.FC = () => {
         failedSources.push(receiptRes.reason?.message || "Receipt");
       }
 
+      // 4. Indirect Income Vouchers / Entries
+      const buildVoucherEditPath = (sourceType: string, vid: string) => {
+        const t = sourceType.toLowerCase();
+        if (!vid) return "/app/reports/profit-loss";
+        if (t === "sales" || t === "purchase" || t === "receipt" || t === "payment" || t === "contra" || t === "journal") {
+          return `/app/vouchers/${t}/edit/${vid}?returnUrl=${RETURN_URL}`;
+        }
+        return `/app/vouchers/journal/edit/${vid}?returnUrl=${RETURN_URL}`;
+      };
+
+      if (indirectIncomeRes.status === "fulfilled") {
+        const rows = Array.isArray(indirectIncomeRes.value?.data)
+          ? indirectIncomeRes.value.data
+          : [];
+        for (const r of rows) {
+          const vid = String(r.voucherId ?? "");
+          const srcType = String(r.sourceVoucherType || "journal").toLowerCase();
+          const voucherNo = String(r.voucherNumber || "-");
+          const signedAmt = Number(r.signedAmount ?? r.amount ?? 0) || 0;
+          const subParts: string[] = [];
+          if (srcType) subParts.push(srcType.toUpperCase());
+          if (r.oppositeLedgerName) subParts.push(`A/c: ${r.oppositeLedgerName}`);
+          if (r.narration) subParts.push(String(r.narration));
+
+          combined.push({
+            key: `indirect-income-${r.id || vid}-${Math.random()}`,
+            id: vid,
+            voucherType: "indirect-income",
+            badgeLabel: "Indirect Income",
+            entryType: String(r.entryType || "").toLowerCase(),
+            date: toLocalYmd(r.date),
+            voucherNumber: voucherNo,
+            partyName: String(r.ledgerName || "Indirect Income"),
+            subInfo: subParts.join(" • "),
+            taxableAmount: signedAmt,
+            taxAmount: 0,
+            totalAmount: signedAmt,
+            editPath: buildVoucherEditPath(srcType, vid),
+          });
+        }
+      } else if (indirectIncomeLedgerIds.size > 0) {
+        // Fallback if backend route is not yet active: scan journal/receipt/payment/contra vouchers
+        const fallbackTypes = ["journal", "receipt", "payment", "contra"] as const;
+        const fallbackResults = await Promise.allSettled(
+          fallbackTypes.map((vt) =>
+            fetch(`${apiBase}/api/vouchers?${camelQuery}&voucherType=${vt}`).then((r) =>
+              r.ok ? r.json() : { data: [] }
+            )
+          )
+        );
+        fallbackResults.forEach((resItem, idx) => {
+          if (resItem.status !== "fulfilled") return;
+          const vt = fallbackTypes[idx];
+          const vRows = Array.isArray(resItem.value?.data) ? resItem.value.data : [];
+          for (const v of vRows) {
+            const entries: any[] = Array.isArray(v.entries) ? v.entries : [];
+            for (const e of entries) {
+              const lid = String(e?.ledger_id ?? e?.ledgerId ?? "");
+              if (!indirectIncomeLedgerIds.has(lid)) continue;
+              const eType = String(e?.type || "credit").toLowerCase();
+              const absAmt = Math.abs(Number(e?.amount) || 0);
+              const signedAmt = eType === "credit" ? absAmt : -absAmt;
+              const oppNames = Array.from(
+                new Set(
+                  entries
+                    .filter((o) => o !== e)
+                    .map((o) =>
+                      String(
+                        o?.ledger_name ||
+                          o?.ledgerName ||
+                          ledgerMap.get(String(o?.ledger_id ?? o?.ledgerId ?? "")) ||
+                          ""
+                      ).trim()
+                    )
+                    .filter(Boolean)
+                )
+              );
+              const subParts = [vt.toUpperCase()];
+              if (oppNames.length > 0) subParts.push(`A/c: ${oppNames.join(", ")}`);
+              if (e?.narration || v.narration) subParts.push(String(e?.narration || v.narration));
+              const vid = String(v.id ?? "");
+              combined.push({
+                key: `indirect-fb-${vt}-${vid}-${e.id || lid}`,
+                id: vid,
+                voucherType: "indirect-income",
+                badgeLabel: "Indirect Income",
+                entryType: eType,
+                date: toLocalYmd(v.date),
+                voucherNumber: String(v.number || v.voucherNumber || "-"),
+                partyName:
+                  String(e?.ledger_name || e?.ledgerName || ledgerMap.get(lid) || "Indirect Income"),
+                subInfo: subParts.join(" • "),
+                taxableAmount: signedAmt,
+                taxAmount: 0,
+                totalAmount: signedAmt,
+                editPath: buildVoucherEditPath(vt, vid),
+              });
+            }
+          }
+        });
+      }
+
       combined.sort((a, b) => {
         if (a.date !== b.date) return b.date.localeCompare(a.date);
         return b.voucherNumber.localeCompare(a.voucherNumber);
@@ -427,6 +541,7 @@ const BooksVsAisReport: React.FC = () => {
       sales: { count: 0, total: 0 },
       purchase: { count: 0, total: 0 },
       receipt: { count: 0, total: 0 },
+      "indirect-income": { count: 0, total: 0 },
     };
     for (const r of periodAndSearchFiltered) {
       stats.all.count += 1;
@@ -511,9 +626,14 @@ const BooksVsAisReport: React.FC = () => {
         ? "bg-blue-950/60 text-blue-300 border border-blue-800/60"
         : "bg-blue-50 text-blue-700 border border-blue-200";
     }
+    if (type === "receipt") {
+      return isDark
+        ? "bg-purple-950/60 text-purple-300 border border-purple-800/60"
+        : "bg-purple-50 text-purple-700 border border-purple-200";
+    }
     return isDark
-      ? "bg-purple-950/60 text-purple-300 border border-purple-800/60"
-      : "bg-purple-50 text-purple-700 border border-purple-200";
+      ? "bg-amber-950/60 text-amber-300 border border-amber-800/60"
+      : "bg-amber-50 text-amber-700 border border-amber-200";
   };
 
   return (
@@ -535,7 +655,7 @@ const BooksVsAisReport: React.FC = () => {
               Books vs AIS Matching
             </h1>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Books (Sales, Purchase & Receipt Vouchers) vs AIS • (50% - 50% Split Partition)
+              Books (Sales, Purchase, Receipt & Indirect Income) vs AIS • (50% - 50% Split Partition)
             </p>
           </div>
         </div>
@@ -714,15 +834,15 @@ const BooksVsAisReport: React.FC = () => {
           </div>
           <div className="flex items-baseline justify-between gap-2">
             <h3 className="text-base font-bold text-gray-900 dark:text-white">
-              Books Vouchers (Sales, Purchase, Receipt)
+              Books (Sales, Purchase, Receipt, Indirect Income)
             </h3>
             <span className="text-xl font-extrabold text-blue-600 dark:text-blue-400">
               {fmtMoney(displayedTotalAmount)}
             </span>
           </div>
 
-          {/* Interactive breakdown pills for Sales / Purchase / Receipt */}
-          <div className="grid grid-cols-3 gap-2 mt-3">
+          {/* Interactive breakdown pills for Sales / Purchase / Receipt / Indirect Income */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
             <button
               type="button"
               onClick={() =>
@@ -783,6 +903,29 @@ const BooksVsAisReport: React.FC = () => {
               </div>
               <div className="text-xs font-bold mt-0.5 truncate">
                 {fmtMoney(typeStats.receipt.total)}
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                setActiveVoucherTab(
+                  activeVoucherTab === "indirect-income" ? "all" : "indirect-income"
+                )
+              }
+              className={`p-2 rounded-lg border text-left transition-colors ${
+                activeVoucherTab === "indirect-income"
+                  ? "border-amber-500 ring-1 ring-amber-500 bg-amber-50/70 dark:bg-amber-950/40"
+                  : isDark
+                  ? "border-gray-700 bg-gray-800/70 hover:bg-gray-700"
+                  : "border-gray-200 bg-white/80 hover:bg-amber-50/40"
+              }`}
+            >
+              <div className="text-[10px] font-semibold uppercase text-amber-600 dark:text-amber-400 truncate">
+                Indirect Income ({typeStats["indirect-income"].count})
+              </div>
+              <div className="text-xs font-bold mt-0.5 truncate">
+                {fmtMoney(typeStats["indirect-income"].total)}
               </div>
             </button>
           </div>
@@ -891,6 +1034,7 @@ const BooksVsAisReport: React.FC = () => {
                 { id: "sales", label: "Sales", count: typeStats.sales.count },
                 { id: "purchase", label: "Purchase", count: typeStats.purchase.count },
                 { id: "receipt", label: "Receipt", count: typeStats.receipt.count },
+                { id: "indirect-income", label: "Indirect Income", count: typeStats["indirect-income"].count },
               ] as const
             ).map((tab) => (
               <button
@@ -935,7 +1079,7 @@ const BooksVsAisReport: React.FC = () => {
                 ) : displayedBooksVouchers.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-3 py-10 text-center text-gray-500 whitespace-normal">
-                      No {activeVoucherTab === "all" ? "Sales, Purchase, or Receipt" : activeVoucherTab} vouchers found for the selected filter.
+                      No {activeVoucherTab === "all" ? "Sales, Purchase, Receipt, or Indirect Income" : activeVoucherTab.replace("-", " ")} entries found for the selected filter.
                     </td>
                   </tr>
                 ) : (
@@ -952,7 +1096,7 @@ const BooksVsAisReport: React.FC = () => {
                             v.voucherType
                           )}`}
                         >
-                          {v.voucherType}
+                          {v.badgeLabel || v.voucherType}
                         </span>
                       </td>
                       <td className="px-2.5 py-2 font-mono font-semibold text-blue-600 dark:text-blue-400">
