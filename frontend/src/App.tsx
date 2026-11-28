@@ -69,6 +69,7 @@ import BooksVs2aImportPage from "./components/vouchers/import/BooksVs2aImportPag
 import BooksVsGstr1ImportPage from "./components/vouchers/import/BooksVsGstr1ImportPage";
 import BooksVsGstr3bImportPage from "./components/vouchers/import/BooksVsGstr3bImportPage";
 import BooksVs2bImportPage from "./components/vouchers/import/BooksVs2bImportPage";
+import BooksVsAisImportPage from "./components/vouchers/import/BooksVsAisImportPage";
 import QuotationList from "./components/vouchers/quotation/QuotationList";
 import QuotationCreate from "./components/vouchers/quotation/QuotationCreate";
 
@@ -143,6 +144,7 @@ import BooksVs2aReport from "./components/reports/BooksVs2aReport";
 import BooksVs2bReport from "./components/reports/BooksVs2bReport";
 import BooksVsGstr1Report from "./components/reports/BooksVsGstr1Report";
 import BooksVsGstr3bReport from "./components/reports/BooksVsGstr3bReport";
+import BooksVsAisReport from "./components/reports/BooksVsAisReport";
 import RCMReport from "./components/reports/RCMReport";
 import ReceiptPaymentAccount from "./components/reports/ReceiptPaymentAccount";
 import CapitalAccount from "./components/reports/CapitalAccount";
@@ -1080,6 +1082,14 @@ function App() {
                 />
                 {/* Dedicated Report Data Import Routes */}
                 <Route
+                  path="vouchers/import/ats-168"
+                  element={
+                    <RequireCompany>
+                      <Form26AsImportPage />
+                    </RequireCompany>
+                  }
+                />
+                <Route
                   path="vouchers/import/26as"
                   element={
                     <RequireCompany>
@@ -1132,6 +1142,14 @@ function App() {
                   element={
                     <RequireCompany>
                       <BooksVs2bImportPage />
+                    </RequireCompany>
+                  }
+                />
+                <Route
+                  path="vouchers/import/books-vs-ais"
+                  element={
+                    <RequireCompany>
+                      <BooksVsAisImportPage />
                     </RequireCompany>
                   }
                 />
@@ -1880,6 +1898,26 @@ function App() {
                   }
                 />
                 <Route
+                  path="reports/ats-168"
+                  element={
+                    <RequireCompany>
+                      <RequireSubscription>
+                        <Form26ASReport />
+                      </RequireSubscription>
+                    </RequireCompany>
+                  }
+                />
+                <Route
+                  path="reports/books-vs-ats-168"
+                  element={
+                    <RequireCompany>
+                      <RequireSubscription>
+                        <Form26ASReport />
+                      </RequireSubscription>
+                    </RequireCompany>
+                  }
+                />
+                <Route
                   path="reports/26as"
                   element={
                     <RequireCompany>
@@ -1974,7 +2012,7 @@ function App() {
                   element={
                     <RequireCompany>
                       <RequireSubscription>
-                        <ReportComingSoon title="Books vs AIS Matching" category="Accounting Reports" />
+                        <BooksVsAisReport />
                       </RequireSubscription>
                     </RequireCompany>
                   }

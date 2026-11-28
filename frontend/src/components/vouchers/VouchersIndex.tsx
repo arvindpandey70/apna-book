@@ -391,32 +391,32 @@ const VouchersIndex: React.FC = () => {
       isPendingSection: true,
       vouchers: [
         {
-          id: "26as-import",
+          id: "ats-168-import",
           icon: <ShieldCheck size={20} className="text-slate-600 dark:text-slate-300" />,
-          name: "26AS",
-          path: "/app/vouchers/import/26as",
+          name: "ATS 168",
+          path: "/app/vouchers/import/ats-168",
           color:
             theme === "dark"
               ? "bg-gray-800 border border-gray-700 hover:bg-gray-700 text-gray-200"
               : "bg-white border border-gray-200 hover:bg-gray-50 text-gray-800",
           iconBg: theme === "dark" ? "bg-gray-700 text-slate-300" : "bg-slate-100 text-slate-600",
-          description: "Import Form 26AS TDS statement data",
+          description: "Import ATS 168 TDS statement data",
           category: "import",
           isPendingItem: false,
         },
         {
           id: "ais-import",
-          icon: <FileText size={20} className="text-red-600 dark:text-red-400" />,
+          icon: <FileText size={20} className="text-slate-600 dark:text-slate-300" />,
           name: "AIS",
           path: "/app/vouchers/import/books-vs-ais",
           color:
             theme === "dark"
-              ? "bg-red-950/30 border border-red-800/60 hover:bg-red-900/40 text-red-300"
-              : "bg-red-50 border border-red-200 hover:bg-red-100 text-red-700",
-          iconBg: theme === "dark" ? "bg-red-900/60 text-red-300" : "bg-red-100 text-red-600",
+              ? "bg-gray-800 border border-gray-700 hover:bg-gray-700 text-gray-200"
+              : "bg-white border border-gray-200 hover:bg-gray-50 text-gray-800",
+          iconBg: theme === "dark" ? "bg-gray-700 text-slate-300" : "bg-slate-100 text-slate-600",
           description: "Import AIS statement data",
           category: "import",
-          isPendingItem: true,
+          isPendingItem: false,
         },
         {
           id: "gstr1-import",

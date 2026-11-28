@@ -219,10 +219,12 @@ app.use(movementAnalysisRouter);
 
 const ageingAnalysisRouter = require("./routes/ageingAnalysis");
 const deadStockRouter = require("./routes/deadStock");
-const booksVs26asRouter = require("./routes/booksVs26as");
+const booksVsAts168Router = require("./routes/booksVsAts168");
+const booksVsAisRouter = require("./routes/booksVsAis");
 app.use(ageingAnalysisRouter);
 app.use(deadStockRouter);
-app.use(booksVs26asRouter);
+app.use(booksVsAts168Router);
+app.use(booksVsAisRouter);
 
 const godownSummaryRouter = require("./routes/godownSummary");
 app.use(godownSummaryRouter);
@@ -347,6 +349,9 @@ app.use("/api/purchase-report", purchaseVouchersRouter);
 
 const creditorsStatementRouter = require("./routes/creditorsStatement");
 app.use("/api/creditors-statement", creditorsStatementRouter);
+
+const receiptPaymentAccountRouter = require("./routes/receiptPaymentAccount");
+app.use(receiptPaymentAccountRouter);
 
 // ✅ Start Server
 const PORT = process.env.PORT || 5000;

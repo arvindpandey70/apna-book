@@ -23,10 +23,10 @@ export interface ReportMeta {
 export const REPORT_META_MAP: Record<ReportType, ReportMeta> = {
   "26as": {
     id: "26as",
-    name: "Books vs 26AS (Form 26AS)",
-    reportPath: "/app/reports/books-vs-26as",
+    name: "Books vs ATS 168 (Annual Tax Statement)",
+    reportPath: "/app/reports/books-vs-ats-168",
     category: "Accounting Reports",
-    description: "Import Form 26AS TDS tax credit statement to reconcile with Books TDS",
+    description: "Import ATS 168 TDS tax credit statement to reconcile with Books TDS",
     fields: [
       "Deductor TAN",
       "Deductor Name",
@@ -326,10 +326,25 @@ export const REPORT_META_MAP: Record<ReportType, ReportMeta> = {
   },
 };
 
+export interface ReportImportMetadata {
+  pan?: string;
+  panStatus?: string;
+  taxYear?: string;
+  assesseeName?: string;
+  fileName?: string;
+  summaryTds?: number;
+  summaryTcs?: number;
+  totalAmountPaid?: number;
+  totalTdsDeducted?: number;
+  totalTdsDeposited?: number;
+  totalsMatch?: boolean;
+}
+
 export interface StoredReportData {
   type: ReportType;
   companyId: string;
   importedAt: string;
+  metadata?: ReportImportMetadata;
   rows: Record<string, any>[];
 }
 
@@ -338,38 +353,103 @@ const STORAGE_PREFIX = "apnabook_report_data_";
 export async function saveReportData(
   type: ReportType,
   rows: Record<string, any>[],
-  companyId?: string
-): Promise<{ success: boolean; count: number; message: string }> {
+  companyId?: string,
+  metadata?: ReportImportMetadata
+): Promise<{ success: boolean; count: number; savedToDb: boolean; message: string }> {
   const currentCompanyId = companyId || localStorage.getItem("company_id") || "default";
+  const ownerType = localStorage.getItem("supplier") || localStorage.getItem("userType") || "employee";
+  const ownerId =
+    localStorage.getItem(ownerType === "employee" ? "employee_id" : "user_id") || "";
+
   const payload: StoredReportData = {
     type,
     companyId: currentCompanyId,
     importedAt: new Date().toISOString(),
+    metadata,
     rows,
   };
 
+  let savedToDb = false;
+
   // Try API first, fallback to local storage
   try {
-    const res = await axiosInstance.post(`/reports/import/${type}`, {
+    const endpointType = type === "26as" ? "ats-168" : type;
+    const res = await axiosInstance.post(`/reports/import/${endpointType}`, {
       company_id: currentCompanyId,
+      owner_type: ownerType,
+      owner_id: ownerId,
+      metadata,
       rows,
     });
-    if (res.data && res.data.success) {
-      console.log(`Report data saved via API for ${type}`);
+    const resData = res.data as Record<string, any> | undefined;
+    if (resData && resData.success) {
+      savedToDb = true;
     }
   } catch (err) {
-    console.warn(`Backend endpoint /api/reports/import/${type} not reached. Falling back to frontend persistence.`);
+    console.warn(`Backend endpoint /api/reports/import/${type === "26as" ? "ats-168" : type} not reached. Falling back to frontend persistence.`);
   }
 
-  // Local storage persistence fallback
+  // Local storage persistence cache/fallback
   const storageKey = `${STORAGE_PREFIX}${currentCompanyId}_${type}`;
   localStorage.setItem(storageKey, JSON.stringify(payload));
 
   return {
     success: true,
     count: rows.length,
-    message: `Successfully saved ${rows.length} rows for ${REPORT_META_MAP[type].name}`,
+    savedToDb,
+    message: savedToDb
+      ? `Successfully saved ${rows.length} rows to database for ${REPORT_META_MAP[type].name}`
+      : `Saved ${rows.length} rows locally for ${REPORT_META_MAP[type].name}`,
   };
+}
+
+export async function fetch26AsFromServer(
+  companyId?: string,
+  fromDate?: string,
+  toDate?: string
+): Promise<StoredReportData | null> {
+  const currentCompanyId = companyId || localStorage.getItem("company_id") || "";
+  if (!currentCompanyId) return null;
+
+  try {
+    const params: Record<string, string> = { company_id: currentCompanyId };
+    if (fromDate) params.from_date = fromDate;
+    if (toDate) params.to_date = toDate;
+
+    const res = await axiosInstance.get("/books-vs-ats-168/entries", { params });
+    const resData = res.data as Record<string, any> | undefined;
+    if (!resData?.success || !Array.isArray(resData.data)) {
+      return null;
+    }
+
+    const latestImport = resData.latestImport;
+    if (!latestImport && resData.data.length === 0) {
+      return null;
+    }
+
+    return {
+      type: "26as",
+      companyId: currentCompanyId,
+      importedAt: latestImport?.imported_at || new Date().toISOString(),
+      metadata: latestImport
+        ? {
+            pan: latestImport.pan || undefined,
+            assesseeName: latestImport.assessee_name || undefined,
+            taxYear: latestImport.tax_year || undefined,
+            fileName: latestImport.source_file_name || undefined,
+            summaryTds: Number(latestImport.summary_tds || 0),
+            summaryTcs: Number(latestImport.summary_tcs || 0),
+            totalAmountPaid: Number(latestImport.total_amount_paid || 0),
+            totalTdsDeducted: Number(latestImport.total_tds_deducted || 0),
+            totalTdsDeposited: Number(latestImport.total_tds_deposited || 0),
+          }
+        : undefined,
+      rows: resData.data,
+    };
+  } catch (err) {
+    console.warn("Failed to load Form 26AS entries from server, falling back to local cache.", err);
+    return null;
+  }
 }
 
 export function getReportData(
