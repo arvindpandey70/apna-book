@@ -350,6 +350,9 @@ app.use("/api/purchase-report", purchaseVouchersRouter);
 const creditorsStatementRouter = require("./routes/creditorsStatement");
 app.use("/api/creditors-statement", creditorsStatementRouter);
 
+const receiptPaymentAccountRouter = require("./routes/receiptPaymentAccount");
+app.use(receiptPaymentAccountRouter);
+
 // ✅ Start Server
 const PORT = process.env.PORT || 5000;
 
