@@ -391,16 +391,16 @@ const VouchersIndex: React.FC = () => {
       isPendingSection: true,
       vouchers: [
         {
-          id: "26as-import",
+          id: "ats-168-import",
           icon: <ShieldCheck size={20} className="text-slate-600 dark:text-slate-300" />,
-          name: "26AS",
-          path: "/app/vouchers/import/26as",
+          name: "ATS 168",
+          path: "/app/vouchers/import/ats-168",
           color:
             theme === "dark"
               ? "bg-gray-800 border border-gray-700 hover:bg-gray-700 text-gray-200"
               : "bg-white border border-gray-200 hover:bg-gray-50 text-gray-800",
           iconBg: theme === "dark" ? "bg-gray-700 text-slate-300" : "bg-slate-100 text-slate-600",
-          description: "Import Form 26AS TDS statement data",
+          description: "Import ATS 168 TDS statement data",
           category: "import",
           isPendingItem: false,
         },

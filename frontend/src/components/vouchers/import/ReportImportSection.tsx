@@ -19,11 +19,17 @@ import * as XLSX from "xlsx-js-style";
 import Swal from "sweetalert2";
 import {
   type ReportType,
+  type ReportImportMetadata,
   REPORT_META_MAP,
   saveReportData,
   getReportData,
   downloadReportTemplate,
 } from "../../../services/reportImportService";
+import {
+  parseForm26AsPdf,
+  PdfPasswordRequiredError,
+} from "../../../utils/parse26AsPdf";
+import type { Parsed26AsResult } from "../../../utils/parse26AsLines";
 
 interface ReportImportSectionProps {
   initialReportType?: ReportType | string;
@@ -32,6 +38,10 @@ interface ReportImportSectionProps {
   neutralTheme?: boolean;
   /** When set, only this report type is shown (no multi-card picker) */
   focusedOnly?: boolean;
+  /** Enables direct PDF parsing & upload (used by Form 26AS import) */
+  allowPdf?: boolean;
+  /** Hides template download buttons & column hints (used when files come externally) */
+  hideTemplateDownload?: boolean;
 }
 
 const REPORT_ICONS: Record<string, React.ReactNode> = {
@@ -48,6 +58,8 @@ export const ReportImportSection: React.FC<ReportImportSectionProps> = ({
   theme = "light",
   neutralTheme = false,
   focusedOnly = false,
+  allowPdf = false,
+  hideTemplateDownload = false,
 }) => {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -78,10 +90,16 @@ export const ReportImportSection: React.FC<ReportImportSectionProps> = ({
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [importedRows, setImportedRows] = useState<Record<string, any>[]>([]);
+  const [parsed26As, setParsed26As] = useState<Parsed26AsResult | null>(null);
+  const [pdfPasswordNeeded, setPdfPasswordNeeded] = useState(false);
+  const [pdfPassword, setPdfPassword] = useState("");
+  const [pdfPasswordError, setPdfPasswordError] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [importStatusMap, setImportStatusMap] = useState<Record<string, boolean>>({});
+
+  const pdfEnabled = allowPdf || selectedReport === "26as";
 
   // Check existing import status on load
   useEffect(() => {
@@ -111,28 +129,107 @@ export const ReportImportSection: React.FC<ReportImportSectionProps> = ({
     setDragActive(false);
 
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      processFile(e.dataTransfer.files[0]);
+      handleFileSelect(e.dataTransfer.files[0]);
     }
   };
 
   const handleFileSelect = (file: File) => {
     if (!file) return;
-    const validTypes = [
+    const lowerName = file.name.toLowerCase();
+    const isPdf = file.type === "application/pdf" || lowerName.endsWith(".pdf");
+    const validSpreadsheetTypes = [
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       "application/vnd.ms-excel",
       "text/csv",
     ];
+    const isSpreadsheet =
+      validSpreadsheetTypes.includes(file.type) ||
+      lowerName.endsWith(".csv") ||
+      lowerName.endsWith(".xlsx") ||
+      lowerName.endsWith(".xls");
 
-    if (!validTypes.includes(file.type) && !file.name.endsWith(".csv") && !file.name.endsWith(".xlsx")) {
-      Swal.fire("Error", "Please select a valid Excel (.xlsx, .xls) or CSV file", "error");
+    if (isPdf && !pdfEnabled) {
+      Swal.fire("Error", "PDF import is only supported for ATS 168.", "error");
+      return;
+    }
+
+    if (!isSpreadsheet && !(pdfEnabled && isPdf)) {
+      Swal.fire(
+        "Error",
+        pdfEnabled
+          ? "Please select a valid PDF (.pdf), Excel (.xlsx, .xls), or CSV file"
+          : "Please select a valid Excel (.xlsx, .xls) or CSV file",
+        "error"
+      );
       return;
     }
 
     setSelectedFile(file);
+    setParsed26As(null);
+    setPdfPasswordNeeded(false);
+    setPdfPassword("");
+    setPdfPasswordError("");
     processFile(file);
   };
 
+  const processPdf26As = async (file: File, password?: string) => {
+    setIsProcessing(true);
+    setPdfPasswordError("");
+    try {
+      const parsed = await parseForm26AsPdf(file, password);
+      setPdfPasswordNeeded(false);
+      setParsed26As(parsed);
+
+      if (parsed.entries.length === 0) {
+        setImportedRows([]);
+        Swal.fire(
+          "No Transactions Found",
+          "PDF parsed, lekin Part I / Part II / Part VI me koi TDS/TCS transaction rows nahi mili.",
+          "warning"
+        );
+        return;
+      }
+
+      const mappedRows = parsed.entries.map((entry) => ({
+        "S.No.": entry.slNo || "-",
+        "Deductor TAN": entry.deductorTan,
+        "Deductor PAN": entry.deductorPan || "-",
+        "Deductor Name": entry.deductorName,
+        Section: entry.sectionCode,
+        "Section Description": entry.sectionDescription || "-",
+        "Transaction Date": entry.transactionDate || entry.transactionDateRaw,
+        "Booking Date": entry.bookingDate || "-",
+        "Booking Status": entry.bookingStatus,
+        "Total Amount Paid": entry.amountPaid,
+        "TDS Deducted": entry.tdsDeducted,
+        "TDS Deposited": entry.tdsDeposited,
+        Remarks: entry.remarks || "-",
+        Part: entry.partCode,
+      }));
+
+      setImportedRows(mappedRows);
+    } catch (err: any) {
+      if (err instanceof PdfPasswordRequiredError) {
+        setPdfPasswordNeeded(true);
+        setPdfPasswordError(err.message);
+        setImportedRows([]);
+        return;
+      }
+      console.error("ATS 168 PDF Parse Error:", err);
+      Swal.fire("PDF Parse Error", err?.message || "Failed to parse ATS 168 PDF", "error");
+      setImportedRows([]);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const processFile = async (file: File) => {
+    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    if (isPdf && pdfEnabled) {
+      await processPdf26As(file);
+      return;
+    }
+
     setIsProcessing(true);
     try {
       const data = await file.arrayBuffer();
@@ -167,13 +264,33 @@ export const ReportImportSection: React.FC<ReportImportSectionProps> = ({
 
     setIsSaving(true);
     try {
-      const result = await saveReportData(selectedReport, importedRows);
+      const metadata: ReportImportMetadata | undefined = parsed26As
+        ? {
+            pan: parsed26As.metadata.pan,
+            panStatus: parsed26As.metadata.panStatus,
+            taxYear: parsed26As.metadata.taxYear,
+            assesseeName: parsed26As.metadata.assesseeName,
+            fileName: selectedFile?.name,
+            summaryTds: parsed26As.metadata.summaryTds,
+            summaryTcs: parsed26As.metadata.summaryTcs,
+            totalAmountPaid: parsed26As.calculatedAmountPaid,
+            totalTdsDeducted: parsed26As.calculatedTdsDeducted,
+            totalTdsDeposited: parsed26As.calculatedTdsDeposited,
+            totalsMatch: parsed26As.totalsMatch,
+          }
+        : selectedFile
+        ? { fileName: selectedFile.name }
+        : undefined;
+
+      const result = await saveReportData(selectedReport, importedRows, undefined, metadata);
       if (result.success) {
         setImportStatusMap((prev) => ({ ...prev, [selectedReport]: true }));
         Swal.fire({
           icon: "success",
           title: "Import Successful!",
-          text: `${meta.name} data imported successfully (${importedRows.length} rows). You can now view the generated report.`,
+          text: `${meta.name} data saved (${importedRows.length} rows${
+            result.savedToDb ? " in Database" : " locally"
+          }). You can now view the Books vs ATS 168 report.`,
           showCancelButton: true,
           confirmButtonText: "View Generated Report",
           cancelButtonText: "Close",
@@ -194,6 +311,7 @@ export const ReportImportSection: React.FC<ReportImportSectionProps> = ({
 
   const currentReportData = getReportData(selectedReport);
   const isNeutral = neutralTheme || selectedReport === "26as";
+  const showTemplateControls = !hideTemplateDownload && selectedReport !== "26as";
 
   return (
     <div className="space-y-6">
@@ -237,15 +355,17 @@ export const ReportImportSection: React.FC<ReportImportSectionProps> = ({
             </p>
           </div>
 
-          <button
-            onClick={() => downloadReportTemplate(selectedReport)}
-            className={`px-3.5 py-2 text-white text-xs sm:text-sm font-medium rounded-lg transition-colors flex items-center gap-2 shadow-sm shrink-0 ${
-              isNeutral ? "bg-slate-700 hover:bg-slate-800" : "bg-red-600 hover:bg-red-700"
-            }`}
-          >
-            <Download size={16} />
-            Download Template ({meta.name})
-          </button>
+          {showTemplateControls && (
+            <button
+              onClick={() => downloadReportTemplate(selectedReport)}
+              className={`px-3.5 py-2 text-white text-xs sm:text-sm font-medium rounded-lg transition-colors flex items-center gap-2 shadow-sm shrink-0 ${
+                isNeutral ? "bg-slate-700 hover:bg-slate-800" : "bg-red-600 hover:bg-red-700"
+              }`}
+            >
+              <Download size={16} />
+              Download Template ({meta.name})
+            </button>
+          )}
         </div>
       </div>
 
@@ -330,12 +450,14 @@ export const ReportImportSection: React.FC<ReportImportSectionProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => downloadReportTemplate(selectedReport)}
-              className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-1.5"
-            >
-              <Download size={14} /> Download Excel Format
-            </button>
+            {showTemplateControls && (
+              <button
+                onClick={() => downloadReportTemplate(selectedReport)}
+                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-1.5"
+              >
+                <Download size={14} /> Download Excel Format
+              </button>
+            )}
             {currentReportData && (
               <button
                 onClick={() => navigate(meta.reportPath)}
@@ -348,21 +470,23 @@ export const ReportImportSection: React.FC<ReportImportSectionProps> = ({
         </div>
 
         {/* Expected Fields Info */}
-        <div className="mb-6 bg-gray-50 dark:bg-gray-900/50 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-          <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">
-            Required Excel / CSV Columns:
-          </h4>
-          <div className="flex flex-wrap gap-1.5">
-            {meta.fields.map((f, i) => (
-              <span
-                key={i}
-                className="px-2.5 py-1 rounded bg-white dark:bg-gray-800 text-xs font-medium text-gray-800 dark:text-gray-200 border border-gray-200 dark:border-gray-700"
-              >
-                {f}
-              </span>
-            ))}
+        {showTemplateControls && (
+          <div className="mb-6 bg-gray-50 dark:bg-gray-900/50 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+            <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">
+              Required Excel / CSV Columns:
+            </h4>
+            <div className="flex flex-wrap gap-1.5">
+              {meta.fields.map((f, i) => (
+                <span
+                  key={i}
+                  className="px-2.5 py-1 rounded bg-white dark:bg-gray-800 text-xs font-medium text-gray-800 dark:text-gray-200 border border-gray-200 dark:border-gray-700"
+                >
+                  {f}
+                </span>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Upload Zone */}
         <div
@@ -387,15 +511,19 @@ export const ReportImportSection: React.FC<ReportImportSectionProps> = ({
             }`}
           />
           <h4 className="text-base font-semibold text-gray-900 dark:text-gray-100">
-            Click to choose file or drag & drop Excel / CSV here
+            {pdfEnabled
+              ? "Click to choose ATS 168 PDF / Excel / CSV or drag & drop here"
+              : "Click to choose file or drag & drop Excel / CSV here"}
           </h4>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            Supports .xlsx, .xls, and .csv format for {meta.name}
+            {pdfEnabled
+              ? `Supports TRACES .pdf, .xlsx, .xls, and .csv format for ${meta.name}`
+              : `Supports .xlsx, .xls, and .csv format for ${meta.name}`}
           </p>
           <input
             ref={fileInputRef}
             type="file"
-            accept=".xlsx,.xls,.csv"
+            accept={pdfEnabled ? ".pdf,.xlsx,.xls,.csv" : ".xlsx,.xls,.csv"}
             onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
             className="hidden"
           />
@@ -405,7 +533,11 @@ export const ReportImportSection: React.FC<ReportImportSectionProps> = ({
         {selectedFile && (
           <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-900 border rounded-lg flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <FileSpreadsheet className="h-6 w-6 text-green-600" />
+              {selectedFile.name.toLowerCase().endsWith(".pdf") ? (
+                <FileText className="h-6 w-6 text-blue-600" />
+              ) : (
+                <FileSpreadsheet className="h-6 w-6 text-green-600" />
+              )}
               <div>
                 <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
                   {selectedFile.name}
@@ -420,6 +552,10 @@ export const ReportImportSection: React.FC<ReportImportSectionProps> = ({
                 e.stopPropagation();
                 setSelectedFile(null);
                 setImportedRows([]);
+                setParsed26As(null);
+                setPdfPasswordNeeded(false);
+                setPdfPassword("");
+                setPdfPasswordError("");
               }}
               className="text-xs text-red-600 hover:text-red-800 font-medium px-2 py-1"
             >
@@ -428,10 +564,116 @@ export const ReportImportSection: React.FC<ReportImportSectionProps> = ({
           </div>
         )}
 
+        {/* Password Prompt for Encrypted TRACES PDF */}
+        {pdfPasswordNeeded && selectedFile && (
+          <div className="mt-4 p-4 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 space-y-2">
+            <p className="text-xs font-semibold text-amber-800 dark:text-amber-200 flex items-center gap-1.5">
+              <AlertTriangle size={14} />
+              {pdfPasswordError || "This PDF is password protected."}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="password"
+                value={pdfPassword}
+                onChange={(e) => setPdfPassword(e.target.value)}
+                placeholder="Enter PDF password (e.g. DDMMYYYY)"
+                className="px-3 py-1.5 text-xs rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 w-64"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && selectedFile) {
+                    processPdf26As(selectedFile, pdfPassword);
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => selectedFile && processPdf26As(selectedFile, pdfPassword)}
+                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium rounded-lg"
+              >
+                Unlock &amp; Parse PDF
+              </button>
+            </div>
+          </div>
+        )}
+
         {isProcessing && (
           <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 rounded-lg flex items-center gap-3">
             <RefreshCw className="animate-spin" size={18} />
-            <span className="text-sm">Reading Excel content...</span>
+            <span className="text-sm">
+              {selectedFile?.name.toLowerCase().endsWith(".pdf")
+                ? "Extracting ATS 168 tables & TDS values from PDF..."
+                : "Reading Excel content..."}
+            </span>
+          </div>
+        )}
+
+        {/* Extracted 26AS PDF Summary Banner */}
+        {parsed26As && importedRows.length > 0 && (
+          <div className="mt-4 p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                {parsed26As.metadata.assesseeName && (
+                  <span className="font-bold text-slate-900 dark:text-white">
+                    {parsed26As.metadata.assesseeName}
+                  </span>
+                )}
+                {parsed26As.metadata.pan && (
+                  <span className="px-2 py-0.5 rounded bg-white dark:bg-gray-800 border border-slate-200 dark:border-slate-700 font-mono text-[11px]">
+                    PAN: {parsed26As.metadata.pan}
+                  </span>
+                )}
+                {parsed26As.metadata.taxYear && (
+                  <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 font-semibold text-[11px]">
+                    TY: {parsed26As.metadata.taxYear}
+                  </span>
+                )}
+              </div>
+
+              <span
+                className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold flex items-center gap-1 ${
+                  parsed26As.totalsMatch
+                    ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"
+                    : "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+                }`}
+              >
+                {parsed26As.totalsMatch ? (
+                  <>
+                    <CheckCircle size={12} /> Totals Verified with ATS 168 Summary
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle size={12} /> Check Summary Total (PDF Summary: ₹
+                    {parsed26As.metadata.summaryTds.toLocaleString("en-IN", { minimumFractionDigits: 2 })})
+                  </>
+                )}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div className="p-2.5 rounded-lg bg-white dark:bg-gray-800 border border-slate-200 dark:border-slate-700">
+                <div className="text-[10px] text-gray-500 uppercase">Deductors / Entries</div>
+                <div className="text-sm font-bold text-slate-900 dark:text-white">
+                  {parsed26As.deductorsCount} / {parsed26As.entries.length}
+                </div>
+              </div>
+              <div className="p-2.5 rounded-lg bg-white dark:bg-gray-800 border border-slate-200 dark:border-slate-700">
+                <div className="text-[10px] text-gray-500 uppercase">Amount Paid / Credited</div>
+                <div className="text-sm font-bold text-slate-900 dark:text-white">
+                  ₹{parsed26As.calculatedAmountPaid.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                </div>
+              </div>
+              <div className="p-2.5 rounded-lg bg-white dark:bg-gray-800 border border-slate-200 dark:border-slate-700">
+                <div className="text-[10px] text-gray-500 uppercase">Total Tax Deducted</div>
+                <div className="text-sm font-bold text-blue-600 dark:text-blue-400">
+                  ₹{parsed26As.calculatedTdsDeducted.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                </div>
+              </div>
+              <div className="p-2.5 rounded-lg bg-white dark:bg-gray-800 border border-slate-200 dark:border-slate-700">
+                <div className="text-[10px] text-gray-500 uppercase">Total TDS Deposited</div>
+                <div className="text-sm font-bold text-green-600 dark:text-green-400">
+                  ₹{parsed26As.calculatedTdsDeposited.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                </div>
+              </div>
+            </div>
           </div>
         )}
 

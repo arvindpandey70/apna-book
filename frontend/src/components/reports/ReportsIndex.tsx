@@ -54,7 +54,7 @@ const ReportsIndex: React.FC = () => {
         { icon: <FileText size={20} />, name: 'Schedule of Fixed Assets', path: '/app/reports/fixed-assets-schedule' },
         { icon: <FileText size={20} />, name: 'Ledger Correction', path: '/app/reports/ledger-caraction' },
         { icon: <FileText size={20} />, name: 'Account Summary', path: '/app/reports/account-summary' },
-        { icon: <ShieldCheck size={20} />, name: 'Books vs 26AS', path: '/app/reports/books-vs-26as', isPending: false },
+        { icon: <ShieldCheck size={20} />, name: 'Books vs ATS 168', path: '/app/reports/books-vs-ats-168', isPending: false },
         { icon: <FileText size={20} />, name: 'Books vs AIS', path: '/app/reports/books-vs-ais', isPending: true },
         { icon: <FileText size={20} />, name: 'Income and Expenditure', path: '/app/reports/income-expenditure', isPending: true },
         { icon: <FileText size={20} />, name: 'Capital Account', path: '/app/reports/capital-account' },

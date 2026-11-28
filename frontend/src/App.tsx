@@ -1080,6 +1080,14 @@ function App() {
                 />
                 {/* Dedicated Report Data Import Routes */}
                 <Route
+                  path="vouchers/import/ats-168"
+                  element={
+                    <RequireCompany>
+                      <Form26AsImportPage />
+                    </RequireCompany>
+                  }
+                />
+                <Route
                   path="vouchers/import/26as"
                   element={
                     <RequireCompany>
@@ -1876,6 +1884,26 @@ function App() {
                   element={
                     <RequireCompany>
                       <AccountSummary />
+                    </RequireCompany>
+                  }
+                />
+                <Route
+                  path="reports/ats-168"
+                  element={
+                    <RequireCompany>
+                      <RequireSubscription>
+                        <Form26ASReport />
+                      </RequireSubscription>
+                    </RequireCompany>
+                  }
+                />
+                <Route
+                  path="reports/books-vs-ats-168"
+                  element={
+                    <RequireCompany>
+                      <RequireSubscription>
+                        <Form26ASReport />
+                      </RequireSubscription>
                     </RequireCompany>
                   }
                 />

@@ -219,10 +219,10 @@ app.use(movementAnalysisRouter);
 
 const ageingAnalysisRouter = require("./routes/ageingAnalysis");
 const deadStockRouter = require("./routes/deadStock");
-const booksVs26asRouter = require("./routes/booksVs26as");
+const booksVsAts168Router = require("./routes/booksVsAts168");
 app.use(ageingAnalysisRouter);
 app.use(deadStockRouter);
-app.use(booksVs26asRouter);
+app.use(booksVsAts168Router);
 
 const godownSummaryRouter = require("./routes/godownSummary");
 app.use(godownSummaryRouter);

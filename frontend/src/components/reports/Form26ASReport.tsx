@@ -11,7 +11,11 @@ import {
   CheckCircle2,
   Calendar,
 } from "lucide-react";
-import { getReportData, type StoredReportData } from "../../services/reportImportService";
+import {
+  getReportData,
+  fetch26AsFromServer,
+  type StoredReportData,
+} from "../../services/reportImportService";
 
 interface BooksTdsRow {
   id: number | string;
@@ -32,6 +36,7 @@ interface As26Row {
   amountPaid: number;
   tdsDeducted: number;
   tdsDeposited: number;
+  bookingStatus: string;
   status: string;
   raw: Record<string, any>;
 }
@@ -141,9 +146,14 @@ const Form26ASReport: React.FC = () => {
     setToDate(fmtYmd(to));
   };
 
-  const loadImported = useCallback(() => {
+  const loadImported = useCallback(async () => {
+    const serverData = await fetch26AsFromServer(companyId);
+    if (serverData && serverData.rows.length > 0) {
+      setReportData(serverData);
+      return;
+    }
     setReportData(getReportData("26as"));
-  }, []);
+  }, [companyId]);
 
   const fetchBooksTds = useCallback(async () => {
     if (!companyId) {
@@ -163,7 +173,7 @@ const Form26ASReport: React.FC = () => {
       if (toDate) params.append("to_date", toDate);
 
       const res = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/books-vs-26as/books-tds?${params}`
+        `${import.meta.env.VITE_API_URL}/api/books-vs-ats-168/books-tds?${params}`
       );
       if (!res.ok) throw new Error(`Failed to load Books TDS (${res.status})`);
       const json = await res.json();
@@ -227,9 +237,10 @@ const Form26ASReport: React.FC = () => {
       deductorName: String(r["Deductor Name"] || r.deductorName || ""),
       section: String(r.Section || r.section || ""),
       transactionDate: String(r["Transaction Date"] || r.transactionDate || ""),
-      amountPaid: num(r["Total Amount Paid"] || r.totalAmountPaid),
+      amountPaid: num(r["Total Amount Paid"] || r.totalAmountPaid || r.amountPaid),
       tdsDeducted: num(r["TDS Deducted"] || r.tdsDeducted),
       tdsDeposited: num(r["TDS Deposited"] || r.tdsDeposited),
+      bookingStatus: String(r["Booking Status"] || r.bookingStatus || ""),
       status: String(r.Status || r.status || ""),
       raw: r,
     }));
@@ -295,7 +306,15 @@ const Form26ASReport: React.FC = () => {
   };
 
   const matchStatusForAs26 = (row: As26Row): string => {
-    if (row.status) return row.status;
+    const explicit = row.status.trim().toLowerCase();
+    if (
+      explicit === "matched" ||
+      explicit === "amount diff" ||
+      explicit === "26as only" ||
+      explicit === "ats 168 only"
+    ) {
+      return row.status;
+    }
     const tan = normalizeTan(row.deductorTan);
     const name = normalizeName(row.deductorName);
     const hit = booksRows.find(
@@ -303,7 +322,7 @@ const Form26ASReport: React.FC = () => {
         (tan && normalizeTan(b.deductorTan) === tan) ||
         (name && normalizeName(b.deductorName) === name)
     );
-    if (!hit) return "26AS Only";
+    if (!hit) return "ATS 168 Only";
     const diff = Math.abs((row.tdsDeposited || row.tdsDeducted) - hit.tdsDeducted);
     return diff < 1 ? "Matched" : "Amount Diff";
   };
@@ -340,20 +359,20 @@ const Form26ASReport: React.FC = () => {
           <div className="min-w-0">
             <h1 className="text-xl font-bold flex items-center gap-2">
               <ShieldCheck className="text-red-600 shrink-0" size={22} />
-              Books vs 26AS
+              Books vs ATS 168
             </h1>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Reconcile Books TDS with Form 26AS tax credit statement
+              Reconcile Books TDS with ATS 168 (Annual Tax Statement) tax credit
             </p>
           </div>
         </div>
 
         <button
-          onClick={() => navigate("/app/vouchers/import/26as")}
+          onClick={() => navigate("/app/vouchers/import/ats-168")}
           className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg flex items-center gap-1.5 shrink-0"
         >
           <Upload size={15} />
-          Import 26AS
+          Import ATS 168
         </button>
       </div>
 
@@ -451,7 +470,7 @@ const Form26ASReport: React.FC = () => {
 
         {(fromDate || toDate) && (
           <p className="text-[10px] text-gray-400">
-            Filter range: {fromDate || "—"} to {toDate || "—"} (applies to Books + 26AS)
+            Filter range: {fromDate || "—"} to {toDate || "—"} (applies to Books + ATS 168)
           </p>
         )}
       </div>
@@ -472,7 +491,11 @@ const Form26ASReport: React.FC = () => {
           isDark ? "bg-purple-950/30 border-purple-900/50" : "bg-purple-50 border-purple-200"
         }`}>
           <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-purple-600">26AS (50%)</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-purple-600">
+              ATS 168 (50%)
+              {reportData?.metadata?.pan ? ` • ${reportData.metadata.pan}` : ""}
+              {reportData?.metadata?.taxYear ? ` • TY ${reportData.metadata.taxYear}` : ""}
+            </span>
             <span className="text-[10px] text-gray-500 flex items-center gap-1">
               {reportData?.rows?.length ? (
                 <><CheckCircle2 size={11} className="text-green-500" /> Imported</>
@@ -481,7 +504,7 @@ const Form26ASReport: React.FC = () => {
               )}
             </span>
           </div>
-          <p className="text-[11px] text-gray-500">TDS Deposited in 26AS</p>
+          <p className="text-[11px] text-gray-500">TDS Deposited in ATS 168</p>
           <p className="text-xl font-bold text-purple-600 leading-tight">{fmtMoney(as26TotalDeposited)}</p>
         </div>
       </div>
@@ -489,7 +512,7 @@ const Form26ASReport: React.FC = () => {
       <div className={`mb-4 px-3 py-2 rounded-lg border flex flex-wrap items-center justify-between gap-2 ${cardBg} border-l-[3px] ${
         Math.abs(variance) < 1 ? "border-l-green-500" : "border-l-amber-500"
       }`}>
-        <span className="text-xs text-gray-500">Variance (Books − 26AS)</span>
+        <span className="text-xs text-gray-500">Variance (Books − ATS 168)</span>
         <span className={`text-sm font-bold ${Math.abs(variance) < 1 ? "text-green-600" : "text-amber-600"}`}>
           {fmtMoney(variance)}
           <span className="ml-2 text-[11px] font-medium text-gray-400">
@@ -575,11 +598,11 @@ const Form26ASReport: React.FC = () => {
           </div>
         </div>
 
-        {/* 26AS — Right 50% */}
+        {/* ATS 168 — Right 50% */}
         <div className={`border rounded-xl overflow-hidden min-w-0 flex flex-col ${cardBg}`}>
           <div className="px-3 py-2.5 bg-purple-50 dark:bg-purple-950/40 border-b border-purple-200 dark:border-purple-900 flex items-center justify-between shrink-0">
             <span className="text-sm font-semibold text-purple-900 dark:text-purple-200 flex items-center gap-1.5">
-              <ShieldCheck size={15} /> Form 26AS (50%)
+              <ShieldCheck size={15} /> ATS 168 (50%)
             </span>
             <span className="text-[10px] font-medium text-purple-700 dark:text-purple-300">
               {filteredAs26.length} rows
@@ -600,13 +623,13 @@ const Form26ASReport: React.FC = () => {
                 {filteredAs26.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="px-3 py-8 text-center text-gray-500 whitespace-normal">
-                      <p className="mb-2">No Form 26AS data found for this period.</p>
+                      <p className="mb-2">No ATS 168 data found for this period.</p>
                       <button
-                        onClick={() => navigate("/app/vouchers/import/26as")}
+                        onClick={() => navigate("/app/vouchers/import/ats-168")}
                         className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs rounded-lg inline-flex items-center gap-1"
                       >
                         <Upload size={12} />
-                        Import 26AS File
+                        Import ATS 168 File
                       </button>
                     </td>
                   </tr>
